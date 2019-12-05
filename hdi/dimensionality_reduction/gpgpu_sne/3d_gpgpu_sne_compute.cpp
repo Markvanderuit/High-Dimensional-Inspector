@@ -1,7 +1,7 @@
 #ifndef __APPLE__
 
 #include "3d_gpgpu_sne_compute.h"
-#include "3d_compute_shaders.glsl"
+#include "3d_compute_shaders.h"
 #include <limits>
 
 namespace {
@@ -49,6 +49,7 @@ namespace hdi::dr {
   // hidden function
   Bounds3D computeEmbeddingBounds(const embedding_t* embedding, float padding) {
     const auto& points = embedding->getContainer();
+
     Bounds3D bounds;
 
     // Instantiate bounds at infinity
