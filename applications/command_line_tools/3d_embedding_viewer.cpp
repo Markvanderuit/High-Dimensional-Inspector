@@ -38,10 +38,12 @@
 #include <QCommandLineOption>
 #include <QIcon>
 #include <iostream>
+#include <memory>
 #include <fstream>
-#include <stdio.h>
+#include <cstdio>
 #include "hdi/visualization/pointcloud_canvas_qobj.h"
 #include "hdi/visualization/pointcloud_drawer_fixed_color.h"
+#include "hdi/visualization/pointcloud_drawer_labels.h"
 
 int main(int argc, char *argv[])
 {
@@ -82,7 +84,7 @@ int main(int argc, char *argv[])
 
     const unsigned int num_data_points = input_file.tellg() / sizeof(float)/3;
     std::vector<float> data(num_data_points*3);
-    std::vector<uint32_t> flags(num_data_points);
+    std::vector<uint32_t> labels(num_data_points);
 
     input_file.seekg (0, std::ios::beg);
     input_file.read (reinterpret_cast<char*>(data.data()), sizeof(float) * data.size() * 3);
@@ -92,7 +94,7 @@ int main(int argc, char *argv[])
     if (parser.isSet(labels_option)) {
       std::ifstream label_file(parser.value(labels_option).toStdString(), std::ios::in|std::ios::binary|std::ios::ate);
       label_file.seekg (0, std::ios::beg);
-      label_file.read (reinterpret_cast<char*>(flags.data()), sizeof(uint32_t) * flags.size());
+      label_file.read (reinterpret_cast<char*>(labels.data()), sizeof(uint32_t) * labels.size());
       label_file.close();
     }
 
@@ -131,12 +133,37 @@ int main(int argc, char *argv[])
     viewer.setBottomLeftCoordinates(QVector2D(bl - offset));
     viewer.setEmbeddingBounds(bl - offset, tr + offset);
 
-    hdi::viz::PointcloudDrawerFixedColor drawer;
-    drawer.initialize(viewer.context());
-    drawer.setData(data.data(), flags.data(), num_data_points);
-    drawer.setAlpha(0.85);
-    drawer.setPointSize(8);
-    viewer.addDrawer(&drawer);
+    std::unique_ptr<hdi::viz::AbstractPointcloudDrawer> drawer_ptr;
+    if (parser.isSet(labels_option)) {
+      // Color palette
+      std::map<unsigned int, QColor> palette;
+      palette[0] = qRgb(16,78,139);
+      palette[1] = qRgb(139,90,43);
+      palette[2] = qRgb(138,43,226);
+      palette[3] = qRgb(0,128,0);
+      palette[4] = qRgb(255,150,0);
+      palette[5] = qRgb(204,40,40);
+      palette[6] = qRgb(131,139,131);
+      palette[7] = qRgb(0,205,0);
+      palette[8] = qRgb(20,20,20);
+      palette[9] = qRgb(0, 150, 255);
+
+      auto ptr = std::make_unique<hdi::viz::PointcloudDrawerLabels>();
+      ptr->initialize(viewer.context());
+      ptr->setData(data.data(), labels.data(), palette, num_data_points);
+      // ptr->setData(data.data(), flags.data(), num_data_points);
+      ptr->setAlpha(0.85);
+      ptr->setPointSize(8);
+      drawer_ptr = std::move(ptr);
+    } else {
+      auto ptr = std::make_unique<hdi::viz::PointcloudDrawerFixedColor>();
+      ptr->initialize(viewer.context());
+      ptr->setData(data.data(), num_data_points);
+      ptr->setAlpha(0.85);
+      ptr->setPointSize(8);
+      drawer_ptr = std::move(ptr);
+    }
+    viewer.addDrawer(drawer_ptr.get());
 
     return app.exec();
   }

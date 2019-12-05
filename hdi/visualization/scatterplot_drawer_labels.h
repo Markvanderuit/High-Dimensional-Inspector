@@ -105,8 +105,6 @@ namespace hdi{
       scalar_type _alpha;
       scalar_type _z_coord;
       scalar_type _z_coord_selection;
-
-
     };
 
   }

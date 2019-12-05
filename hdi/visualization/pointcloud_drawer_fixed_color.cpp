@@ -46,75 +46,30 @@ namespace hdi{
       _vshader(nullptr),
       _fshader(nullptr),
       _color(qRgb(0,150,255)),
-      _selection_color(qRgb(255,150,0)),
       _initialized(false),
       _point_size(2.5),
-      _alpha(0.5),
-      _z_coord(0)
+      _alpha(0.5)
     { }
 
     void PointcloudDrawerFixedColor::initialize(QGLContext* context){
       const char *vsrc = GLSL(130,
-          in highp vec4 pos_attr;        
-          in unsigned int flag_attr;    
+          in highp vec4 pos_attr;  
 
           uniform highp mat4 matrix;          
-
-          uniform highp float alpha;  
-          uniform highp float z_coord;  
-          uniform highp vec4 color;  
-          uniform highp vec4 selection_color;
+          uniform highp float alpha;
+          uniform highp vec4 color;
 
           out lowp vec4 col;    
 
-          void main() {             
-            switch (flag_attr)
-            {
-            case 0u:
-              col = vec4(1, 1, 1, 1);
-              break;
-            case 1u:
-              col = vec4(1, 0, 1, 1);
-              break;
-            case 2u:
-              col = vec4(0, 1, 1, 1);
-              break;
-            case 3u:
-              col = vec4(0, 0.5, 0.5, 1);
-              break;
-            case 4u:
-              col = vec4(0.5, 0, 0.5, 1);
-              break;
-            case 5u:
-              col = vec4(0, 0, 1, 1);
-              break;
-            case 6u:
-              col = vec4(0, 1, 0, 1);
-              break;
-            case 7u:
-              col = vec4(1, 0, 0, 1);
-              break;
-            case 8u:
-              col = vec4(0.5, 0, 0, 1);
-              break;
-            case 9u:
-              col = vec4(0, 0.5, 0, 1);
-              break;
-            default:
-              col = vec4(0, 0, 0.5, 1);
-              break;
-            }
-
+          void main() {
             gl_Position = matrix * pos_attr;    
-
-            col.a = alpha;
+            col = vec4(color.xyz, alpha);
           }                      
         );
 
       const char *fsrc = GLSL(130,
           in lowp vec4 col;            
           void main() {      
-            // gl_FragColor = col;
             gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
           }                      
         );
@@ -134,9 +89,7 @@ namespace hdi{
       _flags_attribute  = _program->attributeLocation("flag_attr");
       _matrix_uniform    = _program->uniformLocation("matrix");
       _color_uniform    = _program->uniformLocation("color");
-      _selection_color_uniform  = _program->uniformLocation("selection_color");
       _alpha_uniform    = _program->uniformLocation("alpha");
-      _z_coord_uniform  = _program->uniformLocation("z_coord");
   
       _program->release();
       _initialized = true;
@@ -163,26 +116,21 @@ namespace hdi{
 
         _program->setUniformValue(_matrix_uniform, matrix);
         _program->setUniformValue(_color_uniform, _color);
-        _program->setUniformValue(_selection_color_uniform, _selection_color);
         _program->setUniformValue(_alpha_uniform, _alpha);
-        _program->setUniformValue(_z_coord_uniform, _z_coord);
 
         QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
         QOpenGLExtraFunctions glExtraFuncs(QOpenGLContext::currentContext());
         glFuncs.glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+
         _program->enableAttributeArray(_coords_attribute);
         glFuncs.glVertexAttribPointer(_coords_attribute, 3, GL_FLOAT, GL_FALSE, 0, _embedding);
-
-        _program->enableAttributeArray(_flags_attribute);
-        glExtraFuncs.glVertexAttribIPointer(_flags_attribute, 1, GL_UNSIGNED_INT, 0, _flags);
 
         glDrawArrays(GL_POINTS, 0, _num_points);
       _program->release();
     }
 
-    void PointcloudDrawerFixedColor::setData(const scalar_type* embedding,  const flag_type* flags, int num_points){
+    void PointcloudDrawerFixedColor::setData(const scalar_type* embedding, int num_points){
       _embedding = embedding;
-      _flags = flags;
       _num_points = num_points;
     }
   }

@@ -30,8 +30,8 @@
  *
  */
 
-#ifndef SCATTERPLOT_DRAWER_FIXED_COLOR_H
-#define SCATTERPLOT_DRAWER_FIXED_COLOR_H
+#ifndef POINTCLOUD_DRAWER_FIXED_COLOR_H
+#define POINTCLOUD_DRAWER_FIXED_COLOR_H
 
 #include <QGLShaderProgram>
 #include <QGLShader>
@@ -42,26 +42,29 @@
 namespace hdi{
   namespace viz{
 
-    class PointcloudDrawerFixedColor: public AbstractPointcloudDrawer {
+    //! Drawer for the single-color visualization of a pointcloud
+    /*!
+      Drawer for the single-color visualization of a pointcloud
+      \note Provides a QGLWidget with trackball interaction on a pointcloud
+      \author Mark van de Ruit
+    */
+    class PointcloudDrawerFixedColor : public AbstractPointcloudDrawer {
     public:
       PointcloudDrawerFixedColor();
       //! Draw on canvas
       virtual void draw(const point_type& minb, const point_type& maxb, const QQuaternion& rotation);
       
       //! Set the data to be drawn
-      void setData(const scalar_type* embedding,  const flag_type* flags, int num_points);
+      void setData(const scalar_type* embedding, int num_points);
 
       virtual void initialize(QGLContext* context);
 
       void setPointSize(scalar_type point_size){_point_size = point_size;}
       void setAlpha(scalar_type alpha){_alpha = alpha;}
-      void setZCoord(scalar_type z_coord){_z_coord = z_coord;}
       void setColor(color_type color){_color = color;}
-      void setSelectionColor(color_type selection_color){_selection_color = selection_color;}
       
       scalar_type pointSize()const{ return _point_size;}
       scalar_type alpha()const{return _alpha;}
-      scalar_type zCoord()const{return _z_coord;}
 
     private:
       std::unique_ptr<QGLShaderProgram> _program;
@@ -72,22 +75,16 @@ namespace hdi{
       GLuint _flags_attribute;
       GLuint _matrix_uniform;
       GLuint _color_uniform;
-      GLuint _selection_color_uniform;
       GLuint _alpha_uniform;
-      GLuint _z_coord_uniform;
 
       const scalar_type* _embedding;
-      const flag_type* _flags;
       int _num_points;
       bool _initialized;
 
       color_type _color;
-      color_type _selection_color;
       scalar_type _point_size;
       scalar_type _alpha;
-      scalar_type _z_coord;
     };
-
   }
 }
 
