@@ -99,6 +99,8 @@ public:
   void uniform3f(const char* name, float v0, float v1, float v2);
   void uniform3f(const char* name, const float* v);
   void uniform3fv(const char* name, int count, const float* values);
+  void uniform3i(const char* name, int v0, int v1, int v2);
+  void uniform3ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2);
   void uniform4f(const char* name, float v0, float v1, float v2, float v3);
   void uniformMatrix4f(const char* name, const float* m);
 

@@ -343,6 +343,16 @@ void ShaderProgram::uniform3fv(const char* name, int count, const float* values)
   glUniform3fv(getUniformLocation(name), count, (GLfloat*)values);
 }
 
+void ShaderProgram::uniform3i(const char* name, int v0, int v1, int v2) 
+{
+  glUniform3i(getUniformLocation(name), v0, v2, v2);
+}
+
+void ShaderProgram::uniform3ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2) 
+{
+  glUniform3i(getUniformLocation(name), v0, v2, v2);
+}
+
 void ShaderProgram::uniform4f(const char* name, float v0, float v1, float v2, float v3)
 {
   glUniform4f(getUniformLocation(name), v0, v1, v2, v3);
