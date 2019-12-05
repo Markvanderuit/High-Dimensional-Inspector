@@ -39,6 +39,7 @@
 #include "hdi/data/io.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
+// #include "hdi/dimensionality_reduction/tsne.h"
 #include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
 #include "hdi/utils/visual_utils.h"
 #include "hdi/utils/scoped_timers.h"
@@ -139,33 +140,60 @@ int main(int argc, char *argv[])
         parser.addHelpOption();
         parser.addVersionOption();
         parser.addPositionalArgument("data", QApplication::translate("main", "Name of input file."));
+        parser.addPositionalArgument("output", QCoreApplication::translate("main", "Name of output file."));
+        parser.addPositionalArgument("num_data_points", QCoreApplication::translate("main", "Num of data-points."));
+        parser.addPositionalArgument("num_dimensions", QCoreApplication::translate("main", "Num of dimensions."));
+
+        // Iterations
+        QCommandLineOption iterations_option(QStringList() << "i" << "iterations",
+            QCoreApplication::translate("main", "Run the gradient for <iterations>."),
+            QCoreApplication::translate("main", "iterations"));
+        parser.addOption(iterations_option);
+
+        // Target dimensions
+        QCommandLineOption target_dimensions_option(QStringList() << "d" << "target_dimensions",
+            QCoreApplication::translate("main", "Reduce the dimensionality to <target_dimensions>."),
+            QCoreApplication::translate("main", "target_dimensions"));
+        parser.addOption(target_dimensions_option);
+
+        // Perplexity
+        QCommandLineOption perplexity_option(QStringList() << "p" << "perplexity",
+            QCoreApplication::translate("main", "Use perplexity value of <perplexity>."),
+            QCoreApplication::translate("main", "perplexity"));
+        parser.addOption(perplexity_option);
 
         // Process the actual command line arguments given by the user
         parser.process(app);
 
         const QStringList args = parser.positionalArguments();
-
-        if (args.size() != 3) {
+        if (args.size() != 4) {
           std::cout << "Not enough arguments!" << std::endl;
           return -1;
         }
-
-        unsigned num_data_points;
-        unsigned num_dimensions;
-        unsigned embedding_dimensions = 2;
-
-        std::ifstream inputFile(args[0].toStdString(), std::ios::in | std::ios::binary | std::ios::ate);
-
-        std::string inputDataName = args[0].toStdString();
-        /*std::string probDistName = inputDataName + "_P";*/
-        num_data_points = args[1].toInt();
-        num_dimensions = args[2].toInt();
 
         int iterations = 1000;
         int exaggeration_iter = 250;
         int perplexity = 30;
         double theta = 0.5;
-        int num_target_dimensions = 2;
+        unsigned embedding_dimensions = 2;
+
+        // Parse arguments
+        std::string inputFileName = args.at(0).toStdString();
+        // std::string probDistFileName = inputFileName + "_P";
+        std::string outputFileName = args.at(1).toStdString();
+        
+        unsigned num_data_points = std::atoi(args.at(2).toStdString().c_str());
+        unsigned num_dimensions = std::atoi(args.at(3).toStdString().c_str());
+
+        if(parser.isSet(iterations_option)){
+          iterations  = std::atoi(parser.value(iterations_option).toStdString().c_str());
+        }
+        if(parser.isSet(target_dimensions_option)){
+          embedding_dimensions = std::atoi(parser.value(target_dimensions_option).toStdString().c_str());
+        }
+        if(parser.isSet(perplexity_option)){
+          perplexity = std::atoi(parser.value(perplexity_option).toStdString().c_str());
+        }
 
         float data_loading_time = 0;
         float similarities_comp_time = 0;
@@ -179,92 +207,67 @@ int main(int argc, char *argv[])
         hdi::dr::HDJointProbabilityGenerator<scalar_type>::sparse_scalar_matrix_type distributions;
         hdi::dr::HDJointProbabilityGenerator<scalar_type>::Parameters prob_gen_param;
         hdi::dr::GradientDescentTSNETexture tSNE;
-        hdi::dr::SparseTSNEUserDefProbabilities<scalar_type> bhTSNE;
         hdi::dr::TsneParameters tsne_params;
-
         hdi::data::Embedding<scalar_type> embedding;
-
         hdi::data::PanelData<scalar_type> panel_data;
         std::vector<uint32_t> labels;
 
         Technique technique = GPGPUSNE;
 
-        std::string outputFileName = "gpgpu_emb_" + inputDataName;
-        std::string probDistFileName = inputDataName + "_P";
-
         // Set a fixed seed
         tsne_params._seed = 1;
+        tsne_params._perplexity = static_cast<double>(perplexity);
 
-        // Set Barnes-Hut parameters
-        if (technique == BH05)
-          bhTSNE.setTheta(0.5);
-        else if (technique == BH01)
-          bhTSNE.setTheta(0.1);
-        else if (technique == TSNE)
-          bhTSNE.setTheta(0);
+        // std::ifstream inputFile(args[0].toStdString(), std::ios::in | std::ios::binary | std::ios::ate);
 
         // Compute probability distribution or load from file if it is cached
-        std::ifstream input_file(probDistFileName, std::ios::binary);
-        if (input_file.is_open())
-        {
-          hdi::utils::secureLog(&log, "Loading probability distribution from file...");
-          hdi::data::IO::loadSparseMatrix(distributions, input_file);
-        }
-        else
-        {
+        // std::ifstream input_file(probDistFileName, std::ios::binary);
+        // if (input_file.is_open())
+        // {
+        //   hdi::utils::secureLog(&log, "Loading probability distribution from file...");
+        //   hdi::data::IO::loadSparseMatrix(distributions, input_file);
+        // }
+        // else
+        // {
           // Load the input data
           hdi::utils::secureLog(&log, "Loading original data...");
-          loadData(panel_data, inputDataName, num_data_points, num_dimensions);
+          loadData(panel_data, inputFileName, num_data_points, num_dimensions);
 
           hdi::utils::secureLog(&log, "Computing probability distribution...");
           hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+          prob_gen.setLogger(&log);
           prob_gen_param._perplexity = perplexity;
           prob_gen.computeProbabilityDistributions(panel_data.getData().data(), panel_data.numDimensions(), panel_data.numDataPoints(), distributions, prob_gen_param);
 
-          std::ofstream output_file(probDistFileName, std::ios::binary);
-          hdi::data::IO::saveSparseMatrix(distributions, output_file);
-        }
+          // std::ofstream output_file(probDistFileName, std::ios::binary);
+          // hdi::data::IO::saveSparseMatrix(distributions, output_file);
+        // }
 
         // Create offscreen buffer for OpenGL context
         OffscreenBuffer offscreen;
         offscreen.bindContext();
 
-        tsne_params._embedding_dimensionality = num_target_dimensions;
+        tsne_params._embedding_dimensionality = embedding_dimensions;
         tsne_params._mom_switching_iter = exaggeration_iter;
         tsne_params._remove_exaggeration_iter = exaggeration_iter;
 
         hdi::utils::secureLog(&log, "Initializing t-SNE...");
-        if (technique == BH05 || technique == BH01 || technique == TSNE)
-        {
-          bhTSNE.initialize(distributions, &embedding, tsne_params);
-        }
-        else if (technique == GPGPUSNE)
-        {
-          tSNE.initialize(distributions, &embedding, tsne_params);
-        }
+        tSNE.setLogger(&log);
+        tSNE.initialize(distributions, &embedding, tsne_params);
 
         // Compute embedding
         {
-          hdi::utils::secureLog(&log, "Computing gradient descent...");
-
-          if (technique == BH05 || technique == BH01 || technique == TSNE)
-          {
-            hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
-            for (int iter = 0; iter < iterations; ++iter) {
-              bhTSNE.doAnIteration();
-            }
-          }
-          else if (technique == GPGPUSNE)
-          {
-            hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
-            for (int iter = 0; iter < iterations; ++iter) {
-              tSNE.doAnIteration();
-            }
+          hdi::utils::secureLog(&log, "Computing gradient descent...");  
+          hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
+          for (int iter = 0; iter < iterations; ++iter) {
+            tSNE.doAnIteration();
           }
         }
+        embedding.removePadding();
 
-        //double KL = tSNE.computeKullbackLeiblerDivergence();
-        //std::cout << "KL-Divergence: " << KL << std::endl;
+        double KL = tSNE.computeKullbackLeiblerDivergence();
+        std::cout << "KL-Divergence: " << KL << std::endl;
+
         //Output
         hdi::utils::secureLog(&log, "Writing embedding to file...");
         {
