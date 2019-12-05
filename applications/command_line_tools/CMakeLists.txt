@@ -1,3 +1,6 @@
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 MACRO(ADD_PROJECT Name Sources MocSources)
   add_executable (${Name} ${Sources} ${MocSources})
 
@@ -47,7 +50,7 @@ ENDMACRO()
 ########################################################################################################
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 include_directories ("${CMAKE_SOURCE_DIR}")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/../../hdi/visualization")
