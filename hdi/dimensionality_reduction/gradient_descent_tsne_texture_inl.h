@@ -47,6 +47,8 @@
 #define __block
 #endif
 
+#define FORCE_RASTERIZER_FALLBACK 0
+
 #pragma warning( push )
 #pragma warning( disable : 4267)
 #pragma warning( push )
@@ -95,9 +97,7 @@ namespace hdi {
       }
     }
 
-
     /////////////////////////////////////////////////////////////////////////
-
 
     void GradientDescentTSNETexture::initialize(const sparse_scalar_matrix_type& probabilities, data::Embedding<scalar_type>* embedding, TsneParameters params) {
       utils::secureLog(_logger, "Initializing tSNE...");
@@ -108,7 +108,9 @@ namespace hdi {
 
         _embedding = embedding;
         _embedding_container = &(embedding->getContainer());
-        _embedding->resize(_params._embedding_dimensionality, size);
+
+        // Add padding to embedding data for vec4 on gpu
+        _embedding->resize(_params._embedding_dimensionality, size, 0, _params._embedding_dimensionality == 3 ? 1 : 0);
         _P.clear();
         _P.resize(size);
       }
@@ -119,11 +121,15 @@ namespace hdi {
       initializeEmbeddingPosition(params._seed, params._rngRange);
 
 #ifndef __APPLE__
-      if (GLAD_GL_VERSION_4_3)
+      if (GLAD_GL_VERSION_4_3 && !FORCE_RASTERIZER_FALLBACK)
       {
-        _gpgpu_compute_tsne.initialize(_embedding, _params, _P);
+        if (params._embedding_dimensionality == 3) {
+          _gpgpu_compute_3d_tsne.initialize(_embedding, _params, _P);
+        } else {
+          _gpgpu_compute_tsne.initialize(_embedding, _params, _P);
+        }
       }
-      else if (GLAD_GL_VERSION_3_3)
+      else if (GLAD_GL_VERSION_3_3 || FORCE_RASTERIZER_FALLBACK)
 #endif // __APPLE__
       {
         std::cout << "Compute shaders not available, using rasterization fallback" << std::endl;
@@ -145,7 +151,7 @@ namespace hdi {
 
         _embedding = embedding;
         _embedding_container = &(embedding->getContainer());
-        _embedding->resize(_params._embedding_dimensionality, size);
+        _embedding->resize(_params._embedding_dimensionality, size, _params._embedding_dimensionality == 3 ? 1 : 0);
         _P.resize(size);
       }
 
@@ -155,12 +161,17 @@ namespace hdi {
       initializeEmbeddingPosition(params._seed, params._rngRange);
 
 #ifndef __APPLE__
-      if (GLAD_GL_VERSION_4_3)
+      if (GLAD_GL_VERSION_4_3 && !FORCE_RASTERIZER_FALLBACK)
       {
         utils::secureLog(_logger, "Init GPGPU gradient descent using compute shaders.");
-        _gpgpu_compute_tsne.initialize(_embedding, _params, _P);
+
+        if (params._embedding_dimensionality == 3) {
+          _gpgpu_compute_3d_tsne.initialize(_embedding, _params, _P);
+        } else {
+          _gpgpu_compute_tsne.initialize(_embedding, _params, _P);
+        }
       }
-      else if (GLAD_GL_VERSION_3_3)
+      else if (GLAD_GL_VERSION_3_3 || FORCE_RASTERIZER_FALLBACK)
 #endif // __APPLE__
       {
         utils::secureLog(_logger, "Init GPU gradient descent. Compute shaders not available, using rasterization fallback.");
@@ -195,29 +206,27 @@ namespace hdi {
 
     void GradientDescentTSNETexture::initializeEmbeddingPosition(int seed, double multiplier) {
       utils::secureLog(_logger, "Initializing the embedding...");
-
       if (seed < 0) {
         std::srand(static_cast<unsigned int>(time(NULL)));
-      }
-      else {
+      } else {
         std::srand(seed);
       }
 
       for (int i = 0; i < _embedding->numDataPoints(); ++i) {
-        double x(0.);
-        double y(0.);
-        double radius(0.);
+        std::vector<double> d(_embedding->numDimensions(), 0.0);
+        double radius;
         do {
-          x = 2 * (rand() / ((double)RAND_MAX + 1)) - 1;
-          y = 2 * (rand() / ((double)RAND_MAX + 1)) - 1;
-          radius = (x * x) + (y * y);
+          radius = 0.0;
+          for (auto& dim : d) {
+            dim =  2 * (rand() / ((double)RAND_MAX + 1)) - 1; 
+            radius += (dim * dim);
+          }
         } while ((radius >= 1.0) || (radius == 0.0));
 
         radius = sqrt(-2 * log(radius) / radius);
-        x *= radius * multiplier;
-        y *= radius * multiplier;
-        _embedding->dataAt(i, 0) = x;
-        _embedding->dataAt(i, 1) = y;
+        for (int j = 0; j < _embedding->numDimensions(); ++j) {
+          _embedding->dataAt(i, j) = d[j] * radius * multiplier;
+        }
       }
     }
 
@@ -255,11 +264,15 @@ namespace hdi {
     void GradientDescentTSNETexture::doAnIterationImpl(double mult) {
       // Compute gradient of the KL function using a compute shader approach
 #ifndef __APPLE__
-      if (GLAD_GL_VERSION_4_3)
+      if (GLAD_GL_VERSION_4_3 && !FORCE_RASTERIZER_FALLBACK)
       {
-        _gpgpu_compute_tsne.compute(_embedding, exaggerationFactor(), _iteration, mult);
+        if (_params._embedding_dimensionality == 3) {
+          _gpgpu_compute_3d_tsne.compute(_embedding, exaggerationFactor(), _iteration, mult);
+        } else {
+          _gpgpu_compute_tsne.compute(_embedding, exaggerationFactor(), _iteration, mult);
+        }
       }
-      else if (GLAD_GL_VERSION_3_3)
+      else if (GLAD_GL_VERSION_3_3 || FORCE_RASTERIZER_FALLBACK)
 #endif // __APPLE__
       {
         _gpgpu_raster_tsne.compute(_embedding, exaggerationFactor(), _iteration, mult);
@@ -278,10 +291,10 @@ namespace hdi {
         for (int i = j + 1; i < n; ++i) {
           const double euclidean_dist_sq(
             utils::euclideanDistanceSquared<float>(
-              _embedding->getContainer().begin() + j*_params._embedding_dimensionality,
-              _embedding->getContainer().begin() + (j + 1)*_params._embedding_dimensionality,
-              _embedding->getContainer().begin() + i*_params._embedding_dimensionality,
-              _embedding->getContainer().begin() + (i + 1)*_params._embedding_dimensionality
+              _embedding->getContainer().begin() + j * _params._embedding_dimensionality,
+              _embedding->getContainer().begin() + (j + 1) * _params._embedding_dimensionality,
+              _embedding->getContainer().begin() + i * _params._embedding_dimensionality,
+              _embedding->getContainer().begin() + (i + 1) * _params._embedding_dimensionality
               )
           );
           const double v = 1. / (1. + euclidean_dist_sq);

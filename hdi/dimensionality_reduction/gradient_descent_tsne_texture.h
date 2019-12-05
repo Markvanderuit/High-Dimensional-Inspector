@@ -41,6 +41,7 @@
 #include <unordered_map>
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
+#include "gpgpu_sne/3d_gpgpu_sne_compute.h"
 #include "gpgpu_sne/gpgpu_sne_compute.h"
 #include "gpgpu_sne/gpgpu_sne_raster.h"
 #include "tsne_parameters.h"
@@ -136,7 +137,7 @@ namespace hdi {
 
     private:
       data::Embedding<scalar_type>* _embedding; //! embedding
-	  data::Embedding<scalar_type>::scalar_vector_type* _embedding_container;
+      data::Embedding<scalar_type>::scalar_vector_type* _embedding_container;
 	  // TH: the below does not work in VS2013
 	  // typename data::Embedding<scalar_type>::scalar_vector_type* _embedding_container;
       bool _initialized; //! Initialization flag
@@ -149,6 +150,7 @@ namespace hdi {
 
 #ifndef __APPLE__
       GpgpuSneCompute _gpgpu_compute_tsne;
+      Gpgpu3dSneCompute _gpgpu_compute_3d_tsne;
 #endif // __APPLE__
       GpgpuSneRaster _gpgpu_raster_tsne;
 
