@@ -2,10 +2,10 @@
 
 #include "gpgpu_sne_compute.h"
 #include "compute_shaders.glsl"
-
 #include <vector>
 #include <limits>
 #include <iostream>
+#include <cmath>
 
 namespace hdi {
   namespace dr {
@@ -320,7 +320,7 @@ namespace hdi {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _compute_buffers[GRADIENTS]);
 
       // Compute the gradients of the KL function
-      unsigned int grid_size = sqrt(num_points) + 1;
+      unsigned int grid_size = std::sqrt(num_points) + 1;
       glDispatchCompute(grid_size, grid_size, 1);
 
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -347,7 +347,7 @@ namespace hdi {
 
       // Update the points
       unsigned int num_workgroups = (num_points * 2 / 64) + 1;
-      unsigned int grid_size = sqrt(num_workgroups) + 1;
+      unsigned int grid_size = std::sqrt(num_workgroups) + 1;
       glDispatchCompute(grid_size, grid_size, 1);
     }
 
@@ -372,7 +372,7 @@ namespace hdi {
 
       // Compute the bounds
       unsigned int num_workgroups = (num_points / 128) + 1;
-      unsigned int grid_size = sqrt(num_workgroups) + 1;
+      unsigned int grid_size = std::sqrt(num_workgroups) + 1;
       glDispatchCompute(grid_size, grid_size, 1);
     }
   }
