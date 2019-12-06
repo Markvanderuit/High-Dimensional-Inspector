@@ -31,7 +31,6 @@
  */
 
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_3d.h"
-#include "hdi/utils/math_utils.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/utils/scoped_timers.h"
 #include "sptree.h"
@@ -49,18 +48,14 @@
 
 namespace hdi::dr {
   GradientDescentTSNE3D::GradientDescentTSNE3D()
-  : _initialized(false),
-    _logger(nullptr),
-    _exaggeration_baseline(1.0) { }
+  : AbstractGradientDescentTSNE() { }
 
-  GradientDescentTSNE3D::~GradientDescentTSNE3D()
-  { }
+  GradientDescentTSNE3D::~GradientDescentTSNE3D() { }
 
   void GradientDescentTSNE3D::initialize(const sparse_scalar_matrix_t& probabilities,
                                          data::Embedding<scalar_t>* embedding, 
                                          TsneParameters params) {
     utils::secureLog(_logger, "Initializing 3d-tSNE...");
-
     _params = params;
     _embedding = embedding;
     unsigned int n = probabilities.size();
@@ -147,48 +142,5 @@ namespace hdi::dr {
     }
 
     return exaggeration;
-  }
-
-  double GradientDescentTSNE3D::computeKullbackLeiblerDivergence() {
-    const int n = _embedding->numDataPoints();
-
-    double sum_Q = 0;
-    for (int j = 0; j < n; ++j) {
-      for (int i = j + 1; i < n; ++i) {
-        const double euclidean_dist_sq(
-          utils::euclideanDistanceSquared<float>(
-            _embedding->getContainer().begin() + j * _params._embedding_dimensionality,
-            _embedding->getContainer().begin() + (j + 1) * _params._embedding_dimensionality,
-            _embedding->getContainer().begin() + i * _params._embedding_dimensionality,
-            _embedding->getContainer().begin() + (i + 1) * _params._embedding_dimensionality
-            )
-        );
-        const double v = 1. / (1. + euclidean_dist_sq);
-        sum_Q += v * 2;
-      }
-    }
-
-    double kl = 0;
-    for (int i = 0; i < n; ++i) {
-      for (const auto& pij : _P[i]) {
-        uint32_t j = pij.first;
-
-        // Calculate Qij
-        const double euclidean_dist_sq(
-          utils::euclideanDistanceSquared<float>(
-            _embedding->getContainer().begin() + j*_params._embedding_dimensionality,
-            _embedding->getContainer().begin() + (j + 1)*_params._embedding_dimensionality,
-            _embedding->getContainer().begin() + i*_params._embedding_dimensionality,
-            _embedding->getContainer().begin() + (i + 1)*_params._embedding_dimensionality
-            )
-        );
-        const double v = 1. / (1. + euclidean_dist_sq);
-
-        double p = pij.second / (2 * n);
-        float klc = p * std::log(p / (v / sum_Q));
-        kl += klc;
-      }
-    }
-    return kl;
   }
 }

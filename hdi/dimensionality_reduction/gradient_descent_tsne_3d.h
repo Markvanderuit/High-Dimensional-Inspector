@@ -33,15 +33,9 @@
 #ifndef GRADIENT_DESCENT_TSNE_3D_H
 #define GRADIENT_DESCENT_TSNE_3D_H
 
-#include <array>
-#include <vector>
-#include <cstdint>
 #include "hdi/utils/assert_by_exception.h"
-#include "hdi/utils/abstract_log.h"
-#include "hdi/data/embedding.h"
-#include "hdi/data/map_mem_eff.h"
+#include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
 #include "gpgpu_sne/3d_gpgpu_sne_compute.h"
-#include "tsne_parameters.h"
 
 namespace hdi::dr {
   //! T-SNE gradient descent in 3D using a gpu implementation
@@ -49,56 +43,26 @@ namespace hdi::dr {
     T-SNE gradient descent in 3D using a gpu implementation
     \author Mark van de Ruit
   */
-  class GradientDescentTSNE3D {
+  class GradientDescentTSNE3D : public AbstractGradientDescentTSNE {
   public:
-    // Internal types
-    typedef float scalar_t;
-    typedef uint32_t data_handle_t;
-    typedef data::MapMemEff<data_handle_t, scalar_t> sparse_scalar_row_t;
-    typedef std::vector<sparse_scalar_row_t> sparse_scalar_matrix_t;
-    typedef std::vector<scalar_t> scalar_vector_t;
-
     GradientDescentTSNE3D();
     ~GradientDescentTSNE3D();
 
-    // Initialize the class with a set of distributions and parameters
-    // We compute a joint probability distribution ourselves
     void initialize(const sparse_scalar_matrix_t& probabilities,
                     data::Embedding<scalar_t>* embedding, 
-                    TsneParameters params = TsneParameters());
+                    TsneParameters params = TsneParameters()) override;
 
-    // Perform an iteration
-    void iterate(double mult = 1.0);
-    
-    // Compute Kullback Leibler divergence over the current generated embedding
-    double computeKullbackLeiblerDivergence();
-
-    //! Return the current logger
-    utils::AbstractLog* logger() const { return _logger; }
-
-    //! Set the current logger
-    void setLogger(utils::AbstractLog* logger) { _logger = logger; }
+    void iterate(double mult = 1.0) override;
 
     Gpgpu3dSneCompute::Bounds3D bounds() const {
       return _gpgpu_3d_sne_compute.bounds();
     }
 
-    unsigned int iteration() const {
-      return _iteration;
-    }
-
   private:
-    void initializeEmbedding(int seed, double mult);
     double computeExaggeration();
 
-    bool _initialized;
-    unsigned int _iteration;
-    double _exaggeration_baseline;
-    data::Embedding<scalar_t>* _embedding;
-    sparse_scalar_matrix_t _P;
+    // Underlying implementation
     Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
-    TsneParameters _params;
-    utils::AbstractLog* _logger;
   };
 }
 
