@@ -42,14 +42,23 @@ namespace hdi::dr {
     // Base constr.
     Gpgpu3dSneCompute();
 
+    // Initialize gpu components for computation
     void initialize(const embedding_t* embedding, 
                     const TsneParameters& params, 
                     const sparse_matrix_t& P);
+
+    // Remove gpu components
     void clean();
+
+    // Perform computation for specified iteration
     void compute(embedding_t* embedding, 
                  float exaggeration, 
                  float iteration, 
                  float mult);
+    
+    Bounds3D bounds() const {
+      return _bounds;
+    }
     
   private:
     void computeBounds(unsigned n, float padding);

@@ -80,6 +80,8 @@ namespace hdi {
 
       void setScalingFactor(float factor) { _resolutionScaling = factor; }
 
+      Bounds2D bounds() const { return _bounds; }
+
     private:
       void initializeOpenGL(const unsigned int num_points, const LinearProbabilityMatrix& linear_P);
 

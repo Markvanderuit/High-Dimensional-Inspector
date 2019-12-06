@@ -280,7 +280,7 @@ namespace hdi::dr {
     // Set uniforms for this shader
     _bounds_program.uniform1f("padding", padding);
 
-    // Run shader
+    // Run shader (dimensionality reduction in single group)
     glDispatchCompute(1, 1, 1);
 
     _bounds_program.release();
@@ -301,7 +301,7 @@ namespace hdi::dr {
     // Bind uniforms for this shader
     _interpolation_program.uniform1i("fields", 0);
 
-    // Run shader
+    // Run shader (dimensionality reduction in single group)
     glDispatchCompute(1, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
@@ -315,7 +315,7 @@ namespace hdi::dr {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[INTERP_FIELDS]);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[SUM_Q]);
 
-    // Run shader
+    // Run shader (dimensionality reduction in single group)
     glDispatchCompute(1, 1, 1);
 
     // Copy SUMQ back to host
