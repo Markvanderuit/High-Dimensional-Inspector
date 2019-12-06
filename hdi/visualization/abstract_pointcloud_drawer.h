@@ -30,8 +30,8 @@
  *
  */
 
-#ifndef ABSTRACT_SCATTERPLOT_DRAWER_H
-#define ABSTRACT_SCATTERPLOT_DRAWER_H
+#ifndef ABSTRACT_POINTCLOUD_DRAWER_H
+#define ABSTRACT_POINTCLOUD_DRAWER_H
 
 #include <string>
 #include "hdi/data/abstract_panel_data.h"

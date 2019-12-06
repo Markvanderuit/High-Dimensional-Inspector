@@ -39,7 +39,6 @@
 #include "hdi/data/io.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
-// #include "hdi/dimensionality_reduction/tsne.h"
 #include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
 #include "hdi/utils/visual_utils.h"
 #include "hdi/utils/scoped_timers.h"

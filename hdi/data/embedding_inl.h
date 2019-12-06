@@ -67,6 +67,7 @@ namespace hdi{
       _padding = 0;
       _embedding.clear();
     }
+    
     template <typename scalar_type>
     void Embedding<scalar_type>::computeEmbeddingBBox(scalar_vector_type& limits, scalar_type offset, bool squared_limits){
       limits.resize(_num_dimensions * 2);

@@ -115,6 +115,8 @@ namespace hdi {
       double& exaggeration_baseline() { return _exaggeration_baseline; }
       const double& exaggeration_baseline()const { return _exaggeration_baseline; }
 
+      GpgpuSneCompute::Bounds2D bounds() const { return _gpgpu_compute_tsne.bounds(); }
+
     private:
       //! Compute High-dimensional distribution
       void computeHighDimensionalDistribution(const sparse_scalar_matrix_type& probabilities);
@@ -143,7 +145,6 @@ namespace hdi {
       bool _initialized; //! Initialization flag
 
       double _exaggeration_baseline;
-
 
       scalar_vector_type _Q; //! Conditional probalility distribution in the Low-dimensional space
       scalar_type _normalization_Q; //! Normalization factor of Q - Z in the original paper
