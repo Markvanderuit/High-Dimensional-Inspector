@@ -70,7 +70,8 @@ namespace hdi{
       const char *fsrc = GLSL(130,
           in lowp vec4 col;            
           void main() {      
-            gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
+            gl_FragColor = col;
+            // gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
           }                      
         );
 
@@ -108,9 +109,9 @@ namespace hdi{
 
       _program->bind();
         QMatrix4x4 matrix;
-        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), 0.5 * diameter, -4.f * diameter);
+        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 0.5f * diameter);
 
-        auto eye = rotation.rotatedVector(QVector3D(0, 0, 1));
+        auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
         auto up = rotation.rotatedVector(QVector3D(0, 1, 0));
         matrix.lookAt(eye, QVector3D(0, 0, 0), up);
 

@@ -108,10 +108,10 @@ namespace hdi{
 
       _program->bind();
         QMatrix4x4 matrix;
-        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), 0.5 * diameter, -4.f * diameter);
+        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 05.f * diameter);
 
-        auto eye = rotation.rotatedVector(QVector3D(0, 0, 1));
-        auto up = rotation.rotatedVector(QVector3D(0, 1, 0));
+        auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
+        auto up = rotation.rotatedVector(QVector3D(0, -1, 0));
         matrix.lookAt(eye, QVector3D(0, 0, 0), up);
 
         _program->setUniformValue(_matrix_uniform, matrix);
