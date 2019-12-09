@@ -39,11 +39,14 @@ endif()
 include_directories("$ENV{FLANN_DIR}/include")
 message (STATUS "$ENV{FLANN_DIR}/include")
 
+find_package(Qt5 REQUIRED  Gui  Core)
+
 # Gather list of all .h files in "/"
 file(GLOB HeaderFiles *.h gpgpu_sne/*.h)
 file(GLOB SourceFiles *.cpp gpgpu_sne/*.cpp)
 
-add_library   (hdidimensionalityreduction ${HeaderFiles} ${SourceFiles} )
+add_library (hdidimensionalityreduction ${HeaderFiles} ${SourceFiles} )
+target_link_libraries (hdidimensionalityreduction Qt5::Core Qt5::Gui)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction DESTINATION bin/hdi)

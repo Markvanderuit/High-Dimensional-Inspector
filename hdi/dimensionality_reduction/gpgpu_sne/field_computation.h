@@ -48,7 +48,7 @@ public:
   void clean();
   void compute(unsigned int width, unsigned int height, float function_support, unsigned int num_points, GLuint position_buffer, GLuint bounds_buffer, float minx, float miny, float maxx, float maxy);
 
-  GLuint getFieldTexture() {
+  GLuint getFieldTexture() const {
     return _field_texture;
   }
 
