@@ -56,6 +56,8 @@ namespace hdi{
     template QImage imageFromZeroCenteredSparseMatrix(const std::vector<hdi::data::MapMemEff<unsigned int,double> >& sparse_matrix);
     template QImage imageFromZeroCenteredSparseMatrix(const std::vector<hdi::data::MapMemEff<unsigned int,float> >& sparse_matrix);
 
+    template void valuesToImage(const std::string& filename, const std::vector<float>& v, int w, int h, int c);
+    template void valuesToImage(const std::string& filename, const std::vector<char>& v, int w, int h, int c);
   }
 }
 

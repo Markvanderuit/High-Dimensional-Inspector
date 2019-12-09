@@ -35,8 +35,11 @@
 
 #include "hdi/utils/visual_utils.h"
 #include <QColor>
+#include <QImageWriter>
+#include <QImage>
 #include <assert.h>
 #include <cmath>
+#include <iostream>
 
 namespace hdi{
   namespace utils{
@@ -127,6 +130,39 @@ namespace hdi{
       return image;
     }
 
+    
+    template <typename scalar_type>
+    void valuesToImage(const std::string& filename, const std::vector<scalar_type>& v, int w, int h, int c) {
+      // Fill image data
+      std::vector<uchar> data(w * h * 4, 0);
+      if (c == 1) {
+        for (int i = 0; i < data.size() / 4; i++) {
+          const auto ch = (unsigned char) (v[i * c + 0] * 255.f);
+          data[i * 4 + 0] = ch;
+          data[i * 4 + 1] = ch;
+          data[i * 4 + 2] = ch;
+          data[i * 4 + 3] = (unsigned char) (255.f); // alpha
+        }
+      } else {
+        for (int i = 0; i < (w * h); i++) {
+          for (int j = 0; j < c; j++) {
+            data[i * 4 + j] = (unsigned char) (v[i * c + j] * 255.f);
+          }
+          if (c < 4) {
+            data[i * 4 + 3] = (unsigned char) (255.f); // alpha
+          }
+        }
+      }
+
+      // Construct image
+      QImage image(data.data(), w, h, QImage::Format_ARGB32_Premultiplied);
+      QImageWriter writer(filename.c_str(), "png");
+      if (!writer.canWrite()) {
+        std::cerr << "Could not write!" << std::endl;
+        exit(0);
+      }
+      writer.write(image);
+    }
   }
 }
 
