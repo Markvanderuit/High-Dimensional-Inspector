@@ -2,15 +2,13 @@
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 
 const char* sumq_src = GLSL(430,
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Val { vec4 Values[]; };
   layout(std430, binding = 1) buffer SumQ { float Sum[]; };
-  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = groupSize / 2;
-
   shared float reduction_array[halfGroupSize];
-
   uniform uint num_points;
 
   void main() {
@@ -47,11 +45,15 @@ const char* sumq_src = GLSL(430,
 const char* interpolation_src = GLSL(430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer Val { vec4 Values[]; };
-  layout(std430, binding = 2) buffer BoundsInterface { vec3 Bounds[]; };
+  layout(std430, binding = 2) buffer BoundsInterface { 
+    vec3 minBounds;
+    vec3 maxBounds;
+    vec3 range;
+    vec3 invRange;
+  };
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
   shared float reduction_array[64];
-
   uniform uint num_points;
   uniform sampler3D fields;
 
@@ -59,17 +61,12 @@ const char* interpolation_src = GLSL(430,
     uint lid = gl_LocalInvocationIndex.x;
     uint groupSize = gl_WorkGroupSize.x;
 
-    vec3 min_bounds = Bounds[0];
-    vec3 max_bounds = Bounds[1];
-    vec3 range = max_bounds - min_bounds;
-    vec3 inv_range = 1.0 / range;
-
     for (uint i = lid; i < num_points; i += groupSize) {
       // Position of point in range 0 to 1
-      vec3 point = (Positions[i] - min_bounds) * inv_range;
+      vec3 position = (Positions[i] - minBounds) * invRange;
 
       // Trilinearly sample the input texture
-      vec4 v = texture(fields, point);
+      vec4 v = texture(fields, position);
       Values[i] = v;
     }
   }
@@ -85,24 +82,22 @@ const char* forces_src = GLSL(430,
   layout(std430, binding = 5) buffer Grad { vec3 Gradients[]; };
   layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-  const uint group_size = 64;
-  shared vec3 sum_positive_red[group_size];
-
-  //layout(rg32f) uniform image2D point_tex;
+  const uint groupSize = gl_WorkGroupSize.x;
+  shared vec3 sum_positive_red[groupSize];
   uniform uint num_points;
   uniform float exaggeration;
   uniform float sum_Q;
 
   void main() {
     uint i = gl_WorkGroupID.x;
-    uint groupSize = gl_WorkGroupSize.x;
     uint lid = gl_LocalInvocationID.x;
 
     float inv_num_points = 1.0 / float(num_points);
     float inv_sum_Q = 1.0 / sum_Q;
 
-    if (i >= num_points)
+    if (i >= num_points) {
       return;
+    }
 
     // Get the point coordinates
     vec3 point_i = Positions[i];
@@ -114,7 +109,7 @@ const char* forces_src = GLSL(430,
     int size = Indices[i * 2 + 1];
 
     vec3 positive_force = vec3(0);
-    for (uint j = lid; j < size; j += group_size) {
+    for (uint j = lid; j < size; j += groupSize) {
       // Get other point coordinates
       vec3 point_j = Positions[Neighbours[index + j]];
 
@@ -136,7 +131,7 @@ const char* forces_src = GLSL(430,
     if (lid < 32) {
       sum_positive_red[lid] += positive_force;
     }
-    for (uint reduceSize = group_size / 4; reduceSize > 1; reduceSize /= 2)
+    for (uint reduceSize = groupSize / 4; reduceSize > 1; reduceSize /= 2)
     {
       barrier();
       if (lid < reduceSize) {
@@ -211,7 +206,12 @@ const char* update_src = GLSL(430,
 // Copied from compute_shaders.glsl, adapted for 3d
 const char* bounds_src = GLSL(430,
   layout(std430, binding = 0) buffer Pos{ vec3 positions[]; };
-  layout(std430, binding = 1) buffer BoundsInterface { vec3 bounds[]; };
+  layout(std430, binding = 1) buffer BoundsInterface { 
+    vec3 minBounds;
+    vec3 maxBounds;
+    vec3 range;
+    vec3 invRange;
+  };
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
   uniform uint num_points;
@@ -222,6 +222,13 @@ const char* bounds_src = GLSL(430,
 
   shared vec3 min_reduction[halfWorkgroupSize];
   shared vec3 max_reduction[halfWorkgroupSize];
+
+  vec3 removeZero(in vec3 v) {
+    if (v.x == 0.f) v.x = 1.f;
+    if (v.y == 0.f) v.y = 1.f;
+    if (v.z == 0.f) v.z = 1.f;
+    return v;
+  }
 
   void main() {
     uint lid = gl_LocalInvocationIndex.x;
@@ -258,8 +265,10 @@ const char* bounds_src = GLSL(430,
       min_local = min(min_reduction[0], min_reduction[1]);
       max_local = max(max_reduction[0], max_reduction[1]);
       vec3 padding = (max_local - min_local) * 0.5f * padding;
-      bounds[0] = min_local - padding;
-      bounds[1] = max_local + padding;
+      minBounds = min_local - padding;
+      maxBounds = max_local + padding;
+      range = (maxBounds - minBounds);
+      invRange = 1.f / removeZero(range);
     }
   }
 );
@@ -267,7 +276,12 @@ const char* bounds_src = GLSL(430,
 // Copied from compute_shader.glsl, adapted for 3d
 const char* centering_src = GLSL(430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
-  layout(std430, binding = 1) buffer BoundsInterface { vec3 Bounds[]; };
+  layout(std430, binding = 1) buffer BoundsInterface { 
+    vec3 minBounds;
+    vec3 maxBounds;
+    vec3 range;
+    vec3 invRange;
+  };
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
   uniform uint num_points;
@@ -282,21 +296,12 @@ const char* centering_src = GLSL(430,
       return;
     }
 
-    vec3 center = (Bounds[0] + Bounds[1]) * 0.5;
+    vec3 center = (minBounds + maxBounds) * 0.5;
     vec3 pos = Positions[i];
 
     if (scale) {
-      // vec2 range = Bounds[1].yz - Bounds[0].yz;
-      // vec2 scaleFactor = vec2(diameter) / range;
-      // if (range.x < diameter || range.y < diameter) {
-      //   pos -= center;
-      //   pos.yz *= scaleFactor;
-      // }
-
-      float range = Bounds[1].y - Bounds[0].y;
-      if (range < diameter) //  || range.y < diameter
-      {
-        float scale_factor = diameter / range;
+      if (range.y < diameter) {
+        float scale_factor = diameter * invRange.y;
         pos -= center;
         pos *= scale_factor;
       }

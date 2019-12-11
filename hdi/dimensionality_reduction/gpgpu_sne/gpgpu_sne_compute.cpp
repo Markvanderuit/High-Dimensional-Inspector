@@ -36,10 +36,10 @@ namespace hdi {
 
     GpgpuSneCompute::GpgpuSneCompute() :
       _initialized(false),
-      _adaptive_resolution(true),
+      _adaptive_resolution(false),
       _resolutionScaling(PIXEL_RATIO)
     {
-
+      // ...
     }
 
     Bounds2D GpgpuSneCompute::computeEmbeddingBounds(const embedding_type* embedding, float padding) {
