@@ -1,11 +1,12 @@
 #include "field_computation.h"
-
+#include "hdi/utils/visual_utils.h"
 #include <cmath>
 #include <vector>
 #include <iostream>
 #include <cstdint>
 
 #define GLSL(version, shader)  "#version " #version "\n" #shader
+// #define STENCIL_TEST // Perform stencil test
 
 const char* point_vert = GLSL(330,
   layout(location = 0) in vec2 point;
@@ -27,7 +28,7 @@ const char* point_frag = GLSL(330,
 
   void main()
   {
-    fragColor = 1;
+    fragColor = 1.f;
   }
 );
 
@@ -72,7 +73,7 @@ const char* gpgpu_compute_fields_source = GLSL(430,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
   layout(rgba32f, binding = 0) writeonly uniform image2D Fields;
-  layout(r8, binding = 1) readonly uniform image2D Stencil;
+  layout(r32f, binding = 1) readonly uniform image2D Stencil;
 
   const uint groupSize = gl_WorkGroupSize.x;
   const uint hgSize = groupSize / 2;
@@ -85,11 +86,18 @@ const char* gpgpu_compute_fields_source = GLSL(430,
   void main() {
     uint x = gl_WorkGroupID.x;
     uint y = gl_WorkGroupID.y;
-    
-    float mask = imageLoad(Stencil, ivec2(x, y)).x;
-    if (mask == 0) return;
-
     uint lid = gl_LocalInvocationIndex.x;
+    
+#ifdef STENCIL_TEST
+    float mask = imageLoad(Stencil, ivec2(x, y)).x;
+    if (mask == 0.f) {
+      if (lid == 0) {
+        imageStore(Fields, ivec2(x, y), vec4(0));
+      }
+      return;
+    }
+#endif // STENCIL_TEST
+
 
     vec2 min_bounds = Bounds[0];
     vec2 max_bounds = Bounds[1];
@@ -325,6 +333,7 @@ void ComputeFieldComputation::init(unsigned int num_points)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   glGenVertexArrays(1, &_point_vao);
+  _iteration = 0;
 }
 
 void ComputeFieldComputation::clean()
@@ -336,11 +345,21 @@ void ComputeFieldComputation::clean()
   _compute_program.destroy();
 }
 
+  // For debug output
+  void normalize(std::vector<float>& b) {
+    const float max = *std::max_element(b.begin(), b.end());
+    const float min = *std::min_element(b.begin(), b.end());
+    const float range = max - min;
+    std::transform(b.begin(), b.end(), b.begin(),
+      [&range, &min](const auto& v) { return (v - min) / range; });
+  }
+
 void ComputeFieldComputation::compute(unsigned int width, unsigned int height, float function_support, unsigned int num_points, GLuint position_buffer, GLuint bounds_buffer, float minx, float miny, float maxx, float maxy)
 {
+#ifdef STENCIL_TEST
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, _stencil_texture);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, nullptr);
 
   glViewport(0, 0, width, height);
   glBindFramebuffer(GL_FRAMEBUFFER, _field_fbo);
@@ -350,11 +369,14 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
   glBindBuffer(GL_ARRAY_BUFFER, position_buffer);
   glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
   glEnableVertexAttribArray(0);
+  glClearColor(0.f, 0.f, 0.f, 0.f);
+  glClear(GL_COLOR_BUFFER_BIT);
 
   glPointSize(3);
   glDrawArrays(GL_POINTS, 0, num_points);
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif // STENCIL_TEST
 
   // Field computation
   glActiveTexture(GL_TEXTURE0);
@@ -362,7 +384,6 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 
   _compute_program.bind();
-
   _compute_program.uniform2ui("size", width, height);
   _compute_program.uniform1f("support", function_support);
 
@@ -372,12 +393,50 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
 
   // Bind the fields texture for writing
   glBindImageTexture(0, _field_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-  glBindImageTexture(1, _stencil_texture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R8);
+  glBindImageTexture(1, _stencil_texture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
 
   // Compute the fields texture
   glDispatchCompute(width, height, 1);
 
   glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
+  #define field_image_output
+  #ifdef field_image_output
+  if (_iteration % 100 == 0) {
+#ifdef STENCIL_TEST
+    // Stencil
+    {
+      std::vector<float> stencil(width * height, 0.f);
+      glBindTexture(GL_TEXTURE_2D, _stencil_texture);
+      glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, stencil.data());
+      const std::string name = "2d_images/stencil_";
+      normalize(stencil);
+      hdi::utils::valuesToImage(name + std::to_string(_iteration), stencil, width, height, 1);
+    }
+#endif // STENCIL_TEST
+    // Fields
+    {
+      std::vector<float> field(width * height * 4, 0.f);
+      glBindTexture(GL_TEXTURE_2D, _field_texture);
+      glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, field.data());
+      const std::array<std::string, 4> names = { 
+        "2d_images/density_",
+        "2d_images/gradient_x_",
+        "2d_images/gradient_y_",
+      };
+      std::vector<float> buffer(width * height, 0.f);
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < width * height; j++) {
+          buffer[j] = field[4 * j + i];
+        }
+        normalize(buffer);
+        hdi::utils::valuesToImage(names[i] + std::to_string(_iteration), buffer, width, height, 1);
+      }
+    }
+  }
+  #endif
+
+  _iteration++;
 }
 
 #endif

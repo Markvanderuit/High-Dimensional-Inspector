@@ -8,10 +8,15 @@
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 
 namespace {
-  // Compute shader for 64^3 stencil texture generation
+  // Compute shader for 3d stencil texture generation
   const char* stencil_src = GLSL(430,
     layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
-    layout(std430, binding = 1) buffer BoundsInterface { vec3 Bounds[]; };
+    layout(std430, binding = 1) buffer BoundsInterface { 
+      vec3 minBounds;
+      vec3 maxBounds;
+      vec3 range;
+      vec3 invRange;
+    };
     layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
     layout(r8, binding = 0) writeonly uniform image3D stencil_texture;
 
@@ -24,12 +29,11 @@ namespace {
       }
 
       // Get the point position in texture
-      vec3 range = Bounds[1] - Bounds[0];
-      vec3 pos = imageSize(stencil_texture) * (Positions[i] - Bounds[0]) / range;
+      vec3 pos = imageSize(stencil_texture) * (Positions[i] - minBounds) * invRange;
       ivec3 minp = ivec3(floor(pos));
       ivec3 maxp = ivec3(ceil(pos));
 
-      // fill all nearest neighboring pixels (not exactly clever)
+      // fill 9 nearest neighboring pixels (not exactly clever code)
       imageStore(stencil_texture, ivec3(minp.x, minp.y, minp.z), uvec4(1));
       imageStore(stencil_texture, ivec3(minp.x, minp.y, maxp.z), uvec4(1));
       imageStore(stencil_texture, ivec3(minp.x, maxp.y, minp.z), uvec4(1));
@@ -45,7 +49,12 @@ namespace {
   // r = density, g = x gradient, b = y gradient, a = z gradient
   const char* fields_src = GLSL(430,
     layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
-    layout(std430, binding = 1) buffer BoundsInterface { vec3 Bounds[]; };
+    layout(std430, binding = 1) buffer BoundsInterface { 
+      vec3 minBounds;
+      vec3 maxBounds;
+      vec3 range;
+      vec3 invRange;
+    };
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(rgba32f, binding = 0) writeonly uniform image3D fields_texture;
     layout(r8, binding = 1) readonly uniform image3D stencil_texture;
@@ -72,13 +81,11 @@ namespace {
       uint lid = gl_LocalInvocationIndex.x;
 
       // Compute pixel position in domain space
-      vec3 min_bounds = Bounds[0];
-      vec3 range = Bounds[1] - min_bounds;
-      vec3 pos = ((vec3(x, y, z) + vec3(0.5)) / texture_size) * range + min_bounds;
+      vec3 pos = ((vec3(x, y, z) + vec3(0.5)) / texture_size) * range + minBounds;
       
       vec4 v = vec4(0);
       for (uint i = lid; i < num_points; i += groupSize) {
-        // Compute S = t_stud, V = t_stud_2
+        // Compute S = t_stud and V = t_stud_2
         vec3 t = pos - Positions[i];
         float eucl_2 = dot(t, t);
         float t_stud = 1.f / (1.f + eucl_2);

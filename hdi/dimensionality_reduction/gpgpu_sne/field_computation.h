@@ -60,6 +60,8 @@ private:
   GLuint _field_texture;
   GLuint _stencil_texture;
   GLuint _field_fbo;
+
+  int _iteration;
 };
 
 class Compute3DFieldComputation
