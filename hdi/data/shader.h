@@ -103,6 +103,7 @@ public:
   void uniform3ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2);
   void uniform4f(const char* name, float v0, float v1, float v2, float v3);
   void uniformMatrix4f(const char* name, const float* m);
+  GLint getUniformLocation(const char* name);
 
 private:
   void link();
@@ -111,7 +112,6 @@ private:
   void detachAll();
 
   std::string getInfoLog();
-  GLint getUniformLocation(const char* name);
 
 private:
   GLuint _handle;
