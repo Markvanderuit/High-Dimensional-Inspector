@@ -45,9 +45,9 @@
 #include "hdi/visualization/pointcloud_drawer_fixed_color.h"
 #include "hdi/visualization/pointcloud_drawer_labels.h"
 
-int main(int argc, char *argv[])
-{
-  try{
+int main(int argc, char *argv[]) {
+  try {
+    // Configure application
     QApplication app(argc, argv);
     QIcon icon;
     icon.addFile(":/hdi16.png");
@@ -56,24 +56,28 @@ int main(int argc, char *argv[])
     icon.addFile(":/hdi128.png");
     icon.addFile(":/hdi256.png");
     app.setWindowIcon(icon);
-
     QCoreApplication::setApplicationName("3D Embedding Viewer");
     QCoreApplication::setApplicationVersion("0.1");
 
+    // Configure CLI parsin
     QCommandLineParser parser;
     parser.setApplicationDescription("Point-based visualization of a 3D embedding");
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("embedding", QCoreApplication::translate("main", "Embedding."));
 
+    // Add CLI options
     QCommandLineOption labels_option(QStringList() << "l" << "labels",
       QCoreApplication::translate("main", "Provide labels file"),
       QCoreApplication::translate("main", "labels"));
     parser.addOption(labels_option);
+    QCommandLineOption dimensions_option(QStringList() << "d" << "dimensions",
+      QCoreApplication::translate("main", "Provide dimensions (2/3) of embedding"),
+      QCoreApplication::translate("main", "dimensions"));
+    parser.addOption(dimensions_option);
 
     // Process the actual command line arguments given by the user
     parser.process(app);
-
     const QStringList args = parser.positionalArguments();
     if(args.size() < 1){
       std::cout << "Not enough arguments!" << std::endl;
@@ -81,11 +85,9 @@ int main(int argc, char *argv[])
     }
 
     std::ifstream input_file (args[0].toStdString(), std::ios::in|std::ios::binary|std::ios::ate);
-
     const unsigned int num_data_points = input_file.tellg() / sizeof(float)/3;
     std::vector<float> data(num_data_points*3);
     std::vector<uint32_t> labels(num_data_points);
-
     input_file.seekg (0, std::ios::beg);
     input_file.read (reinterpret_cast<char*>(data.data()), sizeof(float) * data.size() * 3);
     input_file.close();
@@ -115,10 +117,12 @@ int main(int argc, char *argv[])
     }  
 
     std::cout 
+            << "Number of points: " << "\n"
+            << " " << num_data_points << "\n"
             << "Boundaries: " << "\n"
-            << "x: " << min_x << ", " << max_x << "\n"
-            << "y: " << min_y << ", " << max_y << "\n"
-            << "z: " << min_z << ", " << max_z << std::endl;
+            << " x: " << min_x << ", " << max_x << "\n"
+            << " y: " << min_y << ", " << max_y << "\n"
+            << " z: " << min_z << ", " << max_z << std::endl;
 
     auto tr = QVector3D(max_x, max_y, max_z);
     auto bl = QVector3D(min_x, min_y, min_z);
@@ -153,14 +157,14 @@ int main(int argc, char *argv[])
       ptr->setData(data.data(), labels.data(), palette, num_data_points);
       // ptr->setData(data.data(), flags.data(), num_data_points);
       ptr->setAlpha(0.85);
-      ptr->setPointSize(8);
+      ptr->setPointSize(4);
       drawer_ptr = std::move(ptr);
     } else {
       auto ptr = std::make_unique<hdi::viz::PointcloudDrawerFixedColor>();
       ptr->initialize(viewer.context());
       ptr->setData(data.data(), num_data_points);
       ptr->setAlpha(0.85);
-      ptr->setPointSize(8);
+      ptr->setPointSize(4);
       drawer_ptr = std::move(ptr);
     }
     viewer.addDrawer(drawer_ptr.get());
