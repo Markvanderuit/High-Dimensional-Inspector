@@ -81,7 +81,7 @@ namespace hdi::dr {
       }
     }
 
-    // Properly size embedding, add 1 float padding for vec4 on gpu
+    // Properly size embedding, add 1 dimension padding for vec4 on gpu
     _embedding->resize(_params._embedding_dimensionality, n, 0, 1);
   
     utils::secureLog(_logger, "Initializing the embedding...");
@@ -89,6 +89,7 @@ namespace hdi::dr {
     // Initialize embedding to random positions
     std::srand(_params._seed);
     for (int i = 0; i < _embedding->numDataPoints(); ++i) {
+      // std::vector<double> d(2, 0.0);
       std::vector<double> d(_embedding->numDimensions(), 0.0);
       double radius;
       do {
@@ -103,6 +104,10 @@ namespace hdi::dr {
       for (int j = 0; j < _embedding->numDimensions(); ++j) {
         _embedding->dataAt(i, j) = d[j] * radius * _params._rngRange;
       }
+      // for (int j = 0; j < 2; ++j) {
+      //   _embedding->dataAt(i, j) = d[j] * radius * _params._rngRange;
+      // }
+      // _embedding->dataAt(i, 2) = 0.0f;
     }
     
     // Initialize underlying tsne implementation
