@@ -71,7 +71,8 @@ namespace hdi{
           in lowp vec4 col;
 
           void main() {      
-            gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
+            // gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
+            gl_FragColor = col;
           }                      
         );
 
@@ -103,12 +104,15 @@ namespace hdi{
       ScopedCapabilityEnabler multisample_helper(GL_MULTISAMPLE);
       glDepthFunc(GL_LESS);
       glPointSize(_point_size);
-
+      
       auto diameter = maxb.distanceToPoint(minb);
+      auto mind = -0.5 * diameter;
+      auto maxd = 0.5 * diameter;
 
       _program->bind();
         QMatrix4x4 matrix;
-        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 05.f * diameter);
+        matrix.ortho(mind, maxd, mind, maxd, mind, maxd);
+        // matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 05.f * diameter);
 
         auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
         auto up = rotation.rotatedVector(QVector3D(0, -1, 0));

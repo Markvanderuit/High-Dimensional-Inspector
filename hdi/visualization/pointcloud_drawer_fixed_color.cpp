@@ -106,10 +106,13 @@ namespace hdi{
       glPointSize(_point_size);
 
       auto diameter = maxb.distanceToPoint(minb);
+      auto mind = -0.5 * diameter;
+      auto maxd = 0.5 * diameter;
 
       _program->bind();
         QMatrix4x4 matrix;
-        matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 0.5f * diameter);
+        matrix.ortho(mind, maxd, mind, maxd, mind, maxd);
+        // matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 0.5f * diameter);
 
         auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
         auto up = rotation.rotatedVector(QVector3D(0, 1, 0));
