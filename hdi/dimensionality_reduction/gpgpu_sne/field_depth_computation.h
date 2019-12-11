@@ -2,9 +2,11 @@
 
 #ifndef __APPLE
 
+#include <iostream>
+#include <QMatrix4x4>
 #include "hdi/utils/glad/glad.h"
 #include "hdi/data/shader.h"
-#include <iostream>
+#include "3d_utils.h"
 
 namespace hdi::dr {
   class DepthFieldComputation {
@@ -25,11 +27,10 @@ namespace hdi::dr {
     void clean();
 
     // Compute field and depth textures
-    void compute(unsigned w, unsigned h, unsigned d,
+    void compute(unsigned w, unsigned h,
                  float function_support, unsigned n,
                  GLuint position_buff, GLuint bounds_buff,
-                 float min_x, float min_y, float min_z,
-                 float max_x, float max_y, float max_z);
+                 Bounds3D bounds, QMatrix4x4 view);
 
     GLuint stencilDepthTexture() const {
       return _textures[STENCIL_DEPTH];
