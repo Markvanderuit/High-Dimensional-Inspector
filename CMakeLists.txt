@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.11)
+cmake_minimum_required (VERSION 3.10)
 
 # Enforce c++ 17
 set(CMAKE_CXX_STANDARD 17)
@@ -17,8 +17,11 @@ if (HDI_USE_ROARING)
   add_definitions(-DPREPROC_USE_ROARING)
 endif(HDI_USE_ROARING)
 
+# For FLANN
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
+
 # Find required packages
-find_package(flann REQUIRED)
+find_package(FLANN REQUIRED)
 find_package(OpenMP REQUIRED)
 
 # Add OpenMP, if available

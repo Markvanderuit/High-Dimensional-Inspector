@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.11)
+cmake_minimum_required (VERSION 3.10)
 
 MACRO(ADD_PROJECT Name Sources MocSources)
   add_executable (${Name} ${Sources} ${MocSources})
