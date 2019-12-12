@@ -1,74 +1,49 @@
-cmake_minimum_required (VERSION 2.8.11)
+cmake_minimum_required (VERSION 3.11)
 
-project (HighDimInspector)
+# Enforce c++ 17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(APPLE)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "10.12" CACHE STRING "Minimum OS X deployment version")
-  set_target_properties(${PROJECT} PROPERTIES XCODE_ATTRIBUTE_COMPILER_INDEX_STORE_ENABLE "NO")
+project (HighDimInspector LANGUAGES CXX)
 
-  set (LLVM_ROOT_DIR "/usr/local/opt/llvm")
-  find_package( LLVM )
-  if( LLVM_FOUND )
-    include_directories (${LLVM_LIBRARY_DIRS}/clang/${LLVM_VERSION_BASE_STRING}/include)
-
-    set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
-    set(CMAKE_C_COMPILER "/usr/local/opt/llvm/bin/clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
-    set(CMAKE_XCODE_ATTRIBUTE_CC "/usr/local/opt/llvm/bin/clang")
-    set(CMAKE_XCODE_ATTRIBUTE_CXX "/usr/local/opt/llvm/bin/clang++")
-
-    find_library(IOMP5LIB
-      NAMES "iomp5" "iomp5md" "libiomp5" "libiomp5md"
-      HINTS ${LLVM_LIBRARY_DIRS})
-    set (OMP_LIBRARIES ${OMP_LIBRARIES} ${IOMP5LIB})
-  else(LLVM_FOUND)
-    message("OS is macOS, no OpenMP support detected, using Grand Central Dispatch instead.")
-    add_definitions( -D__USE_GCD__)
-  endif( LLVM_FOUND )
-endif(APPLE)
-
-if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.12" CACHE STRING "Minimum OS X deployment version")
-endif(APPLE)
-
-option(HDI_BUILD_VISUALIZATION "Build the visualization library" ON)
+# Define available options
 option(HDI_USE_ROARING "Use roaring bitmaps" ON)
+option(HDI_BUILD_VISUALIZATION "Build the visualization library" ON)
+option(HDI_BUILD_CLI "Build command line tools" ON)
 
-option(APP_TDD "Build TDD" ON)
-option(APP_COMMAND_LINE "Build command line tools" ON)
-option(APP_VISUAL_TESTS "Build visual tests" ON)
-
+# Toggle use of roaring
 if (HDI_USE_ROARING)
-    add_definitions(-DPREPROC_USE_ROARING)
+  find_package(roaring REQUIRED)
+  add_definitions(-DPREPROC_USE_ROARING)
 endif(HDI_USE_ROARING)
 
-if(HDI_BUILD_VISUALIZATION)
-    add_subdirectory (hdi/visualization)
-endif(HDI_BUILD_VISUALIZATION)
-add_subdirectory (hdi/dimensionality_reduction)
-add_subdirectory (hdi/clustering)
+# Find required packages
+find_package(flann REQUIRED)
+find_package(OpenMP REQUIRED)
+
+# Add OpenMP, if available
+if (OPENMP_FOUND)
+  message (STATUS "OpenMP found")
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif(OPENMP_FOUND)
+
+# Disable some MSVC warnings GCC doesn't usually throw (yeah yeah I know)
+if (MSVC)
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
+endif(MSVC)
+
+# Add subdirectories where code is located
 add_subdirectory (hdi/data)
 add_subdirectory (hdi/utils)
-add_subdirectory (hdi/analytics)
-
-#########################################
-########### APPLICATIONS ################
-#########################################
-
-if(APP_TDD)
-    add_subdirectory (applications/tdd)
-endif(APP_TDD)
-
-if(APP_COMMAND_LINE)
+# add_subdirectory (hdi/analytics)
+add_subdirectory (hdi/dimensionality_reduction)
+add_subdirectory (hdi/clustering)
+if(HDI_BUILD_VISUALIZATION)
+  add_subdirectory (hdi/visualization)
+endif(HDI_BUILD_VISUALIZATION)
+if(HDI_BUILD_CLI)
     add_subdirectory (applications/command_line_tools)
-    add_subdirectory (applications/command_line_tools/hsne_volume_analyzer)
     add_subdirectory (applications/command_line_tools/data_conversion)
-    if (HDI_USE_ROARING)
-        add_subdirectory (applications/command_line_tools/waow_visualization)
-    endif(HDI_USE_ROARING)
-endif(APP_COMMAND_LINE)
-
-if(APP_VISUAL_TESTS)
-    add_subdirectory (applications/visual_tests)
-endif(APP_VISUAL_TESTS)
+endif(HDI_BUILD_CLI)

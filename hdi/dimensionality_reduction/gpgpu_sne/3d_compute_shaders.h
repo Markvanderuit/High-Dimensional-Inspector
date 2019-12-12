@@ -1,3 +1,5 @@
+#pragma once
+
 #define GLSL_LOCAL_SIZE 128
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 

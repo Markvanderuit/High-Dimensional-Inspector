@@ -4,6 +4,8 @@
 #include <vector>
 #include <iostream>
 #include <cstdint>
+#include <string>
+#include <array>
 
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 // #define STENCIL_TEST // Perform stencil test

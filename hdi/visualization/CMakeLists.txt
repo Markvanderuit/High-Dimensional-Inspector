@@ -1,4 +1,7 @@
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+cmake_minimum_required (VERSION 3.11)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include_directories ("${CMAKE_SOURCE_DIR}")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}")
@@ -16,8 +19,6 @@ endif(APPLE)
 
 find_package(Qt5Widgets REQUIRED)
 find_package(Qt5OpenGL REQUIRED)
-find_package(Qt5WebKit REQUIRED)
-find_package(Qt5WebKitWidgets REQUIRED)
 
 # Gather list of all .h files in "/"
 file(GLOB HeaderFiles *.h)
@@ -25,22 +26,17 @@ file(GLOB QOBJHeaderFiles *_qobj.h)
 file(GLOB SourceFiles *.cpp)
 file(GLOB FormFiles *.ui)
 file(GLOB ResourceFiles *.qrc)
-file(GLOB_RECURSE WebFiles "web/*")
 
 qt5_wrap_ui(UiHeaders ${FormFiles})
 qt5_wrap_cpp(MocSources ${QOBJHeaderFiles})
 qt5_add_resources(Resources ${ResourceFiles})
 
-add_library(hdivisualization STATIC ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSources} ${Resources} ${WebFiles})
+add_library(hdivisualization STATIC ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSources} ${Resources})
 
 SET_TARGET_PROPERTIES(hdivisualization PROPERTIES LINKER_LANGUAGE CXX)
-
 target_link_libraries (hdivisualization Qt5::Widgets)
 target_link_libraries (hdivisualization Qt5::OpenGL)
-target_link_libraries (hdivisualization Qt5::WebKit)
-target_link_libraries (hdivisualization Qt5::WebKitWidgets)
 target_link_libraries (hdivisualization hdiutils)
-
 
 ########### INSTALL ##############
 install (TARGETS hdivisualization DESTINATION bin/hdi)

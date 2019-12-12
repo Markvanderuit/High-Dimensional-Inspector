@@ -32,7 +32,7 @@
 
 #include "hdi/visualization/pointcloud_drawer_labels.h"
 #include <QOpenGLFunctions>
-#include <QOpenGLExtraFunctions>
+// #include <QOpenGLExtraFunctions>
 #include "opengl_helpers.h"
 #include "hdi/utils/assert_by_exception.h"
 
@@ -122,7 +122,7 @@ namespace hdi{
         _program->setUniformValue(_alpha_uniform, _alpha);
 
         QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
-        QOpenGLExtraFunctions glExtraFuncs(QOpenGLContext::currentContext());
+        // QOpenGLExtraFunctions glExtraFuncs(QOpenGLContext::currentContext());
         glFuncs.glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 
         _program->enableAttributeArray(_coords_attribute);

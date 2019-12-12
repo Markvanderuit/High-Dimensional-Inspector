@@ -2,6 +2,7 @@
 
 #ifndef __APPLE
 
+#include <array>
 #include <iostream>
 #include <QMatrix4x4>
 #include "hdi/utils/glad/glad.h"

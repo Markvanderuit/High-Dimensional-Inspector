@@ -101,15 +101,15 @@ void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filenam
     throw std::runtime_error("data file cannot be found");
   }
 
-  for (int j = 0; j < num_dims; ++j) {
+  for (size_t j = 0; j < num_dims; ++j) {
     panel_data.addDimension(std::make_shared<hdi::data::EmptyData>());
   }
   panel_data.initialize();
 
   {
-    for (int j = 0; j < num_points; ++j) {
+    for (size_t j = 0; j < num_points; ++j) {
       std::vector<scalar_type> input_data(num_dims);
-      for (int i = 0; i < num_dims; ++i) {
+      for (size_t i = 0; i < num_dims; ++i) {
         float appo;
         file_data.read((char*)&appo, 4);
         input_data[i] = scalar_type(appo);

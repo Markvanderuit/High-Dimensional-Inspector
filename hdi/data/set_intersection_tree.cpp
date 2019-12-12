@@ -34,7 +34,7 @@
 
 #include "hdi/data/set_intersection_tree.h"
 #include <numeric>
-
+#include <algorithm>
 
 namespace hdi{
   namespace data{
@@ -163,7 +163,8 @@ namespace hdi{
       _distances.resize(sets.size());
 
       std::iota(_idxes.begin(),_idxes.end(),0);
-      std::random_shuffle (_idxes.begin(), _idxes.end());
+      // std::random_shuffle(_idxes.begin(), _idxes.end());
+      std::shuffle(_idxes.begin(), _idxes.end(), urng);
 
       _num_nodes = 0;
       _max_depth = 0;

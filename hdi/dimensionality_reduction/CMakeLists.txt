@@ -1,3 +1,5 @@
+cmake_minimum_required (VERSION 3.11)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -36,8 +38,8 @@ else()
   endif()
 endif()
 
-include_directories("$ENV{FLANN_DIR}/include")
-message (STATUS "$ENV{FLANN_DIR}/include")
+# include_directories("$ENV{FLANN_DIR}/include")
+# message (STATUS "$ENV{FLANN_DIR}/include")
 
 find_package(Qt5 REQUIRED  Gui  Core)
 
@@ -46,7 +48,7 @@ file(GLOB HeaderFiles *.h gpgpu_sne/*.h)
 file(GLOB SourceFiles *.cpp gpgpu_sne/*.cpp)
 
 add_library (hdidimensionalityreduction ${HeaderFiles} ${SourceFiles} )
-target_link_libraries (hdidimensionalityreduction Qt5::Core Qt5::Gui)
+target_link_libraries (hdidimensionalityreduction Qt5::Core Qt5::Gui flann::flann)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction DESTINATION bin/hdi)

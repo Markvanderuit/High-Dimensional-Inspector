@@ -135,7 +135,7 @@ namespace hdi::dr {
           const double v = 1. / (1. + euclidean_dist_sq);
 
           double p = pij.second / (2 * n);
-          float klc = p * std::log(p / (v / sum_Q));
+          double klc = p * std::log(p / (v / sum_Q));
           kl += klc;
         }
       }

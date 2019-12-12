@@ -1,3 +1,4 @@
+#pragma once
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 
 const char* interp_fields_source = GLSL(430,

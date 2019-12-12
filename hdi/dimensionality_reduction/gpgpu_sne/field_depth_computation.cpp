@@ -3,6 +3,7 @@
 #include "hdi/utils/visual_utils.h"
 #include <algorithm>
 #include <QMatrix4x4>
+#include <string>
 
 #define GLSL(version, shader)  "#version " #version "\n" #shader
 #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations

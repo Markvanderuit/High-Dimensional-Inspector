@@ -46,13 +46,13 @@ namespace hdi::dr {
     LP.neighbours.reserve(500 * embedding->numDataPoints());
     LP.probabilities.reserve(500 * embedding->numDataPoints());
 
-    for (int i = 0; i < embedding->numDataPoints(); i++) {
-      LP.indices.push_back(LP.neighbours.size());\
+    for (size_t i = 0; i < embedding->numDataPoints(); i++) {
+      LP.indices.push_back(static_cast<int>(LP.neighbours.size()));\
       for (const auto& p_ij : P[i]) {
         LP.neighbours.push_back(p_ij.first);
         LP.probabilities.push_back(p_ij.second);
       }
-      LP.indices.push_back(P[i].size());
+      LP.indices.push_back(static_cast<int>(P[i].size()));
     }
     return LP;
   }

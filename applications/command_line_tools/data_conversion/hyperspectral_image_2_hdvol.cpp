@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
       if(desired_channels == channels){
         std::iota(channel_ids.begin(),channel_ids.end(),0);
       }else{
-        for(int c = 0; c < desired_channels; ++c){
+        for(size_t c = 0; c < desired_channels; ++c){
           channel_ids[c] = float(channels)/desired_channels*c;
         }
       }

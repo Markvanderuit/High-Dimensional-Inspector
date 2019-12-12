@@ -71,14 +71,14 @@ namespace hdi{
     template <typename scalar_type>
     void Embedding<scalar_type>::computeEmbeddingBBox(scalar_vector_type& limits, scalar_type offset, bool squared_limits){
       limits.resize(_num_dimensions * 2);
-      for(int d = 0; d < _num_dimensions; ++d){
+      for(size_t d = 0; d < _num_dimensions; ++d){
         limits[d*2] = std::numeric_limits<scalar_type>::max();
         limits[d*2+1] = -std::numeric_limits<scalar_type>::max();
       }
 
-      for(int i = 0; i < _num_data_points; ++i){
-        for(int d = 0; d < _num_dimensions; ++d){
-          int idx = i * (_num_dimensions + _padding) + d;
+      for(size_t i = 0; i < _num_data_points; ++i){
+        for(size_t d = 0; d < _num_dimensions; ++d){
+          size_t idx = i * (_num_dimensions + _padding) + d;
           auto v = _embedding[idx];
           if(v < limits[d*2]){
             limits[d*2] = v;
@@ -94,7 +94,7 @@ namespace hdi{
       }
 
       scalar_type max_dist = 0;
-      for(int d = 0; d < _num_dimensions; ++d){
+      for(size_t d = 0; d < _num_dimensions; ++d){
         auto diff = limits[d*2+1] - limits[d*2];
         limits[d*2] -= diff*offset/2;
         limits[d*2+1] += diff*offset/2;
@@ -102,10 +102,10 @@ namespace hdi{
       }
 
       if(squared_limits){
-        for(int d = 0; d < _num_dimensions; ++d){
-          auto central_pnt = (limits[d*2+1] + limits[d*2]) * 0.5;
-          limits[d*2]   = central_pnt - max_dist/2/(1-offset);
-          limits[d*2+1]   = central_pnt + max_dist/2/(1-offset);
+        for(size_t d = 0; d < _num_dimensions; ++d){
+          auto central_pnt = (limits[d*2+1] + limits[d*2]) * 0.5f;
+          limits[d*2] = central_pnt - max_dist/2/(1-offset);
+          limits[d*2+1] = central_pnt + max_dist/2/(1-offset);
         }
       }
     }
@@ -117,8 +117,8 @@ namespace hdi{
       }
 
       scalar_vector_type embedding(_num_data_points * (_num_dimensions));
-      for(int i = 0; i < _num_data_points; ++i){
-        for(int d = 0; d < _num_dimensions; ++d){
+      for(size_t i = 0; i < _num_data_points; ++i){
+        for(size_t d = 0; d < _num_dimensions; ++d){
           embedding[i * _num_dimensions + d] = _embedding[i * (_num_dimensions + _padding) + d];
         }
       }
@@ -134,13 +134,13 @@ namespace hdi{
       computeEmbeddingBBox(limits);
 
       scalar_vector_type shifts(_num_dimensions,0);
-      for(int d = 0; d < _num_dimensions; ++d){
-        shifts[d] = -0.5*(limits[d*2+1]+limits[d*2]);
+      for(size_t d = 0; d < _num_dimensions; ++d){
+        shifts[d] = -0.5 * (limits[d*2+1] + limits[d*2]);
       }
 
-      for(int i = 0; i < _num_data_points; ++i){
-        for(int d = 0; d < _num_dimensions; ++d){
-          int idx = i*(_num_dimensions + _padding)+d;
+      for(size_t i = 0; i < _num_data_points; ++i){
+        for(size_t d = 0; d < _num_dimensions; ++d){
+          size_t idx = i * (_num_dimensions + _padding) + d;
           _embedding[idx] += shifts[d];
         }
       }
