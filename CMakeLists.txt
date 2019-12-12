@@ -19,7 +19,7 @@ endif(HDI_USE_ROARING)
 
 # For FLANN on unix/linux
 if (UNIX)
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
+  set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
 endif(UNIX)
 
 # Find required packages
