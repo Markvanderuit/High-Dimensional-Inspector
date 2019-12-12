@@ -1,7 +1,7 @@
 #ifndef __APPLE__
 
 #include "gpgpu_sne_compute.h"
-#include "compute_shaders.glsl"
+#include "compute_shaders.h"
 #include <vector>
 #include <limits>
 #include <iostream>
@@ -36,7 +36,7 @@ namespace hdi {
 
     GpgpuSneCompute::GpgpuSneCompute() :
       _initialized(false),
-      _adaptive_resolution(false),
+      _adaptive_resolution(true),
       _resolutionScaling(PIXEL_RATIO)
     {
       // ...

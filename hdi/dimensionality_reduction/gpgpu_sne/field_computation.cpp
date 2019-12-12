@@ -8,7 +8,6 @@
 #include <array>
 
 #define GLSL(version, shader)  "#version " #version "\n" #shader
-// #define STENCIL_TEST // Perform stencil test
 
 const char* point_vert = GLSL(330,
   layout(location = 0) in vec2 point;
@@ -90,7 +89,6 @@ const char* gpgpu_compute_fields_source = GLSL(430,
     uint y = gl_WorkGroupID.y;
     uint lid = gl_LocalInvocationIndex.x;
     
-#ifdef STENCIL_TEST
     float mask = imageLoad(Stencil, ivec2(x, y)).x;
     if (mask == 0.f) {
       if (lid == 0) {
@@ -98,8 +96,6 @@ const char* gpgpu_compute_fields_source = GLSL(430,
       }
       return;
     }
-#endif // STENCIL_TEST
-
 
     vec2 min_bounds = Bounds[0];
     vec2 max_bounds = Bounds[1];
@@ -358,7 +354,6 @@ void ComputeFieldComputation::clean()
 
 void ComputeFieldComputation::compute(unsigned int width, unsigned int height, float function_support, unsigned int num_points, GLuint position_buffer, GLuint bounds_buffer, float minx, float miny, float maxx, float maxy)
 {
-#ifdef STENCIL_TEST
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, _stencil_texture);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, nullptr);
@@ -378,7 +373,6 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
   glDrawArrays(GL_POINTS, 0, num_points);
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#endif // STENCIL_TEST
 
   // Field computation
   glActiveTexture(GL_TEXTURE0);
@@ -402,10 +396,9 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
 
   glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
-  #define field_image_output
+  // #define field_image_output
   #ifdef field_image_output
   if (_iteration % 100 == 0) {
-#ifdef STENCIL_TEST
     // Stencil
     {
       std::vector<float> stencil(width * height, 0.f);
@@ -415,7 +408,7 @@ void ComputeFieldComputation::compute(unsigned int width, unsigned int height, f
       normalize(stencil);
       hdi::utils::valuesToImage(name + std::to_string(_iteration), stencil, width, height, 1);
     }
-#endif // STENCIL_TEST
+    
     // Fields
     {
       std::vector<float> field(width * height * 4, 0.f);
