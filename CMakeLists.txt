@@ -1,5 +1,12 @@
 cmake_minimum_required (VERSION 3.10)
 
+# Fnd VCPKG on vcpkgRoot env variable, src: https://gist.github.com/caiorss/724942d43cd11c6ee5b3461ac067c846
+if (DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+  CACHE STRING "")
+  message(" [INFO] VCPKG CMAKE_TOOLCHAIN_FILE = ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 # Enforce c++ 17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,7 +49,6 @@ endif(MSVC)
 # Add subdirectories where code is located
 add_subdirectory (hdi/data)
 add_subdirectory (hdi/utils)
-# add_subdirectory (hdi/analytics)
 add_subdirectory (hdi/dimensionality_reduction)
 add_subdirectory (hdi/clustering)
 if(HDI_BUILD_VISUALIZATION)
