@@ -89,7 +89,7 @@ namespace hdi::dr {
     }
 
     // Set the current logger
-    void setLogger(utils::AbstractLog* logger) {
+    virtual void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
     }
 

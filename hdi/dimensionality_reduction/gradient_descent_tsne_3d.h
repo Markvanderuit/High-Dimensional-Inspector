@@ -55,6 +55,11 @@ namespace hdi::dr {
 
     void iterate(double mult = 1.0) override;
 
+    void setLogger(utils::AbstractLog* logger) override {
+      _logger = logger; 
+      _gpgpu_3d_sne_compute.setLogger(logger);
+    }
+
     Bounds3D bounds() const {
       return _gpgpu_3d_sne_compute.bounds();
     }
@@ -63,8 +68,8 @@ namespace hdi::dr {
     double computeExaggeration();
 
     // Underlying implementation
-    // GpgpuDepthSneCompute _gpgpu_3d_sne_compute;
-    Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
+    GpgpuDepthSneCompute _gpgpu_3d_sne_compute;
+    // Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
   };
 }
 
