@@ -125,7 +125,8 @@ namespace  hdi::dr {
       // Attach shaders
       _programs[PROGRAM_INTERP_FIELDS].addShader(COMPUTE, depth_3D_interpolation_src);
       _programs[PROGRAM_SUM_Q].addShader(COMPUTE, depth_sumq_src);
-      _programs[PROGRAM_FORCES].addShader(COMPUTE, depth_forces_src);
+      _programs[PROGRAM_POSITIVE_FORCES].addShader(COMPUTE, depth_positive_forces_src);
+      _programs[PROGRAM_GRADIENTS].addShader(COMPUTE, depth_gradients_src);
       _programs[PROGRAM_UPDATE].addShader(COMPUTE, depth_update_src);
       _programs[PROGRAM_BOUNDS].addShader(COMPUTE, depth_bounds_src);
       _programs[PROGRAM_CENTERING].addShader(COMPUTE, depth_centering_src);
@@ -171,6 +172,9 @@ namespace  hdi::dr {
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_INDEX]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, LP.indices.size() * sizeof(int), LP.indices.data(), GL_STATIC_DRAW);
+
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITIVE_FORCES]);
+      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_GRADIENTS]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
@@ -266,7 +270,7 @@ namespace  hdi::dr {
     // Update timer handles 
     updateTimer(TIMER_INTERP_FIELDS, iteration);
     updateTimer(TIMER_SUM_Q, iteration);
-    updateTimer(TIMER_FORCES, iteration);
+    updateTimer(TIMER_GRADIENTS, iteration);
     updateTimer(TIMER_UPDATE, iteration);
     updateTimer(TIMER_BOUNDS, iteration);
     updateTimer(TIMER_CENTERING, iteration);
@@ -280,7 +284,7 @@ namespace  hdi::dr {
       // Output timer averages
       reportTimer(TIMER_INTERP_FIELDS, "Interp", iteration);
       reportTimer(TIMER_SUM_Q, "Sum Q", iteration);
-      reportTimer(TIMER_FORCES, "Forces", iteration);
+      reportTimer(TIMER_GRADIENTS, "Grads", iteration);
       reportTimer(TIMER_UPDATE, "Update", iteration);
       reportTimer(TIMER_BOUNDS, "Bounds", iteration);
       reportTimer(TIMER_CENTERING, "Center", iteration);
@@ -389,29 +393,50 @@ namespace  hdi::dr {
   }
 
   void GpgpuDepthSneCompute::computeGradients(unsigned n, float sum_Q, float exaggeration) {
-    auto& program = _programs[PROGRAM_FORCES];
-    program.bind();
+    startTimer(TIMER_GRADIENTS);
 
-    // Bind buffers for this shader
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_NEIGHBOUR]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_PROBABILITIES]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_INDEX]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFFER_INTERP_FIELDS]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers[BUFFER_GRADIENTS]);
+    // Reduce add positive forces (performance hog, 60K reduce-adds over ~250 points)
+    {
+      auto& program = _programs[PROGRAM_POSITIVE_FORCES];
+      program.bind();
 
-    // Bind uniforms for this shader
-    program.uniform1f("exaggeration", exaggeration);
-    program.uniform1f("sum_Q", sum_Q);
-    program.uniform1f("inv_sum_Q", 1.0f / sum_Q);
+      // Bind buffers for this shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_NEIGHBOUR]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_PROBABILITIES]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_INDEX]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFFER_POSITIVE_FORCES]);
 
-    // Run shader
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    startTimer(TIMER_FORCES);
-    glDispatchCompute(n, 1, 1);
+      // Run shader
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      glDispatchCompute(n, 1, 1);
+
+      program.release();
+    }
+
+    // Compute gradients
+    {    
+      auto& program = _programs[PROGRAM_GRADIENTS];
+      program.bind();
+
+      // Bind buffers for this shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITIVE_FORCES]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_INTERP_FIELDS]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_GRADIENTS]);
+
+      // Bind uniforms for this shader
+      program.uniform1f("exaggeration", exaggeration);
+      program.uniform1f("sum_Q", sum_Q);
+      program.uniform1f("inv_sum_Q", 1.0f / sum_Q);
+
+      // Run shader
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      glDispatchCompute(128, 1, 1);
+
+      program.release();
+    }
+
     stopTimer();
-
-    program.release();
   }
 
   void GpgpuDepthSneCompute::updatePoints(unsigned n, unsigned iteration, float mult) {

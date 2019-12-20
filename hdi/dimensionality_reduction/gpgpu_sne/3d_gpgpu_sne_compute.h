@@ -4,7 +4,6 @@
 
 #include <array>
 #include <cstdlib>
-#include "hdi/utils/glad/glad.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "field_computation.h"

@@ -5,7 +5,6 @@
 #include <array>
 #include <QMatrix4x4>
 #include "hdi/utils/abstract_log.h"
-#include "hdi/utils/glad/glad.h"
 #include "hdi/data/shader.h"
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
@@ -65,6 +64,7 @@ namespace hdi::dr {
       BUFFER_NEIGHBOUR,
       BUFFER_PROBABILITIES,
       BUFFER_INDEX,
+      BUFFER_POSITIVE_FORCES,
       BUFFER_GRADIENTS,
       BUFFER_PREV_GRADIENTS,
       BUFFER_GAIN,
@@ -79,7 +79,8 @@ namespace hdi::dr {
       // Enums matching to shader programs in _programs array
       PROGRAM_INTERP_FIELDS,
       PROGRAM_SUM_Q,
-      PROGRAM_FORCES,
+      PROGRAM_POSITIVE_FORCES,
+      PROGRAM_GRADIENTS,
       PROGRAM_UPDATE,
       PROGRAM_BOUNDS,
       PROGRAM_CENTERING,
@@ -102,7 +103,7 @@ namespace hdi::dr {
       // Enums matching to timers 
       TIMER_INTERP_FIELDS,
       TIMER_SUM_Q,
-      TIMER_FORCES,
+      TIMER_GRADIENTS,
       TIMER_UPDATE,
       TIMER_BOUNDS,
       TIMER_CENTERING,

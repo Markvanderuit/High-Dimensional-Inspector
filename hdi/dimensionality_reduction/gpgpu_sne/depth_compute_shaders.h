@@ -252,25 +252,21 @@ GLSL(depth_centering_src, 430,
   }
 );
 
-GLSL(depth_forces_src, 430,
+GLSL(depth_positive_forces_src, 430,
+  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer Neigh { uint Neighbours[]; };
   layout(std430, binding = 2) buffer Prob { float Probabilities[]; };
   layout(std430, binding = 3) buffer Ind { int Indices[]; };
-  layout(std430, binding = 4) buffer Fiel { vec4 Fields[]; };
-  layout(std430, binding = 5) buffer Grad { vec3 Gradients[]; };
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(std430, binding = 4) buffer Posit { vec3 PositiveForces[]; };
 
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = gl_WorkGroupSize.x / 2;
   uniform uint num_points;
-  uniform float exaggeration;
-  uniform float sum_Q;
-  uniform float inv_sum_Q;
   uniform float inv_num_points;
-  shared vec3 sum_positive_red[halfGroupSize];
+  shared vec3 reduction_array[halfGroupSize];
 
-  void main() {
+  void main () {
     const uint i = gl_WorkGroupID.x;
     const uint lid = gl_LocalInvocationID.x;
     if (i >= num_points) {
@@ -301,23 +297,43 @@ GLSL(depth_forces_src, 430,
 
     // Reduce add sum_positive_red to a single value
     if (lid >= halfGroupSize) {
-      sum_positive_red[lid - halfGroupSize] = positive_force;
+      reduction_array[lid - halfGroupSize] = positive_force;
     }
     barrier();
     if (lid < halfGroupSize) {
-      sum_positive_red[lid] += positive_force;
+      reduction_array[lid] += positive_force;
     }
     for (uint reduceSize = halfGroupSize / 2; reduceSize > 1; reduceSize /= 2) {
       barrier();
       if (lid < reduceSize) {
-        sum_positive_red[lid] += sum_positive_red[lid + reduceSize];
+        reduction_array[lid] += reduction_array[lid + reduceSize];
       }
     }
     barrier();
     if (lid < 1) {
-      vec3 sum_positive = sum_positive_red[0] + sum_positive_red[1];
+      PositiveForces[i] = reduction_array[0] + reduction_array[1];
+    } 
+  }
+);
+
+GLSL(depth_gradients_src, 430,
+  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(std430, binding = 0) buffer Posit { vec3 PositiveForces[]; };
+  layout(std430, binding = 1) buffer Fiel { vec4 Fields[]; };
+  layout(std430, binding = 2) buffer Grad { vec3 Gradients[]; };
+
+  uniform uint num_points;
+  uniform float exaggeration;
+  uniform float sum_Q;
+  uniform float inv_sum_Q;
+
+  void main() {
+    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+          i < num_points;
+          i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
+      vec3 sum_positive = PositiveForces[i];
       vec3 sum_negative = Fields[i].yzw * inv_sum_Q;
-      Gradients[i] = 4 * (exaggeration * sum_positive - sum_negative);
-    }   
+      Gradients[i] = 4.f * (exaggeration * sum_positive - sum_negative);
+    }
   }
 );

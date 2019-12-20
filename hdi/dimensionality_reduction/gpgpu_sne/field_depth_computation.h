@@ -5,7 +5,6 @@
 #include <array>
 #include <iostream>
 #include <QMatrix4x4>
-#include "hdi/utils/glad/glad.h"
 #include "hdi/data/shader.h"
 #include "3d_utils.h"
 

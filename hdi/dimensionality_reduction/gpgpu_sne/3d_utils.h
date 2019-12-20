@@ -5,6 +5,7 @@
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
 #include "hdi/utils/scoped_timers.h"
+#include "hdi/utils/glad/glad.h"
 
 namespace hdi::dr {
   // Internal types
@@ -64,7 +65,7 @@ namespace hdi::dr {
     }
     return LP;
   }
-
+  
   // For aggressive debugging
   inline void glAssert(const std::string& msg) {
     GLenum err; 
