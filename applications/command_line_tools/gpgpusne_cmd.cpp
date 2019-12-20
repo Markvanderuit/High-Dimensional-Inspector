@@ -167,7 +167,6 @@ int main(int argc, char *argv[]) {
 
     // Parse arguments
     std::string inputFileName = args.at(0).toStdString();
-    // std::string probDistFileName = inputFileName + "_P";
     std::string outputFileName = args.at(1).toStdString();
     
     unsigned num_data_points = std::atoi(args.at(2).toStdString().c_str());
@@ -203,40 +202,38 @@ int main(int argc, char *argv[]) {
     tsne_params._seed = 1;
     tsne_params._perplexity = static_cast<double>(perplexity);
     tsne_params._embedding_dimensionality = embedding_dimensions;
+    tsne_params._iterations = iterations;
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
 
-    // std::ifstream inputFile(args[0].toStdString(), std::ios::in | std::ios::binary | std::ios::ate);
-
     // Compute probability distribution or load from file if it is cached
-    // std::ifstream input_file(probDistFileName, std::ios::binary);
-    // if (input_file.is_open())
-    // {
-    //   hdi::utils::secureLog(&log, "Loading probability distribution from file...");
-    //   hdi::data::IO::loadSparseMatrix(distributions, input_file);
-    // }
-    // else
-    // {
+    std::string cacheFileName = inputFileName + "_cache_p" + std::to_string(perplexity);
+    std::ifstream cacheFile(cacheFileName, std::ios::binary);
+    if (cacheFile.is_open()) { // There IS a cache file already
+      hdi::utils::secureLog(&log, "Loading probability distribution from cache file...");
+      hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
+    } else  { // No cache file, start from scratch
       // Load the input data
       hdi::utils::secureLog(&log, "Loading original data...");
       loadData(panel_data, inputFileName, num_data_points, num_dimensions);
 
+      // Compute probability distribution
       hdi::utils::secureLog(&log, "Computing probability distribution...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
       prob_gen.setLogger(&log);
       prob_gen_param._perplexity = perplexity;
       prob_gen.computeProbabilityDistributions(panel_data.getData().data(), panel_data.numDimensions(), panel_data.numDataPoints(), distributions, prob_gen_param);
 
-      // std::ofstream output_file(probDistFileName, std::ios::binary);
-      // hdi::data::IO::saveSparseMatrix(distributions, output_file);
-    // }
+      // Store probability distribution in cache file
+      std::ofstream outputFile(cacheFileName, std::ios::binary);
+      hdi::data::IO::saveSparseMatrix(distributions, outputFile);
+    }
 
     // Create offscreen buffer for OpenGL context
     OffscreenBuffer offscreen;
     offscreen.bindContext();
 
     // Compute embedding
-    hdi::utils::secureLog(&log, "Initializing t-SNE...");
     std::unique_ptr<hdi::dr::AbstractGradientDescentTSNE> tSNE;
     if (tsne_params._embedding_dimensionality == 2) {
       tSNE = std::make_unique<hdi::dr::GradientDescentTSNETexture>();
@@ -254,6 +251,8 @@ int main(int argc, char *argv[]) {
         tSNE->iterate();
       }
     }
+    
+    hdi::utils::secureLog(&log, "Removing padding from embedding data...");  
     embedding.removePadding();
 
     double KL = tSNE->computeKullbackLeiblerDivergence();
@@ -276,7 +275,7 @@ int main(int argc, char *argv[]) {
     hdi::utils::secureLogValue(&log, "Gradient descent (sec)", gradient_desc_comp_time);
     hdi::utils::secureLogValue(&log, "Data saving (sec)", data_saving_time);
 
-    app.exec();
+    return app.exec();
   }
   catch (std::logic_error& ex) { std::cout << "Logic error: " << ex.what() << std::endl; }
   catch (std::runtime_error& ex) { std::cout << "Runtime error: " << ex.what() << std::endl; }

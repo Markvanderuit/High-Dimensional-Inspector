@@ -155,16 +155,13 @@ int main(int argc, char *argv[]) {
       auto ptr = std::make_unique<hdi::viz::PointcloudDrawerLabels>();
       ptr->initialize(viewer.context());
       ptr->setData(data.data(), labels.data(), palette, num_data_points);
-      // ptr->setData(data.data(), flags.data(), num_data_points);
-      ptr->setAlpha(0.85);
-      ptr->setPointSize(4);
+      ptr->setPointSize(5);
       drawer_ptr = std::move(ptr);
     } else {
       auto ptr = std::make_unique<hdi::viz::PointcloudDrawerFixedColor>();
       ptr->initialize(viewer.context());
       ptr->setData(data.data(), num_data_points);
-      ptr->setAlpha(0.85);
-      ptr->setPointSize(4);
+      ptr->setPointSize(5);
       drawer_ptr = std::move(ptr);
     }
     viewer.addDrawer(drawer_ptr.get());
