@@ -1,9 +1,10 @@
 #pragma once
-
 #define GLSL_LOCAL_SIZE 128
-#define GLSL(version, shader)  "#version " #version "\n" #shader
+#define GLSL(name, version, shader) \
+  static const char * name = \
+  "#version " #version "\n" #shader
 
-const char* sumq_src = GLSL(430,
+GLSL(sumq_src, 430,
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Val { vec4 Values[]; };
   layout(std430, binding = 1) buffer SumQ { float Sum[]; };
@@ -44,7 +45,7 @@ const char* sumq_src = GLSL(430,
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
-const char* interpolation_src = GLSL(430,
+GLSL(interpolation_src, 430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer Val { vec4 Values[]; };
   layout(std430, binding = 2) buffer BoundsInterface { 
@@ -75,7 +76,7 @@ const char* interpolation_src = GLSL(430,
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
-const char* forces_src = GLSL(430,
+GLSL(forces_src, 430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer Neigh { uint Neighbours[]; };
   layout(std430, binding = 2) buffer Prob { float Probabilities[]; };
@@ -85,7 +86,8 @@ const char* forces_src = GLSL(430,
   layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
   const uint groupSize = gl_WorkGroupSize.x;
-  shared vec3 sum_positive_red[groupSize];
+  const uint halfGroupSize = gl_WorkGroupSize.x / 2;
+  shared vec3 sum_positive_red[halfGroupSize];
   uniform uint num_points;
   uniform float exaggeration;
   uniform float sum_Q;
@@ -104,7 +106,7 @@ const char* forces_src = GLSL(430,
     // Get the point coordinates
     vec3 point_i = Positions[i];
 
-    //computing positive forces
+    // Computing positive forces
     vec3 sum_positive = vec3(0);
 
     int index = Indices[i * 2 + 0];
@@ -126,15 +128,14 @@ const char* forces_src = GLSL(430,
     }
 
     // Reduce add sum_positive_red to a single value
-    if (lid >= 32) {
-      sum_positive_red[lid - 32] = positive_force;
+    if (lid >= halfGroupSize) {
+      sum_positive_red[lid - halfGroupSize] = positive_force;
     }
     barrier();
-    if (lid < 32) {
+    if (lid < halfGroupSize) {
       sum_positive_red[lid] += positive_force;
     }
-    for (uint reduceSize = groupSize / 4; reduceSize > 1; reduceSize /= 2)
-    {
+    for (uint reduceSize = halfGroupSize / 2; reduceSize > 1; reduceSize /= 2) {
       barrier();
       if (lid < reduceSize) {
         sum_positive_red[lid] += sum_positive_red[lid + reduceSize];
@@ -150,7 +151,7 @@ const char* forces_src = GLSL(430,
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
-const char* update_src = GLSL(430,
+GLSL(update_src, 430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer GradientLayout { vec3 Gradients[]; };
   layout(std430, binding = 2) buffer PrevGradientLayout { vec3 PrevGradients[]; };
@@ -180,8 +181,7 @@ const char* update_src = GLSL(430,
   }
 
   void main() {
-    uint workGroupID = gl_WorkGroupID.x;
-    uint i = workGroupID * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
 
     if (i >= num_points) {
       return;
@@ -206,7 +206,7 @@ const char* update_src = GLSL(430,
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
-const char* bounds_src = GLSL(430,
+GLSL(bounds_src, 430,
   layout(std430, binding = 0) buffer Pos{ vec3 positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
     vec3 minBounds;
@@ -276,7 +276,7 @@ const char* bounds_src = GLSL(430,
 );
 
 // Copied from compute_shader.glsl, adapted for 3d
-const char* centering_src = GLSL(430,
+GLSL(centering_src, 430,
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
     vec3 minBounds;

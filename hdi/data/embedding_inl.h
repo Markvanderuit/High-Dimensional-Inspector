@@ -117,12 +117,12 @@ namespace hdi{
       }
 
       scalar_vector_type embedding(_num_data_points * (_num_dimensions));
-      for(size_t i = 0; i < _num_data_points; ++i){
-        for(size_t d = 0; d < _num_dimensions; ++d){
+#pragma omp parallel for
+      for(int i = 0; i < _num_data_points; ++i){
+        for(int d = 0; d < _num_dimensions; ++d){
           embedding[i * _num_dimensions + d] = _embedding[i * (_num_dimensions + _padding) + d];
         }
       }
-
       _embedding = embedding;
       _padding = 0;
     }

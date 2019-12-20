@@ -1,7 +1,9 @@
 #pragma once
-#define GLSL(version, shader)  "#version " #version "\n" #shader
+#define GLSL(name, version, shader) \
+  static const char * name = \
+  "#version " #version "\n" #shader
 
-const char* interp_fields_source = GLSL(430,
+GLSL(interp_fields_source, 430,
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer Val { vec4 Values[]; };
   layout(std430, binding = 2) buffer SumB { float Sum[]; };
@@ -70,7 +72,7 @@ const char* interp_fields_source = GLSL(430,
   }
 );
 
-const char* compute_forces_source = GLSL(430,
+GLSL(compute_forces_source, 430,
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer Neigh { uint Neighbours[]; };
   layout(std430, binding = 2) buffer Prob { float Probabilities[]; };
@@ -149,7 +151,7 @@ const char* compute_forces_source = GLSL(430,
   }
 );
 
-const char* update_source = GLSL(430,
+GLSL(update_source, 430,
   layout(std430, binding = 0) buffer Pos{ float Positions[]; };
   layout(std430, binding = 1) buffer GradientLayout { float Gradients[]; };
   layout(std430, binding = 2) buffer PrevGradientLayout { float PrevGradients[]; };
@@ -190,7 +192,7 @@ const char* update_source = GLSL(430,
   }
 );
 
-const char* bounds_source = GLSL(430,
+GLSL(bounds_source, 430,
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { vec2 Bounds[]; };
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
@@ -267,7 +269,7 @@ const char* bounds_source = GLSL(430,
   }
 );
 
-const char* center_and_scale_source = GLSL(430,
+GLSL(center_and_scale_source, 430,
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { vec2 Bounds[]; };
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;

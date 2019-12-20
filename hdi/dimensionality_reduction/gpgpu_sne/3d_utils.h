@@ -31,6 +31,14 @@ namespace hdi::dr {
         max.z - min.z
       };
     }
+
+    Point3D center() {
+      return Point3D {
+        0.5f * (min.x + max.x),
+        0.5f * (min.y + max.y),
+        0.5f * (min.z + max.z), 
+      };
+    }
   };
 
   // Linearized representation of sparse probability matrix

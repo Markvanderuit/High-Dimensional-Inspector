@@ -42,6 +42,7 @@ namespace hdi {
         _seed(-1),
         _rngRange(0.1f),
         _embedding_dimensionality(2),
+        _iterations(1000),
         _minimum_gain(0.1),
         _eta(200),
         _momentum(0.2),
@@ -56,6 +57,7 @@ namespace hdi {
       int _seed;
       float _rngRange;
       int _embedding_dimensionality;
+      int _iterations;
 
       double _minimum_gain;
       double _eta;                                //! constant multiplicator of the gradient
