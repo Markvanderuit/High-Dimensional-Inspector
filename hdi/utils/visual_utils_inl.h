@@ -132,7 +132,7 @@ namespace hdi{
 
     
     template <typename scalar_type>
-    void valuesToImage(const std::string& filename, const std::vector<scalar_type>& v, int w, int h, int c) {
+    void valuesToImage(std::string filename, const std::vector<scalar_type>& v, int w, int h, int c) {
       // Fill image data
       std::vector<uchar> data(w * h * 4, 0);
       if (c == 1) {
@@ -154,12 +154,17 @@ namespace hdi{
         }
       }
 
+      // Attach ".png" to output image
+      const std::string png = ".png";
+      if (!std::equal(png.rbegin(), png.rend(), filename.rbegin())) {
+        filename += png;
+      }
+
       // Construct image
       QImage image(data.data(), w, h, QImage::Format_ARGB32_Premultiplied);
       QImageWriter writer(filename.c_str(), "png");
       if (!writer.canWrite()) {
-        std::cerr << "Could not write!" << std::endl;
-        exit(0);
+        throw std::runtime_error("Cannot write image: " + filename);
       }
       writer.write(image);
     }

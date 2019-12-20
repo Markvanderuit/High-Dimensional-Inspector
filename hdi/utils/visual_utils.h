@@ -49,7 +49,7 @@ namespace hdi{
     QImage imageFromZeroCenteredSparseMatrix(const std::vector<map_type>& sparse_matrix);
 
     template <typename scalar_type>
-    void valuesToImage(const std::string& filename, const std::vector<scalar_type>& v, int w, int h, int c);
+    void valuesToImage(std::string filename, const std::vector<scalar_type>& v, int w, int h, int c);
   }
 }
 

@@ -32,7 +32,6 @@
 
 #include "hdi/visualization/pointcloud_drawer_labels.h"
 #include <QOpenGLFunctions>
-// #include <QOpenGLExtraFunctions>
 #include "opengl_helpers.h"
 #include "hdi/utils/assert_by_exception.h"
 
@@ -52,27 +51,24 @@ namespace hdi{
 
     void PointcloudDrawerLabels::initialize(QGLContext* context){
       const char *vsrc = GLSL(130,
-          in highp vec4 pos_attr;        
-          in highp vec4 col_attr;
+          in highp vec3 pos_attr;        
+          in highp vec3 col_attr;
 
           uniform highp mat4 matrix;          
-          uniform highp float alpha;  
-
-          out lowp vec4 col;    
+          out lowp vec3 col;    
 
           void main() {        
-            gl_Position = matrix * pos_attr;    
+            gl_Position = matrix * vec4(pos_attr, 1);    
             col = col_attr;
-            col.a = alpha;
           }                      
         );
 
       const char *fsrc = GLSL(130,
-          in lowp vec4 col;
+          in lowp vec3 col;
 
-          void main() {      
-            // gl_FragColor = vec4(vec3(col) * (1.f - gl_FragCoord.z), col.a);
-            gl_FragColor = col;
+          void main() {   
+            float f = 1.f - 0.85 * max(0.0, gl_FragCoord.z - 0.15);   
+            gl_FragColor = vec4(col * f, 1);
           }                      
         );
 
@@ -98,40 +94,33 @@ namespace hdi{
 
     void PointcloudDrawerLabels::draw(const point_type& minb, const point_type& maxb, const QQuaternion& rotation){
       checkAndThrowLogic(_initialized,"Shader must be initilized");
-      ScopedCapabilityEnabler blend_helper(GL_BLEND);
-      ScopedCapabilityEnabler depth_test_helper(GL_DEPTH_TEST);
       ScopedCapabilityEnabler point_smooth_helper(GL_POINT_SMOOTH);
       ScopedCapabilityEnabler multisample_helper(GL_MULTISAMPLE);
+      glEnable(GL_DEPTH_TEST);
       glDepthFunc(GL_LESS);
+      glDepthMask(GL_TRUE);
       glPointSize(_point_size);
-      
-      auto diameter = maxb.distanceToPoint(minb);
+
+      auto diameter = std::abs(maxb.distanceToPoint(minb));
       auto mind = -0.5 * diameter;
       auto maxd = 0.5 * diameter;
 
       _program->bind();
-        QMatrix4x4 matrix;
-        matrix.ortho(mind, maxd, mind, maxd, mind, maxd);
-        // matrix.ortho(minb.x(), maxb.x(), minb.y(), maxb.y(), -0.5 * diameter, 05.f * diameter);
+      auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
+      auto up = rotation.rotatedVector(QVector3D(0, 1, 0));
+      QMatrix4x4 matrix;
+      matrix.ortho(mind, maxd, mind, maxd, mind, maxd);
+      matrix.lookAt(eye, QVector3D(0, 0, 0), up);
 
-        auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));
-        auto up = rotation.rotatedVector(QVector3D(0, -1, 0));
-        matrix.lookAt(eye, QVector3D(0, 0, 0), up);
+      _program->setUniformValue(_matrix_uniform, matrix);
 
-        _program->setUniformValue(_matrix_uniform, matrix);
-        _program->setUniformValue(_alpha_uniform, _alpha);
+      QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
+      _program->enableAttributeArray(_coords_attribute);
+      glFuncs.glVertexAttribPointer(_coords_attribute, 3, GL_FLOAT, GL_FALSE, 0, _embedding);
+      _program->enableAttributeArray(_colors_attribute);
+      glFuncs.glVertexAttribPointer(_colors_attribute, 3, GL_FLOAT, GL_FALSE, 0, _colors.data());
 
-        QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
-        // QOpenGLExtraFunctions glExtraFuncs(QOpenGLContext::currentContext());
-        glFuncs.glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-
-        _program->enableAttributeArray(_coords_attribute);
-        glFuncs.glVertexAttribPointer(_coords_attribute, 3, GL_FLOAT, GL_FALSE, 0, _embedding);
-
-        _program->enableAttributeArray(_colors_attribute);
-        glFuncs.glVertexAttribPointer(_colors_attribute, 3, GL_FLOAT, GL_FALSE, 0, _colors.data());
-
-        glDrawArrays(GL_POINTS, 0, _num_points);
+      glDrawArrays(GL_POINTS, 0, _num_points);
       _program->release();
     }
 
