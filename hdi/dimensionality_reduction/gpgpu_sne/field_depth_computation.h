@@ -13,8 +13,21 @@ namespace hdi::dr {
   class DepthFieldComputation {
   private:
     enum TextureType {
-      STENCIL_DEPTH,
-      FIELD
+      // Enum values
+      TEXTURE_DEPTH,
+      TEXTURE_FIELD_3D,
+
+      // Static enum length
+      TextureTypeLength 
+    };
+
+    enum ProgramType {
+      // Enum values
+      PROGRAM_DEPTH,
+      PROGRAM_FIELD_3D,
+
+      // Static enum length
+      ProgramTypeLength
     };
 
   public:
@@ -28,30 +41,28 @@ namespace hdi::dr {
     void clean();
 
     // Compute field and depth textures
-    void compute(unsigned w, unsigned h,
+    void compute(unsigned w, unsigned h, unsigned d,
                  float function_support, unsigned n,
                  GLuint position_buff, GLuint bounds_buff,
                  Bounds3D bounds, QMatrix4x4 view);
 
-    GLuint stencilDepthTexture() const {
-      return _textures[STENCIL_DEPTH];
+    GLuint depthTexture() const {
+      return _textures[TEXTURE_DEPTH];
     }
 
-    GLuint fieldTexture() const {
-      return _textures[FIELD];
+    GLuint field3DTexture() const {
+      return _textures[TEXTURE_FIELD_3D];
     }
 
   private:
     bool _initialized;
     int _iteration;
-
-    ShaderProgram _stencil_program;
-    ShaderProgram _field_program;
+    unsigned _w, _h, _d;
 
     GLuint _point_vao;
-    GLuint _stencil_fbo;
-    GLuint _depth_buffer;
-    std::array<GLuint, 3> _textures;
+    GLuint _depth_fbo;
+    std::array<ShaderProgram, ProgramTypeLength> _programs;
+    std::array<GLuint, TextureTypeLength> _textures;
   };
 }
 
