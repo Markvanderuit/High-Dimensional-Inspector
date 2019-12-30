@@ -10,7 +10,7 @@
 #include "3d_utils.h"
 
 #define FIELD_QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
-#define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
+// #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
 
 namespace hdi::dr {
   class DepthFieldComputation {
