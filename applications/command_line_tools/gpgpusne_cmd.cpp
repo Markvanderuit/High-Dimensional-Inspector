@@ -182,11 +182,6 @@ int main(int argc, char *argv[]) {
       perplexity = std::atoi(parser.value(perplexity_option).toStdString().c_str());
     }
 
-    float data_loading_time = 0;
-    float similarities_comp_time = 0;
-    float gradient_desc_comp_time = 0;
-    float data_saving_time = 0;
-
     typedef float scalar_type;
 
     hdi::utils::CoutLog log;
@@ -206,13 +201,26 @@ int main(int argc, char *argv[]) {
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
 
+    
+    // Timer values
+    float data_loading_time = 0.f;
+    float similarities_comp_time = 0.f;
+    float gradient_desc_comp_time = 0.f;
+    float kl_divergence_comp_time = 0.f;
+    float data_saving_time = 0.f;
+
     // Compute probability distribution or load from file if it is cached
     std::string cacheFileName = inputFileName + "_cache_p" + std::to_string(perplexity);
     std::ifstream cacheFile(cacheFileName, std::ios::binary);
     if (cacheFile.is_open()) { // There IS a cache file already
       hdi::utils::secureLog(&log, "Loading probability distribution from cache file...");
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
       hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
     } else  { // No cache file, start from scratch
+      {
+        
+        hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
+      }
       // Load the input data
       hdi::utils::secureLog(&log, "Loading original data...");
       loadData(panel_data, inputFileName, num_data_points, num_dimensions);
@@ -255,8 +263,11 @@ int main(int argc, char *argv[]) {
     hdi::utils::secureLog(&log, "Removing padding from embedding data...");  
     embedding.removePadding();
 
-    double KL = tSNE->computeKullbackLeiblerDivergence();
-    std::cout << "KL-Divergence: " << KL << std::endl;
+    double KL = 0.0;
+    {
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
+      KL = tSNE->computeKullbackLeiblerDivergence();
+    } 
 
     //Output
     hdi::utils::secureLog(&log, "Writing embedding to file...");
@@ -270,10 +281,14 @@ int main(int argc, char *argv[]) {
 
     offscreen.releaseContext();
 
+    hdi::utils::secureLog(&log, "");
     hdi::utils::secureLogValue(&log, "Data loading (sec)", data_loading_time);
-    hdi::utils::secureLogValue(&log, "Similarities computation (sec)", similarities_comp_time);
+    hdi::utils::secureLogValue(&log, "Similarities (sec)", similarities_comp_time);
     hdi::utils::secureLogValue(&log, "Gradient descent (sec)", gradient_desc_comp_time);
+    hdi::utils::secureLogValue(&log, "KL computation (sec)", kl_divergence_comp_time);
     hdi::utils::secureLogValue(&log, "Data saving (sec)", data_saving_time);
+    hdi::utils::secureLog(&log, "");
+    hdi::utils::secureLogValue(&log, "KL Divergence", KL);
 
     return app.exec();
   }

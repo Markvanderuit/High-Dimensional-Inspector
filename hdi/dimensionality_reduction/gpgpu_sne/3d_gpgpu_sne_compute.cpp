@@ -1,43 +1,39 @@
 #ifndef __APPLE__
 
+#include "hdi/utils/log_helper_functions.h"
 #include "3d_gpgpu_sne_compute.h"
 #include "3d_compute_shaders.h"
-#include <limits>
+
+// Do or do not add query timer functions
+#ifdef QUERY_TIMER_ENABLED
+  #include <deque>
+  #define startTimer(type) startTimerQuery(type)
+  #define stopTimer() stopTimerQuery()
+  #define updateTimers(iterations) updateTimerQueries(iterations)
+  #define reportTimer(type, name, iteration) reportTimerQuery(type, name, iteration)
+#else
+  #define startTimer(type)
+  #define stopTimer()
+  #define updateTimers(iterations)
+  #define reportTimer(type, name, iteration)
+#endif
 
 namespace {
   // Magic numbers
   constexpr bool adaptiveResolution = true;
   const unsigned int fixedFieldSize = 40;
+  const unsigned int fixedDepthSize = 8;
   const unsigned int minFieldSize = 5;
   const float pixelRatio = 2.0f;
   const float functionSupport = 6.5f;
 
-  enum BufferType {
-    BUFFER_POSITION,
-    BUFFER_INTERP_FIELDS,
-    BUFFER_SUM_Q,
-    BUFFER_NEIGHBOUR,
-    BUFFER_PROBABILITIES,
-    BUFFER_INDEX,
-    BUFFER_GRADIENTS,
-    BUFFER_PREV_GRADIENTS,
-    BUFFER_GAIN,
-    BUFFER_BOUNDS
-  };
-
-  enum ProgramType {
-    PROGRAM_INTERP_FIELDS,
-    PROGRAM_SUM_Q,
-    PROGRAM_FORCES,
-    PROGRAM_UPDATE,
-    PROGRAM_BOUNDS,
-    PROGRAM_CENTERING
-  };
-
   typedef hdi::dr::embedding_t embedding_t;
+  typedef hdi::dr::sparse_matrix_t sparse_matrix_t;
+  typedef hdi::dr::Point3D Point3D;
   typedef hdi::dr::Bounds3D Bounds3D;
 
-  Bounds3D computeEmbeddingBounds(const embedding_t* embedding, float padding) {
+  Bounds3D computeEmbeddingBounds(const embedding_t* embedding, 
+                                  float padding) {
     const auto& points = embedding->getContainer();
 
     // Instantiate bounds at infinity
@@ -78,11 +74,11 @@ namespace {
 }
 
 namespace hdi::dr {
-  // Default constr.
   Gpgpu3dSneCompute::Gpgpu3dSneCompute() 
   : _initialized(false), 
     _adaptive_resolution(adaptiveResolution), 
-    _resolution_scaling(pixelRatio) {
+    _resolution_scaling(pixelRatio),
+    _logger(nullptr) {
     // ...
   }
 
@@ -96,10 +92,17 @@ namespace hdi::dr {
                     const TsneParameters& params, 
                     const sparse_matrix_t& P) {
     glClearColor(0, 0, 0, 0);
-    const int n = embedding->numDataPoints();
+
     _params = params;
     _bounds = computeEmbeddingBounds(embedding, 0.f);
-    _fieldComputation.initialize(n);
+    const int n = embedding->numDataPoints();
+    _fieldComputation.initialize(_params, n);
+
+#ifdef QUERY_TIMER_ENABLED
+    // Generate timer query handles and reset values
+    glGenQueries(_timerHandles.size(), _timerHandles.data());
+    _timerValues.fill({0l, 0l });
+#endif // QUERY_TIMER_ENABLED
 
     // Create shader programs 
     try {
@@ -108,9 +111,9 @@ namespace hdi::dr {
       }
 
       // Attach shaders
-      _programs[PROGRAM_INTERP_FIELDS].addShader(COMPUTE, interpolation_src);
       _programs[PROGRAM_SUM_Q].addShader(COMPUTE, sumq_src);
-      _programs[PROGRAM_FORCES].addShader(COMPUTE, forces_src);
+      _programs[PROGRAM_POSITIVE_FORCES].addShader(COMPUTE, positive_forces_src);
+      _programs[PROGRAM_GRADIENTS].addShader(COMPUTE, gradients_src);
       _programs[PROGRAM_UPDATE].addShader(COMPUTE, update_src);
       _programs[PROGRAM_BOUNDS].addShader(COMPUTE, bounds_src);
       _programs[PROGRAM_CENTERING].addShader(COMPUTE, centering_src);
@@ -123,6 +126,9 @@ namespace hdi::dr {
         if (program.getUniformLocation("num_points") != -1) {
           program.uniform1ui("num_points", n);
         }
+        if (program.getUniformLocation("inv_num_points") != -1) {
+          program.uniform1f("inv_num_points", 1.f / static_cast<float>(n));
+        }
         program.release();
       }
     } catch (const ErrorMessageException& e) {
@@ -134,7 +140,6 @@ namespace hdi::dr {
       const LinearProbabilityMatrix LP = linearizeProbabilityMatrix(embedding, P);
       const std::vector<float> zeroes(4 * n, 0);
       const std::vector<float> ones(4 * n, 1);
-
       glGenBuffers(_buffers.size(), _buffers.data());
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
@@ -144,7 +149,10 @@ namespace hdi::dr {
       glBufferData(GL_SHADER_STORAGE_BUFFER, n * 4 * sizeof(float), nullptr, GL_STATIC_DRAW);
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(float), nullptr, GL_STREAM_READ);
+      glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * sizeof(float), nullptr, GL_STREAM_READ);
+      
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q_REDUCE_ADD]);
+      glBufferData(GL_SHADER_STORAGE_BUFFER, 128 * sizeof(float), nullptr, GL_STREAM_DRAW);
       
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_NEIGHBOUR]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data(), GL_STATIC_DRAW);
@@ -154,6 +162,9 @@ namespace hdi::dr {
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_INDEX]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, LP.indices.size() * sizeof(int), LP.indices.data(), GL_STATIC_DRAW);
+
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITIVE_FORCES]);
+      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_GRADIENTS]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
@@ -166,6 +177,9 @@ namespace hdi::dr {
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS]);
       glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
+      
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS_REDUCE_ADD]);
+      glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * 128 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
     }
 
     glAssert("Initialized buffers");
@@ -174,10 +188,13 @@ namespace hdi::dr {
 
   void Gpgpu3dSneCompute::clean() {
     if (_initialized) {
-      glDeleteBuffers(_buffers.size(), _buffers.data());
       for (auto& program : _programs) {
         program.destroy();
       }
+#ifdef QUERY_TIMER_ENABLED
+      glDeleteQueries(_timerHandles.size(), _timerHandles.data());
+#endif // QUERY_TIMER_ENABLED
+      glDeleteBuffers(_buffers.size(), _buffers.data());
       _fieldComputation.clean();
       _initialized = false;
     }
@@ -185,64 +202,91 @@ namespace hdi::dr {
 
   void Gpgpu3dSneCompute::compute(embedding_t* embedding, 
                                   float exaggeration, 
-                                  float iteration, 
+                                  unsigned iteration, 
                                   float mult) {
-    unsigned int n = embedding->numDataPoints();
+    const unsigned int n = embedding->numDataPoints();
 
-    // Copy data over to device
-    if (iteration < 0.5f) {
+    // Copy embedding positional data over to device
+    if (iteration == 0) {
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
       glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
     }
 
     // Compute bounds of the embedding and add 10% border around it
-    computeBounds(n, 0.05f);
-    glAssert("Computed bounds");
+    computeBounds(n, 0.1f);
 
     // Capture padded bounds from gpu
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS]);
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(Bounds3D), &_bounds);
+    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 2 * sizeof(Point3D), &_bounds);
 
     // Determine fields texture dimension (this has a rather significant impact in 3d)
     Point3D range = _bounds.range();
-    float aspectY = range.y / range.x;
-    float aspectZ = range.z / range.x;
+    
+#ifdef USE_DEPTH_FIELD
+    float diameter = 0.5 * std::sqrtf(range.x * range.x + range.y * range.y + range.z * range.z);
+    uint32_t w, h;
+    w = h = _adaptive_resolution 
+      ? std::max((unsigned int)(diameter * _resolution_scaling), minFieldSize) 
+      : fixedFieldSize;
+    uint32_t d = fixedDepthSize;
+#else
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
       : fixedFieldSize;
     uint32_t h = _adaptive_resolution 
       ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
-      : (int) (fixedFieldSize * aspectY);
+      : (int) (fixedFieldSize * (range.y / range.x));
     uint32_t d = _adaptive_resolution 
       ? std::max((unsigned int)(range.z * _resolution_scaling), minFieldSize) 
-      : (int) (fixedFieldSize * aspectZ);
+      : (int) (fixedFieldSize * (range.z / range.x));
+#endif
 
     // Compute fields texture
     _fieldComputation.compute(w, h,  d, 
                               functionSupport, n, 
-                              _buffers[BUFFER_POSITION], _buffers[BUFFER_BOUNDS], 
-                              _bounds.min.x, _bounds.min.y, _bounds.min.z, 
-                              _bounds.max.x, _bounds.max.y, _bounds.max.z);
+                              _buffers[BUFFER_POSITION], 
+                              _buffers[BUFFER_BOUNDS], 
+                              _buffers[BUFFER_INTERP_FIELDS],
+                              _bounds);
 
-    // Calculate normalization sum and interpolate fields to sample points
-    float sum_Q = 0;
-    interpolateFields(n, &sum_Q);
-    sumQ(n, &sum_Q);
-    if (sum_Q == 0) {
-      std::cout << "SUM_Q was 0, bring out your debugger" << std::endl;
+    // Calculate normalization sum
+    sumQ(n);
+
+
+#ifdef ASSERT_SUM_Q
+    float sum_Q = 0.f;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q]);
+    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(float), &sum_Q);
+    if (sum_Q == 0.f) {
+      std::cout << "SUM_Q was 0, bring out thine debuggers" << std::endl;
+      exit(0);
       return;
     }
+#endif // ASSERT_SUM_Q
 
     // Compute gradient from forces
-    computeGradients(n, sum_Q, exaggeration);
+    computeGradients(n, exaggeration);
 
     // Update embedding
     updatePoints(n, iteration, mult);
     updateEmbedding(n, exaggeration, iteration);
     
+    // Update timer handles 
+    updateTimers(iteration);
+
     // Update host embedding data
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
+    if (iteration >= _params._iterations - 1) {
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
+      glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
+      
+      // Output timer averages
+      reportTimer(TIMER_SUM_Q, "Sum Q", iteration);
+      reportTimer(TIMER_GRADIENTS, "Grads", iteration);
+      reportTimer(TIMER_UPDATE, "Update", iteration);
+      reportTimer(TIMER_BOUNDS, "Bounds", iteration);
+      reportTimer(TIMER_CENTERING, "Center", iteration);
+    }
   }
 
   void Gpgpu3dSneCompute::computeBounds(unsigned n, float padding) {
@@ -251,79 +295,91 @@ namespace hdi::dr {
 
     // Bind buffers for this shader
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_BOUNDS]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_BOUNDS_REDUCE_ADD]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_BOUNDS]);
 
     // Set uniforms for this shader
     program.uniform1f("padding", padding);
 
     // Run shader (dimensionality reduction in single group)
-    glDispatchCompute(1, 1, 1);
-
-    program.release();
-  }
-
-  void Gpgpu3dSneCompute::interpolateFields(unsigned n, float* sum_Q) {
-    auto& program = _programs[PROGRAM_INTERP_FIELDS];
-    program.bind();
-    
-    // Bind the 3d xyzw fields texture for this shader
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, _fieldComputation.getFieldTexture());
-
-    // Bind buffers for this shader
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_INTERP_FIELDS]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_BOUNDS]);
-
-    // Bind uniforms for this shader
-    program.uniform1i("fields", 0);
-
-    // Run shader (dimensionality reduction in single group)
-    glDispatchCompute(1, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    startTimer(TIMER_BOUNDS);
+    program.uniform1ui("iteration", 0u);
+    glDispatchCompute(128, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    program.uniform1ui("iteration", 1u);
+    glDispatchCompute(1, 1, 1);
+    stopTimer();
 
     program.release();
   }
 
-  void Gpgpu3dSneCompute::sumQ(unsigned n, float *sum_Q) {
+  void Gpgpu3dSneCompute::sumQ(unsigned n) {
     auto& program = _programs[PROGRAM_SUM_Q];
     program.bind();
 
     // Bind buffers for this shader
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_INTERP_FIELDS]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_SUM_Q]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_SUM_Q_REDUCE_ADD]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_SUM_Q]);
 
-    // Run shader (dimensionality reduction in single group)
+    // Run shader twice (reduce add performed in two steps)
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    startTimer(TIMER_SUM_Q);
+    program.uniform1ui("iteration", 0u);
+    glDispatchCompute(128, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    program.uniform1ui("iteration", 1u);
     glDispatchCompute(1, 1, 1);
-
-    // Copy SUMQ back to host
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q]);
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(float), sum_Q);
+    stopTimer();
 
     program.release();
   }
 
-  void Gpgpu3dSneCompute::computeGradients(unsigned n, float sum_Q, float exaggeration) {
-    auto& program = _programs[PROGRAM_FORCES];
-    program.bind();
+  void Gpgpu3dSneCompute::computeGradients(unsigned n, float exaggeration) {
+    startTimer(TIMER_GRADIENTS);
 
-    // Bindd buffers for this shader
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_NEIGHBOUR]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_PROBABILITIES]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_INDEX]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFFER_INTERP_FIELDS]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers[BUFFER_GRADIENTS]);
+    // Reduce add positive forces (performance hog, 60K reduce-adds over varying points)
+    {
+      auto& program = _programs[PROGRAM_POSITIVE_FORCES];
+      program.bind();
 
-    // Bind uniforms for this shader
-    program.uniform1f("exaggeration", exaggeration);
-    program.uniform1f("sum_Q", sum_Q);
+      // Bind buffers for this shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_NEIGHBOUR]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_PROBABILITIES]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_INDEX]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFFER_POSITIVE_FORCES]);
 
-    // Run shader
-    glDispatchCompute(n, 1, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      // Run shader
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      glDispatchCompute(n, 1, 1);
 
-    program.release();
+      program.release();
+    }
+
+    // Compute gradients
+    {    
+      auto& program = _programs[PROGRAM_GRADIENTS];
+      program.bind();
+
+      // Bind buffers for this shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITIVE_FORCES]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_INTERP_FIELDS]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_SUM_Q]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_GRADIENTS]);
+
+      // Bind uniforms for this shader
+      program.uniform1f("exaggeration", exaggeration);
+
+      // Run shader
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      glDispatchCompute(128, 1, 1);
+
+      program.release();
+    }
+
+    stopTimer();
   }
 
   void Gpgpu3dSneCompute::updatePoints(unsigned n, float iteration, float mult) {
@@ -335,7 +391,7 @@ namespace hdi::dr {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_GRADIENTS]);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers[BUFFER_PREV_GRADIENTS]);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFFER_GAIN]);
-
+    
     // Bind uniforms for this shader
     program.uniform1f("eta", _params._eta);
     program.uniform1f("minGain", _params._minimum_gain);
@@ -343,13 +399,16 @@ namespace hdi::dr {
 
     // Single computation instead of six values
     float iter_mult = 
-      (iteration < _params._mom_switching_iter) 
+      (static_cast<double>(iteration) < _params._mom_switching_iter) 
       ? _params._momentum 
       : _params._final_momentum;
     program.uniform1f("iter_mult", iter_mult);
 
     // Run shader
-    glDispatchCompute((n / GLSL_LOCAL_SIZE) + 1, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    startTimer(TIMER_UPDATE);
+    glDispatchCompute(128, 1, 1);
+    stopTimer();
 
     program.release();
   }
@@ -362,19 +421,85 @@ namespace hdi::dr {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_POSITION]);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers[BUFFER_BOUNDS]);
     
-    // Bind uniforms for this shader, depending on exaggeration factor
-    if (exaggeration > 1.2) {
-      program.uniform1i("scale", 1);
-      program.uniform1f("diameter", 0.1f);
+    // Set uniforms for this shader
+    Point3D center = _bounds.center();
+    Point3D range = _bounds.range();
+    if (exaggeration > 1.2f && range.y < 0.1f) {
+      // Enable scaling for small embeddings
+      program.uniform1f("scaling", 0.1f / range.y);
     } else {
-      program.uniform1i("scale", 0);
+      program.uniform1f("scaling", 1.f);
     }
+    program.uniform3f("center", center.x, center.y, center.z);
 
     // Run shader
-    glDispatchCompute((n / GLSL_LOCAL_SIZE) + 1, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    startTimer(TIMER_CENTERING);
+    glDispatchCompute(128, 1, 1);
+    stopTimer();
 
     program.release();
   }
+
+#ifdef QUERY_TIMER_ENABLED
+  void Gpgpu3dSneCompute::startTimerQuery(TimerType type) {
+    glBeginQuery(GL_TIME_ELAPSED, _timerHandles[type]);
+  }
+
+  void Gpgpu3dSneCompute::stopTimerQuery() {
+    glEndQuery(GL_TIME_ELAPSED);
+  }
+  
+  bool Gpgpu3dSneCompute::updateTimerQuery(TimerType type, unsigned iteration) {
+    const auto& handle = _timerHandles[type];
+    
+    // Return if query data for this handle is unavailable
+    int i = 0;
+    glGetQueryObjectiv(handle, GL_QUERY_RESULT_AVAILABLE, &i);
+    if (!i) {
+      return false;
+    }
+    
+    // Obtain query value
+    auto& values = _timerValues[type];
+    glGetQueryObjecti64v(handle, GL_QUERY_RESULT, &values[TIMER_LAST_QUERY]);
+    
+    // Compute incremental average
+    values[TIMER_AVERAGE] 
+      = values[TIMER_AVERAGE] 
+      + (values[TIMER_LAST_QUERY] - values[TIMER_AVERAGE]) 
+      / (iteration + 1);
+
+    return true;
+  }
+
+  void Gpgpu3dSneCompute::updateTimerQueries(unsigned iteration) {
+    std::deque<TimerType> types = {
+      TIMER_SUM_Q,
+      TIMER_GRADIENTS,
+      TIMER_UPDATE,
+      TIMER_BOUNDS,
+      TIMER_CENTERING
+    };
+
+    // Query until all timer data is available and obtained
+    while (!types.empty()) {
+      const auto type = types.front();
+      types.pop_front();
+      if (!updateTimerQuery(type, iteration)) {
+        types.push_back(type);
+      }
+    }
+  }
+
+  void Gpgpu3dSneCompute::reportTimerQuery(TimerType type, const std::string& name, unsigned iteration) {
+    const double ms = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
+    utils::secureLogValue(
+      _logger, 
+      name + " shader average (" + std::to_string(iteration) + " iters, ms)",
+      ms);
+  }
+#endif // QUERY_TIMER_ENABLED
 }
 
-#endif
+#endif // __APPLE__

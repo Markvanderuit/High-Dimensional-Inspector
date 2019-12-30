@@ -2,17 +2,27 @@
 
 #pragma once
 
+#define QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
+#define ASSERT_SUM_Q // Enable SUM_Q value checking
+#define USE_DEPTH_FIELD
+
 #include <array>
 #include <cstdlib>
+#include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "field_computation.h"
 #include "3d_utils.h"
+
+#ifdef USE_DEPTH_FIELD
+#include "depth_field_computation.h"
+#else
+#include "3d_field_computation.h"
+#endif 
 
 namespace hdi::dr {
   class Gpgpu3dSneCompute {
   public:
-    // Base constr.
+    // Base constr., destr.
     Gpgpu3dSneCompute();
     ~Gpgpu3dSneCompute();
 
@@ -27,31 +37,103 @@ namespace hdi::dr {
     // Perform computation for specified iteration
     void compute(embedding_t* embedding, 
                  float exaggeration, 
-                 float iteration, 
+                 unsigned iteration, 
                  float mult);
     
     Bounds3D bounds() const {
       return _bounds;
     }
+
+    void setLogger(utils::AbstractLog* logger) {
+      _logger = logger; 
+      _fieldComputation.setLogger(logger);
+    }
     
   private:
     void computeBounds(unsigned n, float padding);
-    void interpolateFields(unsigned n, float* sum_Q);
-    void sumQ(unsigned in, float* sum_Q);
-    void computeGradients(unsigned n, float sum_Q, float exaggeration);
+    void sumQ(unsigned n);
+    void computeGradients(unsigned n, float exaggeration);
     void updatePoints(unsigned n, float iteration, float mult);
     void updateEmbedding(unsigned n, float exaggeration, float iteration);
 
-  private:
     bool _initialized;
     bool _adaptive_resolution;
     float _resolution_scaling;
 
-    std::array<GLuint, 10> _buffers;
-    std::array<ShaderProgram, 6> _programs;
+    enum BufferType {
+      // Enums matching to storage buffers in _buffers array
+      BUFFER_POSITION,
+      BUFFER_INTERP_FIELDS,
+      BUFFER_SUM_Q,
+      BUFFER_SUM_Q_REDUCE_ADD,
+      BUFFER_NEIGHBOUR,
+      BUFFER_PROBABILITIES,
+      BUFFER_INDEX,
+      BUFFER_POSITIVE_FORCES,
+      BUFFER_GRADIENTS,
+      BUFFER_PREV_GRADIENTS,
+      BUFFER_GAIN,
+      BUFFER_BOUNDS_REDUCE_ADD,
+      BUFFER_BOUNDS,
+      
+      // Static enum length
+      BufferTypeLength 
+    };
+
+    enum ProgramType {
+      // Enums matching to shader programs in _programs array
+      PROGRAM_SUM_Q,
+      PROGRAM_POSITIVE_FORCES,
+      PROGRAM_GRADIENTS,
+      PROGRAM_UPDATE,
+      PROGRAM_BOUNDS,
+      PROGRAM_CENTERING,
+      
+      // Static enum length
+      ProgramTypeLength 
+    };
+
+    std::array<GLuint, BufferTypeLength> _buffers;
+    std::array<ShaderProgram, ProgramTypeLength> _programs;
+#ifdef USE_DEPTH_FIELD
+  DepthFieldComputation _fieldComputation;
+#else
     Compute3DFieldComputation _fieldComputation;
+#endif
     TsneParameters _params;
     Bounds3D _bounds;
+    utils::AbstractLog* _logger;
+
+#ifdef QUERY_TIMER_ENABLED
+  private:
+    enum TimerType {
+      // Enums matching to timers 
+      TIMER_SUM_Q,
+      TIMER_GRADIENTS,
+      TIMER_UPDATE,
+      TIMER_BOUNDS,
+      TIMER_CENTERING,
+      
+      // Static enum length
+      TimerTypeLength 
+    };
+
+    enum TimerValue {
+      TIMER_LAST_QUERY,
+      TIMER_AVERAGE,
+
+      // Static enum length
+      TimerValueLength 
+    };
+
+    void startTimerQuery(TimerType type);
+    void stopTimerQuery();
+    bool updateTimerQuery(TimerType type, unsigned iteration);
+    void updateTimerQueries(unsigned iteration);
+    void reportTimerQuery(TimerType type, const std::string& name, unsigned iteration);
+    std::array<GLuint, TimerTypeLength> _timerHandles;
+    std::array<std::array<GLint64, TimerValueLength>, TimerTypeLength> _timerValues;
+#endif // QUERY_TIMER_ENABLED
   };
 }
 

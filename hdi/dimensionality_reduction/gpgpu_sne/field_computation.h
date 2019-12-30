@@ -64,25 +64,4 @@ private:
   int _iteration;
 };
 
-class Compute3DFieldComputation
-{
-public:
-  void initialize(unsigned num_points);
-  void clean();
-  void compute(unsigned w, unsigned h, unsigned d, float function_support, unsigned n, GLuint position_buff, GLuint bounds_buff, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z);
-
-  GLuint getFieldTexture() const {
-    return _field_texture;
-  }
-
-private:
-  ShaderProgram _stencil_program;
-  ShaderProgram _fields_program;
-
-  unsigned _w, _h, _d;
-  
-  GLuint _field_texture;
-  GLuint _stencil_texture;
-};
-
 #endif

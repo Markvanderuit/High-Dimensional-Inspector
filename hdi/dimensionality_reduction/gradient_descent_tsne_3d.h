@@ -35,7 +35,6 @@
 
 #include "hdi/utils/assert_by_exception.h"
 #include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
-#include "gpgpu_sne/depth_gpgpu_sne.h"
 #include "gpgpu_sne/3d_gpgpu_sne_compute.h"
 
 namespace hdi::dr {
@@ -68,8 +67,7 @@ namespace hdi::dr {
     double computeExaggeration();
 
     // Underlying implementation
-    GpgpuDepthSneCompute _gpgpu_3d_sne_compute;
-    // Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
+    Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
   };
 }
 
