@@ -102,8 +102,10 @@ namespace hdi::dr {
     double computeKullbackLeiblerDivergence() const {
       const int n = _embedding->numDataPoints();
 
-      double sum_Q = 0;
+      double sum_Q = 0.0;
+      #pragma omp parallel for reduction(+: sum_Q)
       for (int j = 0; j < n; ++j) {
+        double _sum_Q = 0.0;
         for (int i = j + 1; i < n; ++i) {
           const double euclidean_dist_sq(
             utils::euclideanDistanceSquared<float>(
@@ -114,15 +116,17 @@ namespace hdi::dr {
               )
           );
           const double v = 1. / (1. + euclidean_dist_sq);
-          sum_Q += v * 2;
+          _sum_Q += v * 2;
         }
+        sum_Q += _sum_Q;
       }
 
-      double kl = 0;
+      double kl = 0.0;
+      #pragma omp parallel for reduction(+: kl)
       for (int i = 0; i < n; ++i) {
+        double _kl = 0.0;
         for (const auto& pij : _P[i]) {
           uint32_t j = pij.first;
-
           // Calculate Qij
           const double euclidean_dist_sq(
             utils::euclideanDistanceSquared<float>(
@@ -133,11 +137,11 @@ namespace hdi::dr {
               )
           );
           const double v = 1. / (1. + euclidean_dist_sq);
-
           double p = pij.second / (2 * n);
           double klc = p * std::log(p / (v / sum_Q));
-          kl += klc;
+          _kl += klc;
         }
+        kl += _kl;
       }
       return kl;
     }
