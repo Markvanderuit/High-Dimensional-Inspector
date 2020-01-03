@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <functional>
 #include <vector>
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
@@ -71,6 +72,17 @@ namespace hdi::dr {
     GLenum err; 
     while ((err = glGetError()) != GL_NO_ERROR) {
       std::cerr << "Location: " << msg << ", err: " << err << std::endl;
+      exit(0);
+    }
+  }
+  
+  // For less aggressive debugging
+  template <typename F>
+  inline void glAssertCallback(const std::string& msg, F& f) {
+    GLenum err; 
+    while ((err = glGetError()) != GL_NO_ERROR) {
+      std::cerr << "Location: " << msg << ", err: " << err << std::endl;
+      f();
       exit(0);
     }
   }

@@ -40,7 +40,10 @@ namespace hdi::dr {
 
     enum TextureType {
       // Enum values matching to textures in _textures array
-      TEXTURE_DEPTH,
+      TEXTURE_DEPTH_ARRAY,
+      TEXTURE_DEPTH_SINGLE,
+      TEXTURE_CELLMAP,
+      TEXTURE_GRID,
       TEXTURE_FIELD_3D,
       TEXTURE_DEBUG,
 
@@ -51,6 +54,8 @@ namespace hdi::dr {
     enum ProgramType {
       // Enum values matching to shader programs in _programs array
       PROGRAM_DEPTH,
+      PROGRAM_GRID,
+      // PROGRAM_DENSITY_ESTIMATION,
       PROGRAM_FIELD_3D,
       PROGRAM_INTERP,
       PROGRAM_DEBUG,
@@ -59,10 +64,20 @@ namespace hdi::dr {
       ProgramTypeLength
     };
 
+    enum FramebufferType {
+      // Enum values matching to framebuffers programs in _framebuffers array
+      FBO_DEPTH,
+      FBO_GRID,
+
+      // Static enum length
+      FramebufferTypeLength
+    };
+
     GLuint _point_vao;
-    GLuint _depth_fbo;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
+    std::array<GLuint, FramebufferTypeLength> _framebuffers;
     std::array<GLuint, TextureTypeLength> _textures;
+    std::array<uint32_t, 4 * 128> _cellData;
     QMatrix4x4 _viewMatrix;
     TsneParameters _params;
     utils::AbstractLog* _logger;
@@ -71,6 +86,7 @@ namespace hdi::dr {
   private:
     enum TimerType {
       TIMER_DEPTH,
+      TIMER_GRID,
       TIMER_FIELD_3D,
       TIMER_INTERP,
 

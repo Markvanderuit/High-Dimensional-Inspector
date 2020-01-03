@@ -22,7 +22,7 @@ namespace {
   // Magic numbers
   constexpr bool adaptiveResolution = true;
   const unsigned int fixedFieldSize = 40;
-  const unsigned int fixedDepthSize = 8;
+  const unsigned int fixedDepthSize = 16;
   const unsigned int minFieldSize = 5;
   const float pixelRatio = 2.0f;
   const float functionSupport = 6.5f;
@@ -223,12 +223,16 @@ namespace hdi::dr {
     Point3D range = _bounds.range();
     
 #ifdef USE_DEPTH_FIELD
-    float diameter = 0.5 * std::sqrtf(range.x * range.x + range.y * range.y + range.z * range.z);
-    uint32_t w, h;
-    w = h = _adaptive_resolution 
-      ? std::max((unsigned int)(diameter * _resolution_scaling), minFieldSize) 
+    uint32_t w = _adaptive_resolution 
+      ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
       : fixedFieldSize;
-    uint32_t d = fixedDepthSize;
+    uint32_t h = _adaptive_resolution 
+      ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
+      : (int) (fixedFieldSize * (range.y / range.x));
+    uint32_t d = _adaptive_resolution 
+      ? std::max((unsigned int)(range.z * _resolution_scaling * 0.25), minFieldSize) 
+      : (int) (fixedFieldSize * (range.z / range.x));
+    // uint32_t d = fixedDepthSize;
 #else
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
@@ -424,9 +428,9 @@ namespace hdi::dr {
     // Set uniforms for this shader
     Point3D center = _bounds.center();
     Point3D range = _bounds.range();
-    if (exaggeration > 1.2f && range.y < 0.1f) {
+    if (exaggeration > 1.2f && range.z < 0.1f) {
       // Enable scaling for small embeddings
-      program.uniform1f("scaling", 0.1f / range.y);
+      program.uniform1f("scaling", 0.1f / range.z);
     } else {
       program.uniform1f("scaling", 1.f);
     }

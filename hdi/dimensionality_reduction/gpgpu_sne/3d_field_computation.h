@@ -8,6 +8,8 @@
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "3d_utils.h"
 
+#define FIELD_QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
+
 namespace hdi::dr {
   class Compute3DFieldComputation {
   public:
@@ -55,6 +57,33 @@ namespace hdi::dr {
     std::array<GLuint, TextureTypeLength> _textures;
     TsneParameters _params;
     utils::AbstractLog* _logger;
+
+#ifdef FIELD_QUERY_TIMER_ENABLED
+  private:
+    enum TimerType {
+      TIMER_STENCIL,
+      TIMER_FIELD_3D,
+      TIMER_INTERP,
+
+      TimerTypeLength
+    };
+    
+    enum TimerValue {
+      TIMER_LAST_QUERY,
+      TIMER_AVERAGE,
+
+      // Static enum length
+      TimerValueLength 
+    };
+
+    void startTimerQuery(TimerType type);
+    void stopTimerQuery();
+    bool updateTimerQuery(TimerType type, unsigned iteration);
+    void updateTimerQueries(unsigned iteration);
+    void reportTimerQuery(TimerType type, const std::string& name, unsigned iteration);
+    std::array<GLuint, TimerTypeLength> _timerHandles;
+    std::array<std::array<GLint64, TimerValueLength>, TimerTypeLength> _timerValues;
+#endif // FIELD_QUERY_TIMER_ENABLED
 
   public:
     void setLogger(utils::AbstractLog* logger) {

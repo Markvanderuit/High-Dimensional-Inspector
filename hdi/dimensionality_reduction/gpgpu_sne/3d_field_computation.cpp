@@ -1,9 +1,25 @@
-#include "3d_field_computation.h"
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
 #include <array>
 #include <iostream>
 #include <cstdint>
+#include "3d_field_computation.h"
+#include "hdi/utils/log_helper_functions.h"
+
+// Do or do not add query timer functions
+#ifdef FIELD_QUERY_TIMER_ENABLED
+  #include <deque>
+  #define startTimer(type) startTimerQuery(type)
+  #define stopTimer() stopTimerQuery()
+  #define updateTimers(iterations) updateTimerQueries(iterations)
+  #define reportTimer(type, name, iteration) reportTimerQuery(type, name, iteration)
+#else
+  #define startTimer(type)
+  #define stopTimer()
+  #define updateTimers(iterations)
+  #define reportTimer(type, name, iteration)
+#endif // FIELD_QUERY_TIMER_ENABLED
 
 #define GLSL(name, version, shader) \
   static const char* name = \
@@ -175,8 +191,15 @@ namespace hdi::dr {
       exit(0); // yeah no, not recovering from this catastrophy
     }
 
+    #ifdef FIELD_QUERY_TIMER_ENABLED
+      // Generate timer query handles and reset values
+      glGenQueries(_timerHandles.size(), _timerHandles.data());
+      _timerValues.fill({0l, 0l });
+    #endif // FIELD_QUERY_TIMER_ENABLED
+
+    glGenTextures(_textures.size(), _textures.data());
+
     // Generate 3d stencil texture
-    glGenTextures(1, &_textures[TEXTURE_STENCIL]);
     glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_STENCIL]);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -185,7 +208,6 @@ namespace hdi::dr {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     // Generate 3d fields texture
-    glGenTextures(1, &_textures[TEXTURE_FIELD_3D]);
     glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD_3D]);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -198,6 +220,9 @@ namespace hdi::dr {
   }
 
   void Compute3DFieldComputation::clean() {
+#ifdef FIELD_QUERY_TIMER_ENABLED
+    glDeleteQueries(_timerHandles.size(), _timerHandles.data());
+#endif // FIELD_QUERY_TIMER_ENABLED
     glDeleteTextures(_textures.size(), _textures.data());
     for (auto& program : _programs) {
       program.destroy();
@@ -221,7 +246,7 @@ namespace hdi::dr {
 
     // Compute 3d stencil texture
     {
-      glAssert("HELP 1");
+      startTimer(TIMER_STENCIL);
       auto& program = _programs[PROGRAM_STENCIL];
       program.bind();
       program.uniform1ui("num_points", n);
@@ -243,10 +268,12 @@ namespace hdi::dr {
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
       program.release();
+      stopTimer();
     }
 
     // Compute 3d fields texture
     {
+      startTimer(TIMER_FIELD_3D);
       auto& program = _programs[PROGRAM_FIELD_3D];
       program.bind();
       program.uniform1ui("num_points", n);
@@ -271,10 +298,12 @@ namespace hdi::dr {
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
       program.release();
+      stopTimer();
     }
 
     // Query field texture for positional values
     {
+      startTimer(TIMER_INTERP);
       auto& program = _programs[PROGRAM_INTERP];
       program.bind();
 
@@ -296,24 +325,74 @@ namespace hdi::dr {
       glDispatchCompute(128, 1, 1);
 
       program.release();
+      stopTimer();
     }
 
-    // Help, debugging
-    // {
-    //   std::vector<float> stencil(w * h * d, 0.f);
-    //   glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_STENCIL]);
-    //   glGetTexImage(GL_TEXTURE_3D, 0, GL_RED, GL_FLOAT, stencil.data());
-
-
-    //   // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    //   // std::vector<float> buffer(4 * n, 0.f);
-    //   // glBindBuffer(GL_SHADER_STORAGE_BUFFER, interp_buff);
-    //   // glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(float) * 4 * n, buffer.data());
-    //   for (int i = 0; i < stencil.size(); i += 4) {
-    //     std::cout << stencil[i] << std::endl;
-    //   }
-    // }
-
+    updateTimers(_iteration);
+    if (_iteration >= _params._iterations - 1) {
+      // Output timer values
+      reportTimer(TIMER_STENCIL, "Stencil", _iteration);
+      reportTimer(TIMER_FIELD_3D, "Field", _iteration);
+      reportTimer(TIMER_INTERP, "Interp", _iteration);
+    }
     _iteration++;
   }
+
+#ifdef FIELD_QUERY_TIMER_ENABLED
+  void Compute3DFieldComputation::startTimerQuery(TimerType type) {
+    glBeginQuery(GL_TIME_ELAPSED, _timerHandles[type]);
+  }
+
+  void Compute3DFieldComputation::stopTimerQuery() {
+    glEndQuery(GL_TIME_ELAPSED);
+  }
+  
+  bool Compute3DFieldComputation::updateTimerQuery(TimerType type, unsigned iteration) {
+    const auto& handle = _timerHandles[type];
+    
+    // Return if query data for this handle is unavailable
+    int i = 0;
+    glGetQueryObjectiv(handle, GL_QUERY_RESULT_AVAILABLE, &i);
+    if (!i) {
+      return false;
+    }
+    
+    // Obtain query value
+    auto& values = _timerValues[type];
+    glGetQueryObjecti64v(handle, GL_QUERY_RESULT, &values[TIMER_LAST_QUERY]);
+    
+    // Compute incremental average
+    values[TIMER_AVERAGE] 
+      = values[TIMER_AVERAGE] 
+      + (values[TIMER_LAST_QUERY] - values[TIMER_AVERAGE]) 
+      / (iteration + 1);
+
+    return true;
+  }
+
+  void Compute3DFieldComputation::updateTimerQueries(unsigned iteration) {
+    std::deque<TimerType> types = {
+      TIMER_STENCIL,
+      TIMER_FIELD_3D,
+      TIMER_INTERP
+    };
+
+    // Query until all timer data is available and obtained
+    while (!types.empty()) {
+      const auto type = types.front();
+      types.pop_front();
+      if (!updateTimerQuery(type, iteration)) {
+        types.push_back(type);
+      }
+    }
+  }
+
+  void Compute3DFieldComputation::reportTimerQuery(TimerType type, const std::string& name, unsigned iteration) {
+    const double ms = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
+    utils::secureLogValue(
+      _logger, 
+      name + " shader average (" + std::to_string(iteration) + " iters, ms)",
+      ms);
+  }
+#endif // FIELD_QUERY_TIMER_ENABLED
 }

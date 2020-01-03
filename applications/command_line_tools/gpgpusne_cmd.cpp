@@ -282,7 +282,9 @@ int main(int argc, char *argv[]) {
     offscreen.releaseContext();
 
     hdi::utils::secureLog(&log, "");
-    hdi::utils::secureLogValue(&log, "Data loading (sec)", data_loading_time);
+    if (data_loading_time > 0.f) {
+      hdi::utils::secureLogValue(&log, "Data loading (sec)", data_loading_time);
+    }
     hdi::utils::secureLogValue(&log, "Similarities (sec)", similarities_comp_time);
     hdi::utils::secureLogValue(&log, "Gradient descent (sec)", gradient_desc_comp_time);
     hdi::utils::secureLogValue(&log, "KL computation (sec)", kl_divergence_comp_time);

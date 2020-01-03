@@ -1,5 +1,4 @@
 #pragma once
-#define GLSL_LOCAL_SIZE 128
 #define GLSL(name, version, shader) \
   static const char * name = \
   "#version " #version "\n" #shader

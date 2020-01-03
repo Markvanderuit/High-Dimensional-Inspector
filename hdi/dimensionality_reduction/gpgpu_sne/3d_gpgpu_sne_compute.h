@@ -4,7 +4,7 @@
 
 #define QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
 #define ASSERT_SUM_Q // Enable SUM_Q value checking
-#define USE_DEPTH_FIELD
+#define USE_DEPTH_FIELD // Enable depthmap leveraging field computation
 
 #include <array>
 #include <cstdlib>
@@ -96,7 +96,7 @@ namespace hdi::dr {
     std::array<GLuint, BufferTypeLength> _buffers;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
 #ifdef USE_DEPTH_FIELD
-  DepthFieldComputation _fieldComputation;
+    DepthFieldComputation _fieldComputation;
 #else
     Compute3DFieldComputation _fieldComputation;
 #endif
