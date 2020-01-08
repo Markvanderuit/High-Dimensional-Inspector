@@ -29,6 +29,11 @@ if (UNIX)
   set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
 endif(UNIX)
 
+if (MSVC)
+  add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+endif(MSVC)
+
 # Find required packages
 find_package(flann REQUIRED)
 find_package(OpenMP REQUIRED)
