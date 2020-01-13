@@ -1,5 +1,3 @@
-#ifndef __APPLE
-
 #pragma once
 
 #include <array>
@@ -11,6 +9,7 @@
 
 #define FIELD_QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
 // #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
+// #define FIELD_ROTATE_VIEW // Have camera randomly rotate around embedding
 
 namespace hdi::dr {
   class DepthFieldComputation {
@@ -32,7 +31,9 @@ namespace hdi::dr {
                  Bounds3D bounds);
 
   private:
+#ifdef FIELD_ROTATE_VIEW
     void updateView();
+#endif // FIELD_ROTATE_VIEW
 
     bool _initialized;
     int _iteration;
@@ -45,7 +46,6 @@ namespace hdi::dr {
       TEXTURE_CELLMAP,
       TEXTURE_GRID,
       TEXTURE_FIELD_3D,
-      TEXTURE_DEBUG,
 
       // Static enum length
       TextureTypeLength 
@@ -55,10 +55,8 @@ namespace hdi::dr {
       // Enum values matching to shader programs in _programs array
       PROGRAM_DEPTH,
       PROGRAM_GRID,
-      // PROGRAM_DENSITY_ESTIMATION,
       PROGRAM_FIELD_3D,
       PROGRAM_INTERP,
-      PROGRAM_DEBUG,
 
       // Static enum length
       ProgramTypeLength
@@ -96,6 +94,7 @@ namespace hdi::dr {
     enum TimerValue {
       TIMER_LAST_QUERY,
       TIMER_AVERAGE,
+      TIMER_TOTAL,
 
       // Static enum length
       TimerValueLength 
@@ -116,5 +115,3 @@ namespace hdi::dr {
     }
   };
 }
-
-#endif
