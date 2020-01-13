@@ -19,7 +19,7 @@ GLSL(depth_vert_src, 430,
     vec3 position = (point.xyz - minBounds) * invRange;
 
     // Apply camera transformation
-    position = vec3(transformation * vec4(position, 1));
+    // position = vec3(transformation * vec4(position, 1));
     
     // Transform point into [-1, 1] clip space
     gl_Position =  vec4(position * 2.f - 1.f, 1.f);
@@ -58,7 +58,7 @@ GLSL(grid_fragment_src, 430,
   uniform float zPadding;
 
   void main() {
-    vec2 xyFixed = (gl_FragCoord.xy) / textureSize(depthMaps, 0).xy;
+    vec2 xyFixed = vec2(gl_FragCoord.xy) / textureSize(depthMaps, 0).xy;
 
     // zFar still has to be reversed
     float zNear = texture(depthMaps, vec3(xyFixed, 0), 0).x;
@@ -76,8 +76,8 @@ GLSL(grid_fragment_src, 430,
     // Store lookup of cell map for this particular z bound by zNear and zFar
     // Compute z bounded by [zNear, zFar], convert to cellmap texture resolution
     float zUnfixed = (gl_FragCoord.z - zNear) * zRangeDiv;
-    float zFixed = zUnfixed * textureSize(cellMap, 0).x - 0.5;
-
+    float zFixed = zUnfixed * textureSize(cellMap, 0).x - 0.5f;
+    
     // Store OR of the two cells as result
     uvec4 lowerCell = texelFetch(cellMap, int(floor(zFixed)), 0);
     uvec4 greaterCell = texelFetch(cellMap, int(ceil(zFixed)), 0);
@@ -101,13 +101,19 @@ GLSL(field_src, 430,
   uniform uvec3 texture_size;
   uniform mat4 invTransformation;
   uniform sampler2D depth_texture;
-  uniform usampler1D cell_texture;
   uniform usampler2D grid_texture;
 
   // Reduction components
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = groupSize / 2;
   shared vec4 reductionArray[halfGroupSize];
+  
+  // Non component-wise findMSB() function
+  int vFindMSB(uvec4 value) {
+    ivec4 v = ivec4(findMSB(value)); // 1111... interpeted as -1 in 2's 
+    v += min(v + 1, 1) * ivec4(96, 64, 32, 0);
+    return max(v.w, max(v.z, max(v.y, v.x)));
+  }
 
   void main() {
     // Location of current workgroup
@@ -115,41 +121,29 @@ GLSL(field_src, 430,
     vec2 xyUnfixed = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size.xy);
     uint lid = gl_LocalInvocationIndex.x;
 
-    // Query grid map
+    // Query grid map, depth map for entire z axis
     uvec4 gridVec = texture(grid_texture, xyUnfixed);
-
-    // If grid value is all zeroes, we can just skip z-row of pixels entirely
-    if (gridVec == uvec4(0)) {
-      uint z = gl_WorkGroupID.z * gl_WorkGroupSize.z + lid;
-      if (z < texture_size.z) {
-        imageStore(fields_texture, ivec3(xyFixed, z), vec4(0));
-      }
-      return;
-    }
-
-    // Query depth map
     vec4 zValues = texture(depth_texture, xyUnfixed);
 
-    for (uint z = gl_WorkGroupID.z; 
-          z < texture_size.z; 
-          z += gl_NumWorkGroups.z) {
-      // Map xyz to [0, 1], actually bound by [zNear, zFar] though
+    // March grid in z-direction, skipping to next most significant bit (MSB)
+    // If there is no more MSB (i.e. findMSD() == -1), we return early
+    int z;
+    while ((z = 127 - vFindMSB(gridVec)) < 128) {
+      // Set current MSB to 0 so next iteration skips it
+      int idx = z / 32;
+      gridVec[idx] = bitfieldInsert(gridVec[idx], 0u, 31 - (z % 32), 1);
+      
+      // Pixel position
       ivec3 xyzFixed = ivec3(xyFixed, z);
-      vec3 domain_pos = (vec3(xyzFixed) + vec3(0.5)) / vec3(texture_size);
 
-      // Query grid map sample or skip pixel
-      if ((gridVec & texture(cell_texture, domain_pos.z)) == uvec4(0)) {
-        if (lid < 1) {
-          imageStore(fields_texture, xyzFixed, vec4(0));
-        }
-        continue;
-      }
+      // Map xyz to [0, 1], actually bound by [zNear, zFar] though
+      vec3 domain_pos = (vec3(xyzFixed) + vec3(0.5)) / vec3(texture_size);
 
       // Map z from [zNear, zFar] to [0, 1] using queried depth
       domain_pos.z = domain_pos.z * zValues.z + zValues.x;
 
       // Undo camera transformation
-      domain_pos = vec3(invTransformation * vec4(domain_pos, 1));
+      // domain_pos = vec3(invTransformation * vec4(domain_pos, 1));
 
       // Map to domain bounds
       domain_pos = domain_pos * range + minBounds;
@@ -233,7 +227,7 @@ GLSL(interp_src, 430,
       vec3 position = (Positions[i] - minBounds) * invRange;
       
       // Apply optional camera transformation
-      position = vec3(transformation * vec4(position, 1));
+      // position = vec3(transformation * vec4(position, 1));
 
       // Locations for sampling field at four fixed positions
       vec2 positionFixed = position.xy * vec2(texture_size.xy) - vec2(0.5);

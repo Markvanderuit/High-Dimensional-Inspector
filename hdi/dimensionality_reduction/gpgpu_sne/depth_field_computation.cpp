@@ -49,29 +49,6 @@ namespace {
     constexpr T next1DDiv = static_cast<T>(1) / static_cast<T>(RAND_MAX + 1);
     return static_cast<T>(rand()) * next1DDiv;
   }
-
-  GLSL(debug_src, 430,
-    layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-    layout(r32f, binding = 0) writeonly uniform image2D debug_texture;
-    uniform sampler2DArray depth_textures;
-    
-    void main() {
-      uvec2 xy = gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy;
-      ivec2 texture_size = textureSize(depth_textures, 0).xy;
-      if (xy.x >= texture_size.x || xy.y >= texture_size.y) {
-        return;
-      }
-      vec2 px = (vec2(xy) + vec2(0.5f)) / vec2(texture_size);
-
-      // Query the depth textures
-      float zNear = texture(depth_textures, vec3(px, 0)).x;
-      float zFar = 1.f - texture(depth_textures, vec3(px, 1)).x;
-      
-      // Store difference
-      float z = zFar- zNear;
-      imageStore(debug_texture, ivec2(xy), vec4(z));
-    }
-  );
 }
 
 namespace hdi::dr {
@@ -102,10 +79,8 @@ namespace hdi::dr {
       _programs[PROGRAM_DEPTH].addShader(GEOMETRY, depth_geom_src);
       _programs[PROGRAM_GRID].addShader(VERTEX, depth_vert_src);
       _programs[PROGRAM_GRID].addShader(FRAGMENT, grid_fragment_src);
-      // _programs[PROGRAM_DENSITY_ESTIMATION].addShader(COMPUTE, density_estimation_src);
       _programs[PROGRAM_FIELD_3D].addShader(COMPUTE, field_src); 
       _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
-      _programs[PROGRAM_DEBUG].addShader(COMPUTE, debug_src);
       for (auto& program : _programs) {
         program.build();
       }
@@ -171,13 +146,6 @@ namespace hdi::dr {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    // Debug texture
-    glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DEBUG]);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    
     // Generate framebuffer for depth computation
     glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_DEPTH]);
     glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, _textures[TEXTURE_DEPTH_ARRAY], 0);
@@ -210,6 +178,7 @@ namespace hdi::dr {
     _initialized = false;
   }
 
+#ifdef FIELD_ROTATE_VIEW
   void DepthFieldComputation::updateView() {
     constexpr float pi2 = 2.f * static_cast<float>(M_PI);
     const float r1 = next1D<float>(), r2 = next1D<float>(), r3 = next1D<float>();
@@ -238,13 +207,16 @@ namespace hdi::dr {
     _viewMatrix.rotate(theta1, b);
     _viewMatrix.translate(-0.5f, -0.5f, -0.5f); // shift center of [0, 1] embedding
   }
+#endif // FIELD_ROTATE_VIEW
 
   void DepthFieldComputation::compute(unsigned w, unsigned h, unsigned d,
                 float function_support, unsigned n,
                 GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
                 Bounds3D bounds) {
+#ifdef FIELD_ROTATE_VIEW
     // Generate new view matrix first
-    // updateView();
+    updateView();
+#endif // FIELD_ROTATE_VIEW
     
     QMatrix4x4 inverse = _viewMatrix.inverted();
     Point3D minBounds = bounds.min;
@@ -258,10 +230,10 @@ namespace hdi::dr {
 
       // Update cell data for voxel grid computation only to d = 128
       glActiveTexture(GL_TEXTURE0);
-      if (_d < 128u) {
+      if (_d <= 128u) {
         glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
         glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA32UI, _d, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, _cellData.data());
-      }
+      }       
       glBindTexture(GL_TEXTURE_2D_ARRAY, _textures[TEXTURE_DEPTH_ARRAY]);
       glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, _w, _h, 2, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DEPTH_SINGLE]);
@@ -310,7 +282,7 @@ namespace hdi::dr {
       stopTimer();
     }
 
-    // Compute grid texture and merge depth array texture
+    // Compute grid texture and merge depth array texture in same shader
     {
       startTimer(TIMER_GRID);
       
@@ -366,8 +338,6 @@ namespace hdi::dr {
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DEPTH_SINGLE]);
       glActiveTexture(GL_TEXTURE1);
-      glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
-      glActiveTexture(GL_TEXTURE2);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
 
       // Set uniforms in compute shader
@@ -375,8 +345,7 @@ namespace hdi::dr {
       program.uniform3ui("texture_size", _w, _h, _d);
       program.uniformMatrix4f("invTransformation", inverse.data());
       program.uniform1i("depth_texture", 0);
-      program.uniform1i("cell_texture", 1);
-      program.uniform1i("grid_texture", 2);
+      program.uniform1i("grid_texture", 1);
 
       // Bind textures and buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
@@ -384,8 +353,7 @@ namespace hdi::dr {
       glBindImageTexture(0, _textures[TEXTURE_FIELD_3D], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
       // Perform computation
-      glDispatchCompute(_w, _h, 2);
-      // glDispatchCompute(_w, _h, _d);
+      glDispatchCompute(_w, _h, 1);
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
       
       program.release();
@@ -428,138 +396,52 @@ namespace hdi::dr {
       glAssert("Queried field textures");
     }
 
-    // // Compute values directly
-    // {
-    //   glAssert("Querying field textures");
-    //   startTimer(TIMER_FIELD_3D);
-
-    //   auto &program = _programs[PROGRAM_FIELD_3D];
-    //   program.bind();
-
-    //   // Bind buffers for this shader
-    //   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
-    //   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, interp_buff);
-
-    //   // Bind uniforms for this shader
-    //   program.uniform1ui("num_points", n);
-
-    //   // Dispatch compute shader
-    //   glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    //   glDispatchCompute(n, 1, 1);
-
-    //   // Cleanup
-    //   program.release();
-    //   stopTimer();
-    //   glAssert("Queried field textures");
-    // }
-
     // Test output textures every 100 iterations
     #ifdef FIELD_IMAGE_OUTPUT
-    if (_iteration % 10 == 0) {
-      // // Compute debug texture
-      // {
-      //   auto& program = _programs[PROGRAM_DEBUG];
-      //   program.bind();
-
-      //   glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DEBUG]);
-      //   if (refresh) {
-      //     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, _w, _h, 0, GL_RED, GL_FLOAT, nullptr);
-      //   }
-
-      //   // Bind the textures for this shader
-      //   glActiveTexture(GL_TEXTURE0);
-      //   glBindTexture(GL_TEXTURE_2D_ARRAY, _textures[TEXTURE_DEPTH]);
-      //   program.uniform1i("depth_textures", 0);
-      //   glBindImageTexture(0, _textures[TEXTURE_DEBUG], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
-
-      //   // Perform computation
-      //   glDispatchCompute((_w / 8) + 1, (_h / 8) + 1, 1);
-      //   glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-
-      //   program.release();
-      // }
-      
-      // Output depth textures
+    if (_iteration == 999) {
+      // Output grid
       {
-        std::vector<float> depth(w * h * 2, 0.f);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, _textures[TEXTURE_DEPTH_ARRAY]);
-        glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
-        const std::string name = "images/depth_";
-        
-        std::vector<float> buffer(w * h, 0.f);
-        for (int i = 0; i < 2; i++) {
-          for (int j = 0; j < w * h; j++) {
-            buffer[j] = depth[i *  w * h + j];
-          }
-          if (i == 1) {
-            std::transform(buffer.begin(), buffer.end(), buffer.begin(), [] (const auto& f) {
-              return 1.f - f;
-            });
-          }
-          hdi::utils::valuesToImage(name + std::to_string(i) + "_" + std::to_string(_iteration), buffer, w, h, 1);
-        }
-      }
-      
-      // Output grid texture
-      {
-        std::vector<uint32_t> grid(4 * _w * _h, 0.f);
+        std::vector<uint32_t> buffer(_w * _h * 4, 0u);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, grid.data());
-
-        if (_iteration == _params._iterations - 10) {
-          int w = 60;
-          for (int i = 0; i < _h; i++) {
-            std::cout << std::bitset<32>(grid[4 * i * _w + 4 * w]) << " "
-                      << std::bitset<32>(grid[4 * i * _w + 4 * w + 1]) << " "
-                      << std::bitset<32>(grid[4 * i * _w + 4 * w + 2]) << " "
-                      << std::bitset<32>(grid[4 * i * _w + 4 * w + 3]) << std::endl;
-          }
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, buffer.data());
+        int w = _w / 2;
+        for (int i = 0; i < _h; i++) {
+          std::cout << std::bitset<32>(buffer[4 * i * _w + 4 * w]) << " "
+                    << std::bitset<32>(buffer[4 * i * _w + 4 * w + 1]) << " "
+                    << std::bitset<32>(buffer[4 * i * _w + 4 * w + 2]) << " "
+                    << std::bitset<32>(buffer[4 * i * _w + 4 * w + 3]) << std::endl;
         }
-
-      //   std::vector<uint8_t> output(4 * _w * _h, 0u);
-      //   // Fill alpha channel, otherwise visualization is hard
-      //   for (int i = 0; i < grid.size(); i += 4) {
-      //     output[i] = grid[i] / 16777216; 
-      //     output[i + 1] = grid[i + 1] / 16777216; 
-      //     output[i + 2] = grid[i + 2] / 16777216; 
-      //     output[i + 3] = 255;
-      //   }
-      //   hdi::utils::valuesToImage("images/grid_" + std::to_string(_iteration), output, w, h, 4);
+        std::cout << std::endl;
+        int c = 0;
+        for (int i = 0; i < buffer.size(); i++) {
+          c += std::bitset<32>(buffer[i]).count();
+        }
+        std::cout << "Dims of grid: " << _w << ", " << _h << ", " << _d << std::endl;
+        std::cout << "Count of grid " << c  << std::endl << std::endl;
       }
 
-      // // Output debug textures
-      // {
-      //   std::vector<float> debug(w * h, 0.f);
-      //   glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DEBUG]);
-      //   glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, debug.data());
-      //   hdi::utils::valuesToImage("images/debug_" + std::to_string(_iteration), debug, w, h, 1);
-      // }
-      
-      // Output 3d fields texture
-      /* { 
-        std::vector<float> field(w * h * d * 4, 0.f);
+      // Output field
+      {
+        std::vector<float> buffer(4 * _w * _h * _d);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD_3D]);
-        glGetTexImage(GL_TEXTURE_3D, 0, GL_RGBA, GL_FLOAT, field.data());
-
-        const std::array<std::string, 4> names = { 
-          "images/3D/density_",
-          "images/3D/gradient_x_",
-          "images/3D/gradient_y_",
-          "images/3D/gradient_z_" 
-        };
-
-        std::vector<float> buffer(w * h, 0.f);
-        for (int k = 0; k < d; k++) {
-          for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < w * h; j++) {
-              buffer[j] = field[(k * w * h * 4) + 4 * j + i];
-            }
-            normalize(buffer);
-            hdi::utils::valuesToImage(names[i] + std::to_string(_iteration) + "_" + std::to_string(k), buffer, w, h, 1);
+        glGetTexImage(GL_TEXTURE_3D, 0, GL_RGBA, GL_FLOAT, buffer.data());
+        int w = _w / 2;
+        for (int i = 0; i < _h; i++) {
+          for (int j = 0; j < _d; j++) {
+            int ind = j * (4 * _w * _h) + i * (4 * _w) + (4 * w);
+            auto& v = buffer[ind];
+            printf("%3.2f ", v);
           }
+          std::cout << std::endl;
         }
-      } */
+        std::cout << std::endl;
+      }
     }
+    // if (_iteration % 10 == 0) {
+        // ...
+    // }
     #endif // FIELD_IMAGE_OUTPUT
     
     updateTimers(_iteration);
@@ -569,6 +451,7 @@ namespace hdi::dr {
       reportTimer(TIMER_GRID, "Grid", _iteration);
       reportTimer(TIMER_FIELD_3D, "Field", _iteration);
       reportTimer(TIMER_INTERP, "Interp", _iteration);
+      utils::secureLog(_logger, "");
     }
     _iteration++;
   }
@@ -596,7 +479,8 @@ namespace hdi::dr {
     auto& values = _timerValues[type];
     glGetQueryObjecti64v(handle, GL_QUERY_RESULT, &values[TIMER_LAST_QUERY]);
     
-    // Compute incremental average
+    // Compute incremental times
+    values[TIMER_TOTAL] += values[TIMER_LAST_QUERY];
     values[TIMER_AVERAGE] 
       = values[TIMER_AVERAGE] 
       + (values[TIMER_LAST_QUERY] - values[TIMER_AVERAGE]) 
@@ -606,29 +490,27 @@ namespace hdi::dr {
   }
 
   void DepthFieldComputation::updateTimerQueries(unsigned iteration) {
-    std::deque<TimerType> types = {
-      TIMER_DEPTH,
-      TIMER_GRID,
-      TIMER_FIELD_3D,
-      TIMER_INTERP
-    };
+    std::deque<int> types(TimerTypeLength);
+    std::iota(types.begin(), types.end(), 0);
 
     // Query until all timer data is available and obtained
     while (!types.empty()) {
       const auto type = types.front();
       types.pop_front();
-      if (!updateTimerQuery(type, iteration)) {
+      if (!updateTimerQuery(TimerType(type), iteration)) {
         types.push_back(type);
       }
     }
   }
 
   void DepthFieldComputation::reportTimerQuery(TimerType type, const std::string& name, unsigned iteration) {
-    const double ms = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
+    const double averageMs = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
+    const double totalMs = static_cast<double>(_timerValues[type][TIMER_TOTAL]) / 1000000.0;
+    const std::string value = std::to_string(averageMs) + ", " + std::to_string(totalMs);
     utils::secureLogValue(
       _logger, 
-      name + " shader average (" + std::to_string(iteration) + " iters, ms)",
-      ms);
+      name + " shader average, total (ms)", 
+      value);
   }
 #endif // FIELD_QUERY_TIMER_ENABLED
 }
