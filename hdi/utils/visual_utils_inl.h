@@ -137,7 +137,8 @@ namespace hdi{
       std::vector<uint8_t> data(w * h * 4, 0);
       if (c == 1) {
         for (int i = 0; i < data.size() / 4; i++) {
-          const auto ch = static_cast<uint8_t>(v[i * c + 0] * 255.f);
+          const auto ch = static_cast<uint8_t>(v[i * c + 0]);
+          // const auto ch = static_cast<uint8_t>(v[i * c + 0] * 255.f);
           data[i * 4 + 0] = ch;
           data[i * 4 + 1] = ch;
           data[i * 4 + 2] = ch;

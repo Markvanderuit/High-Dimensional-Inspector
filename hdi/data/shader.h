@@ -78,6 +78,7 @@ public:
   void addShader(ShaderType type, const char* source);
   void build();
   std::string getError();
+  std::string getBinary();
 
   bool isCreated();
   bool isLinked();
@@ -102,6 +103,8 @@ public:
   void uniform3i(const char* name, int v0, int v1, int v2);
   void uniform3ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2);
   void uniform4f(const char* name, float v0, float v1, float v2, float v3);
+  void uniform4i(const char* name, int v0, int v1, int v2, int v3);
+  void uniform4ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3);
   void uniformMatrix4f(const char* name, const float* m);
   GLint getUniformLocation(const char* name);
 

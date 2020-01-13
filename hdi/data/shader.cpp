@@ -110,9 +110,6 @@ std::string Shader::getInfoLog()
   return prefix + std::string(log.begin(), log.end());
 }
 
-
-
-
 ShaderProgram::ShaderProgram() :
   _is_created(false),
   _is_linked(false),
@@ -184,6 +181,30 @@ std::string ShaderProgram::getError()
   ss << getInfoLog();
 
   return ss.str();
+}
+
+std::string ShaderProgram::getBinary()
+{
+  // Get binary length
+  GLint length = 0;
+  glGetProgramiv(_handle, GL_PROGRAM_BINARY_LENGTH, &length);
+
+  // Retrieve the binary code
+  std::vector<GLchar> buffer(length);
+  GLenum format = 0;
+  glGetProgramBinary(_handle, length, NULL, &format, buffer.data());
+
+  // Output string
+  std::string str(buffer.begin(), buffer.end());
+  return str;
+  // std::ostringstream ss;
+  // for (Shader& shader : _attached_shaders)
+  // {
+  //   ss << "Shader program binary:\n\n";
+  //   ss << shader.getBinary() << '\n';
+  // }
+
+  // return ss.str();
 }
 
 void ShaderProgram::create()
@@ -356,6 +377,14 @@ void ShaderProgram::uniform3ui(const char* name, unsigned int v0, unsigned int v
 void ShaderProgram::uniform4f(const char* name, float v0, float v1, float v2, float v3)
 {
   glUniform4f(getUniformLocation(name), v0, v1, v2, v3);
+}
+
+void ShaderProgram::uniform4i(const char* name, int v0, int v1, int v2, int v3) {
+  glUniform4i(getUniformLocation(name), v0, v1, v2, v3);
+}
+
+void ShaderProgram::uniform4ui(const char* name, unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3) {
+  glUniform4ui(getUniformLocation(name), v0, v1, v2, v3);
 }
 
 void ShaderProgram::uniformMatrix4f(const char* name, const float* m)
