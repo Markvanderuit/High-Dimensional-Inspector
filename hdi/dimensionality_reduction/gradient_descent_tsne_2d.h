@@ -30,18 +30,17 @@
 *
 */
 
-#ifndef GRADIENT_DESCENT_TSNE_3D_H
-#define GRADIENT_DESCENT_TSNE_3D_H
+#pragma once
 
 #include "hdi/utils/assert_by_exception.h"
 #include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
-#include "gpgpu_sne/3d_gpgpu_sne_compute.h"
+#include "gpgpu_sne/2d_gpgpu_sne_compute.h"
 
 namespace hdi::dr {
-  class GradientDescentTSNE3D : public AbstractGradientDescentTSNE {
+  class GradientDescentTSNE2D : public AbstractGradientDescentTSNE {
   public:
-    GradientDescentTSNE3D();
-    ~GradientDescentTSNE3D();
+    GradientDescentTSNE2D();
+    ~GradientDescentTSNE2D();
 
     void initialize(const sparse_scalar_matrix_t& probabilities,
                     data::Embedding<scalar_t>* embedding, 
@@ -51,19 +50,17 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) override {
       _logger = logger; 
-      _gpgpu_3d_sne_compute.setLogger(logger);
+      _gpgpu_sne_compute.setLogger(logger);
     }
 
-    Bounds3D bounds() const {
-      return _gpgpu_3d_sne_compute.bounds();
+    Bounds2D bounds() const {
+      return _gpgpu_sne_compute.bounds();
     }
 
   private:
     double computeExaggeration();
 
     // Underlying implementation
-    Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
+    Gpgpu2dSneCompute _gpgpu_sne_compute;
   };
 }
-
-#endif // GRADIENT_DESCENT_TSNE_3D_H
