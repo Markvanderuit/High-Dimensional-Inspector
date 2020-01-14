@@ -1,12 +1,11 @@
 #pragma once
 
-#include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "gpgpu_utils.h"
 #include "3d_utils.h"
 
-// #define FIELD_QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
 // #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
 
 namespace hdi::dr {
@@ -71,7 +70,7 @@ namespace hdi::dr {
     std::array<uint32_t, 4 * 128> _cellData;
     TsneParameters _params;
     utils::AbstractLog* _logger;
-
+    
     // Query timers matching to each shader
     TIMERS_DECLARE(
       GRID, 

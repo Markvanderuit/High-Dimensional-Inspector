@@ -3,14 +3,14 @@
 #pragma once
 
 #define ASSERT_SUM_Q // Enable SUM_Q value checking
-// #define USE_DEPTH_FIELD // Enable depthmap leveraging field computation
+#define USE_DEPTH_FIELD // Enable depthmap leveraging field computation
 // #define USE_MIPMAP // Enable mipmap leveraging field computation
 
-#include <array>
 #include <cstdlib>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "gpgpu_utils.h"
 #include "3d_utils.h"
 
 #ifdef USE_DEPTH_FIELD

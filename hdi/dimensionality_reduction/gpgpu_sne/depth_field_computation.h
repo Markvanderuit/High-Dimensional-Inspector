@@ -1,10 +1,10 @@
 #pragma once
 
-#include <array>
 #include <QMatrix4x4>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "gpgpu_utils.h"
 #include "3d_utils.h"
 
 // #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations

@@ -11,10 +11,8 @@
 #include "hdi/utils/visual_utils.h"
 #include "hdi/utils/log_helper_functions.h"
 
-namespace {
-  // Magic numbers
-  constexpr float pointSize = 2.f;
-}
+// Magic numbers
+constexpr float pointSize = 2.f;
 
 namespace hdi::dr {
   BaselineFieldComputation::BaselineFieldComputation()
