@@ -13,20 +13,6 @@
 #include "hdi/utils/visual_utils.h"
 #include "hdi/utils/log_helper_functions.h"
 
-// Do or do not add query timer functions
-#ifdef FIELD_QUERY_TIMER_ENABLED
-  #include <deque>
-  #define startTimer(type) startTimerQuery(type)
-  #define stopTimer() stopTimerQuery()
-  #define updateTimers(iterations) updateTimerQueries(iterations)
-  #define reportTimer(type, name, iteration) reportTimerQuery(type, name, iteration)
-#else
-  #define startTimer(type)
-  #define stopTimer()
-  #define updateTimers(iterations)
-  #define reportTimer(type, name, iteration)
-#endif // FIELD_QUERY_TIMER_ENABLED
-
 namespace {
   // Magic numbers
   constexpr float pointSize = 2.f;
@@ -65,6 +51,8 @@ namespace hdi::dr {
 
   void DepthFieldComputation::initialize(const TsneParameters& params, 
                                           unsigned n) {
+    TIMERS_CREATE()
+
     _params = params;
 
     // Initialize rng, yeah yeah std::rand() is bad.
@@ -101,12 +89,6 @@ namespace hdi::dr {
         _cellData[i * 4 * bitData.size() + i + 4 * j] = bitData[j];
       }
     }
-
-    #ifdef FIELD_QUERY_TIMER_ENABLED
-      // Generate timer query handles and reset values
-      glGenQueries(_timerHandles.size(), _timerHandles.data());
-      _timerValues.fill({0l, 0l });
-    #endif // FIELD_QUERY_TIMER_ENABLED
 
     glGenTextures(_textures.size(), _textures.data());
     glGenFramebuffers(_framebuffers.size(), _framebuffers.data());
@@ -165,17 +147,17 @@ namespace hdi::dr {
   }
 
   void DepthFieldComputation::clean() {
-    glDeleteTextures(_textures.size(), _textures.data());
-    glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
-    glDeleteVertexArrays(1, &_point_vao);
-#ifdef FIELD_QUERY_TIMER_ENABLED
-    glDeleteQueries(_timerHandles.size(), _timerHandles.data());
-#endif // FIELD_QUERY_TIMER_ENABLED
-    for (auto& program : _programs) {
-      program.destroy();
+    if (_initialized) {
+      TIMERS_DESTROY()
+      glDeleteTextures(_textures.size(), _textures.data());
+      glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
+      glDeleteVertexArrays(1, &_point_vao);
+      for (auto& program : _programs) {
+        program.destroy();
+      }
+      _iteration = 0;
+      _initialized = false;
     }
-    _iteration = 0;
-    _initialized = false;
   }
 
 #ifdef FIELD_ROTATE_VIEW
@@ -246,7 +228,7 @@ namespace hdi::dr {
 
     // Compute depth textures
     { 
-      startTimer(TIMER_DEPTH);
+      TIMER_TICK(TIMER_DEPTH)
 
       // Bind bounds buffer
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
@@ -279,16 +261,16 @@ namespace hdi::dr {
       glDisable(GL_DEPTH_TEST);
       _programs[PROGRAM_DEPTH].release();
 
-      stopTimer();
+      TIMER_TOCK(TIMER_DEPTH)
     }
 
     // Compute grid texture and merge depth array texture in same shader
     {
-      startTimer(TIMER_GRID);
-      
-      // Bind uniforms to program
+      TIMER_TICK(TIMER_GRID)
       auto& program = _programs[PROGRAM_GRID];
       program.bind();
+      
+      // Bind uniforms to program
       program.uniformMatrix4f("transformation", _viewMatrix.data());
       program.uniform1i("depthMaps", 0);
       program.uniform1i("cellMap", 1);
@@ -324,13 +306,12 @@ namespace hdi::dr {
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       glDisable(GL_LOGIC_OP);
       program.release();
-      stopTimer();
+      TIMER_TOCK(TIMER_GRID)
     }
 
     // Compute fields 3D texture
     {
-      startTimer(TIMER_FIELD_3D);
-
+      TIMER_TICK(TIMER_FIELD_3D)
       auto &program = _programs[PROGRAM_FIELD_3D];
       program.bind();
 
@@ -357,13 +338,12 @@ namespace hdi::dr {
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
       
       program.release();
-      stopTimer();
+      TIMER_TOCK(TIMER_FIELD_3D)
     }
 
     // Query field texture for positional values
     {
-      glAssert("Querying field textures");
-      startTimer(TIMER_INTERP);
+      TIMER_TICK(TIMER_INTERP)
 
       auto &program = _programs[PROGRAM_INTERP];
       program.bind();
@@ -392,8 +372,7 @@ namespace hdi::dr {
 
       // Cleanup
       program.release();
-      stopTimer();
-      glAssert("Queried field textures");
+      TIMER_TOCK(TIMER_INTERP)
     }
 
     // Test output textures every 100 iterations
@@ -444,73 +423,16 @@ namespace hdi::dr {
     // }
     #endif // FIELD_IMAGE_OUTPUT
     
-    updateTimers(_iteration);
+    TIMERS_UPDATE()
     if (_iteration >= _params._iterations - 1) {
       // Output timer values
-      reportTimer(TIMER_DEPTH, "Depth", _iteration);
-      reportTimer(TIMER_GRID, "Grid", _iteration);
-      reportTimer(TIMER_FIELD_3D, "Field", _iteration);
-      reportTimer(TIMER_INTERP, "Interp", _iteration);
+      utils::secureLog(_logger, "");
+      TIMER_LOG(_logger, TIMER_DEPTH, "Depth");
+      TIMER_LOG(_logger, TIMER_GRID, "Grid");
+      TIMER_LOG(_logger, TIMER_FIELD_3D, "Field");
+      TIMER_LOG(_logger, TIMER_INTERP, "Interp");
       utils::secureLog(_logger, "");
     }
     _iteration++;
   }
-
-#ifdef FIELD_QUERY_TIMER_ENABLED
-  void DepthFieldComputation::startTimerQuery(TimerType type) {
-    glBeginQuery(GL_TIME_ELAPSED, _timerHandles[type]);
-  }
-
-  void DepthFieldComputation::stopTimerQuery() {
-    glEndQuery(GL_TIME_ELAPSED);
-  }
-  
-  bool DepthFieldComputation::updateTimerQuery(TimerType type, unsigned iteration) {
-    const auto& handle = _timerHandles[type];
-    
-    // Return if query data for this handle is unavailable
-    int i = 0;
-    glGetQueryObjectiv(handle, GL_QUERY_RESULT_AVAILABLE, &i);
-    if (!i) {
-      return false;
-    }
-    
-    // Obtain query value
-    auto& values = _timerValues[type];
-    glGetQueryObjecti64v(handle, GL_QUERY_RESULT, &values[TIMER_LAST_QUERY]);
-    
-    // Compute incremental times
-    values[TIMER_TOTAL] += values[TIMER_LAST_QUERY];
-    values[TIMER_AVERAGE] 
-      = values[TIMER_AVERAGE] 
-      + (values[TIMER_LAST_QUERY] - values[TIMER_AVERAGE]) 
-      / (iteration + 1);
-
-    return true;
-  }
-
-  void DepthFieldComputation::updateTimerQueries(unsigned iteration) {
-    std::deque<int> types(TimerTypeLength);
-    std::iota(types.begin(), types.end(), 0);
-
-    // Query until all timer data is available and obtained
-    while (!types.empty()) {
-      const auto type = types.front();
-      types.pop_front();
-      if (!updateTimerQuery(TimerType(type), iteration)) {
-        types.push_back(type);
-      }
-    }
-  }
-
-  void DepthFieldComputation::reportTimerQuery(TimerType type, const std::string& name, unsigned iteration) {
-    const double averageMs = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
-    const double totalMs = static_cast<double>(_timerValues[type][TIMER_TOTAL]) / 1000000.0;
-    const std::string value = std::to_string(averageMs) + ", " + std::to_string(totalMs);
-    utils::secureLogValue(
-      _logger, 
-      name + " shader average, total (ms)", 
-      value);
-  }
-#endif // FIELD_QUERY_TIMER_ENABLED
 }
