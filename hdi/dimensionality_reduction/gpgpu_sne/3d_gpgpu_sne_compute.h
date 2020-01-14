@@ -2,9 +2,9 @@
 
 #pragma once
 
-#define QUERY_TIMER_ENABLED // Enable GL timer queries and output info on final iteration
 #define ASSERT_SUM_Q // Enable SUM_Q value checking
-#define USE_DEPTH_FIELD // Enable depthmap leveraging field computation
+// #define USE_DEPTH_FIELD // Enable depthmap leveraging field computation
+// #define USE_MIPMAP // Enable mipmap leveraging field computation
 
 #include <array>
 #include <cstdlib>
@@ -15,6 +15,8 @@
 
 #ifdef USE_DEPTH_FIELD
 #include "depth_field_computation.h"
+#elif defined USE_MIPMAP
+#include "mipmap_field_computation.h"
 #else
 #include "3d_field_computation.h"
 #endif 
@@ -97,43 +99,22 @@ namespace hdi::dr {
     std::array<ShaderProgram, ProgramTypeLength> _programs;
 #ifdef USE_DEPTH_FIELD
     DepthFieldComputation _fieldComputation;
+#elif defined USE_MIPMAP
+    MipmapFieldComputation _fieldComputation;
 #else
-    Compute3DFieldComputation _fieldComputation;
+    BaselineFieldComputation _fieldComputation;
 #endif
     TsneParameters _params;
     Bounds3D _bounds;
     utils::AbstractLog* _logger;
 
-#ifdef QUERY_TIMER_ENABLED
-  private:
-    enum TimerType {
-      // Enums matching to timers 
+    TIMERS_DECLARE(
       TIMER_SUM_Q,
       TIMER_GRADIENTS,
       TIMER_UPDATE,
       TIMER_BOUNDS,
-      TIMER_CENTERING,
-      
-      // Static enum length
-      TimerTypeLength 
-    };
-
-    enum TimerValue {
-      TIMER_LAST_QUERY,
-      TIMER_AVERAGE,
-
-      // Static enum length
-      TimerValueLength 
-    };
-
-    void startTimerQuery(TimerType type);
-    void stopTimerQuery();
-    bool updateTimerQuery(TimerType type, unsigned iteration);
-    void updateTimerQueries(unsigned iteration);
-    void reportTimerQuery(TimerType type, const std::string& name, unsigned iteration);
-    std::array<GLuint, TimerTypeLength> _timerHandles;
-    std::array<std::array<GLint64, TimerValueLength>, TimerTypeLength> _timerValues;
-#endif // QUERY_TIMER_ENABLED
+      TIMER_CENTERING
+    )
   };
 }
 

@@ -1,22 +1,9 @@
 #ifndef __APPLE__
 
+#include <algorithm>
 #include "hdi/utils/log_helper_functions.h"
 #include "3d_gpgpu_sne_compute.h"
 #include "3d_compute_shaders.h"
-
-// Do or do not add query timer functions
-#ifdef QUERY_TIMER_ENABLED
-  #include <deque>
-  #define startTimer(type) startTimerQuery(type)
-  #define stopTimer() stopTimerQuery()
-  #define updateTimers(iterations) updateTimerQueries(iterations)
-  #define reportTimer(type, name, iteration) reportTimerQuery(type, name, iteration)
-#else
-  #define startTimer(type)
-  #define stopTimer()
-  #define updateTimers(iterations)
-  #define reportTimer(type, name, iteration)
-#endif
 
 namespace {
   // Magic numbers
@@ -91,18 +78,14 @@ namespace hdi::dr {
   void Gpgpu3dSneCompute::initialize(const embedding_t* embedding, 
                     const TsneParameters& params, 
                     const sparse_matrix_t& P) {
+    TIMERS_CREATE()
+
     glClearColor(0, 0, 0, 0);
 
     _params = params;
     _bounds = computeEmbeddingBounds(embedding, 0.f);
     const int n = embedding->numDataPoints();
     _fieldComputation.initialize(_params, n);
-
-#ifdef QUERY_TIMER_ENABLED
-    // Generate timer query handles and reset values
-    glGenQueries(_timerHandles.size(), _timerHandles.data());
-    _timerValues.fill({0l, 0l });
-#endif // QUERY_TIMER_ENABLED
 
     // Create shader programs 
     try {
@@ -188,12 +171,10 @@ namespace hdi::dr {
 
   void Gpgpu3dSneCompute::clean() {
     if (_initialized) {
+      TIMERS_DESTROY()
       for (auto& program : _programs) {
         program.destroy();
       }
-#ifdef QUERY_TIMER_ENABLED
-      glDeleteQueries(_timerHandles.size(), _timerHandles.data());
-#endif // QUERY_TIMER_ENABLED
       glDeleteBuffers(_buffers.size(), _buffers.data());
       _fieldComputation.clean();
       _initialized = false;
@@ -232,7 +213,6 @@ namespace hdi::dr {
     uint32_t d = _adaptive_resolution 
       ? std::max((unsigned int)(range.z * _resolution_scaling * 0.25), minFieldSize) 
       : (int) (fixedFieldSize * (range.z / range.x));
-    // uint32_t d = fixedDepthSize;
 #else
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
@@ -244,7 +224,7 @@ namespace hdi::dr {
       ? std::max((unsigned int)(range.z * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.z / range.x));
 #endif
-
+    
     // Compute fields texture
     _fieldComputation.compute(w, h,  d, 
                               functionSupport, n, 
@@ -255,7 +235,6 @@ namespace hdi::dr {
 
     // Calculate normalization sum
     sumQ(n);
-
 
 #ifdef ASSERT_SUM_Q
     float sum_Q = 0.f;
@@ -275,8 +254,7 @@ namespace hdi::dr {
     updatePoints(n, iteration, mult);
     updateEmbedding(n, exaggeration, iteration);
     
-    // Update timer handles 
-    updateTimers(iteration);
+    TIMERS_UPDATE()
 
     // Update host embedding data
     if (iteration >= _params._iterations - 1) {
@@ -285,15 +263,17 @@ namespace hdi::dr {
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
       
       // Output timer averages
-      reportTimer(TIMER_SUM_Q, "Sum Q", iteration);
-      reportTimer(TIMER_GRADIENTS, "Grads", iteration);
-      reportTimer(TIMER_UPDATE, "Update", iteration);
-      reportTimer(TIMER_BOUNDS, "Bounds", iteration);
-      reportTimer(TIMER_CENTERING, "Center", iteration);
+      TIMER_LOG(_logger, TIMER_SUM_Q, "Sum Q")
+      TIMER_LOG(_logger, TIMER_GRADIENTS, "Grads")
+      TIMER_LOG(_logger, TIMER_UPDATE, "Update")
+      TIMER_LOG(_logger, TIMER_BOUNDS, "Bounds")
+      TIMER_LOG(_logger, TIMER_CENTERING, "Center")
+      utils::secureLog(_logger, "");
     }
   }
 
   void Gpgpu3dSneCompute::computeBounds(unsigned n, float padding) {
+    TIMER_TICK(TIMER_BOUNDS)
     auto& program = _programs[PROGRAM_BOUNDS];
     program.bind();
 
@@ -307,18 +287,18 @@ namespace hdi::dr {
 
     // Run shader (dimensionality reduction in single group)
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    startTimer(TIMER_BOUNDS);
     program.uniform1ui("iteration", 0u);
     glDispatchCompute(128, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     program.uniform1ui("iteration", 1u);
     glDispatchCompute(1, 1, 1);
-    stopTimer();
 
     program.release();
+    TIMER_TOCK(TIMER_BOUNDS)
   }
 
   void Gpgpu3dSneCompute::sumQ(unsigned n) {
+    TIMER_TICK(TIMER_SUM_Q)
     auto& program = _programs[PROGRAM_SUM_Q];
     program.bind();
 
@@ -329,19 +309,18 @@ namespace hdi::dr {
 
     // Run shader twice (reduce add performed in two steps)
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    startTimer(TIMER_SUM_Q);
     program.uniform1ui("iteration", 0u);
     glDispatchCompute(128, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     program.uniform1ui("iteration", 1u);
     glDispatchCompute(1, 1, 1);
-    stopTimer();
 
     program.release();
+    TIMER_TOCK(TIMER_SUM_Q)
   }
 
   void Gpgpu3dSneCompute::computeGradients(unsigned n, float exaggeration) {
-    startTimer(TIMER_GRADIENTS);
+    TIMER_TICK(TIMER_GRADIENTS)
 
     // Reduce add positive forces (performance hog, 60K reduce-adds over varying points)
     {
@@ -383,10 +362,11 @@ namespace hdi::dr {
       program.release();
     }
 
-    stopTimer();
+    TIMER_TOCK(TIMER_GRADIENTS)
   }
 
   void Gpgpu3dSneCompute::updatePoints(unsigned n, float iteration, float mult) {
+    TIMER_TICK(TIMER_UPDATE)
     auto& program = _programs[PROGRAM_UPDATE];
     program.bind();
 
@@ -410,14 +390,14 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    startTimer(TIMER_UPDATE);
     glDispatchCompute(128, 1, 1);
-    stopTimer();
 
     program.release();
+    TIMER_TOCK(TIMER_UPDATE)
   }
 
   void Gpgpu3dSneCompute::updateEmbedding(unsigned n, float exaggeration, float iteration) {
+    TIMER_TICK(TIMER_CENTERING)
     auto& program = _programs[PROGRAM_CENTERING];
     program.bind();
 
@@ -438,72 +418,11 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    startTimer(TIMER_CENTERING);
     glDispatchCompute(128, 1, 1);
-    stopTimer();
 
     program.release();
+    TIMER_TOCK(TIMER_CENTERING)
   }
-
-#ifdef QUERY_TIMER_ENABLED
-  void Gpgpu3dSneCompute::startTimerQuery(TimerType type) {
-    glBeginQuery(GL_TIME_ELAPSED, _timerHandles[type]);
-  }
-
-  void Gpgpu3dSneCompute::stopTimerQuery() {
-    glEndQuery(GL_TIME_ELAPSED);
-  }
-  
-  bool Gpgpu3dSneCompute::updateTimerQuery(TimerType type, unsigned iteration) {
-    const auto& handle = _timerHandles[type];
-    
-    // Return if query data for this handle is unavailable
-    int i = 0;
-    glGetQueryObjectiv(handle, GL_QUERY_RESULT_AVAILABLE, &i);
-    if (!i) {
-      return false;
-    }
-    
-    // Obtain query value
-    auto& values = _timerValues[type];
-    glGetQueryObjecti64v(handle, GL_QUERY_RESULT, &values[TIMER_LAST_QUERY]);
-    
-    // Compute incremental average
-    values[TIMER_AVERAGE] 
-      = values[TIMER_AVERAGE] 
-      + (values[TIMER_LAST_QUERY] - values[TIMER_AVERAGE]) 
-      / (iteration + 1);
-
-    return true;
-  }
-
-  void Gpgpu3dSneCompute::updateTimerQueries(unsigned iteration) {
-    std::deque<TimerType> types = {
-      TIMER_SUM_Q,
-      TIMER_GRADIENTS,
-      TIMER_UPDATE,
-      TIMER_BOUNDS,
-      TIMER_CENTERING
-    };
-
-    // Query until all timer data is available and obtained
-    while (!types.empty()) {
-      const auto type = types.front();
-      types.pop_front();
-      if (!updateTimerQuery(type, iteration)) {
-        types.push_back(type);
-      }
-    }
-  }
-
-  void Gpgpu3dSneCompute::reportTimerQuery(TimerType type, const std::string& name, unsigned iteration) {
-    const double ms = static_cast<double>(_timerValues[type][TIMER_AVERAGE]) / 1000000.0;
-    utils::secureLogValue(
-      _logger, 
-      name + " shader average (" + std::to_string(iteration) + " iters, ms)",
-      ms);
-  }
-#endif // QUERY_TIMER_ENABLED
 }
 
 #endif // __APPLE__
