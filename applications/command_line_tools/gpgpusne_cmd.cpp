@@ -39,7 +39,8 @@
 #include "hdi/data/io.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
+// #include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
+#include "hdi/dimensionality_reduction/gradient_descent_tsne_2d.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_3d.h"
 #include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
 #include "hdi/utils/visual_utils.h"
@@ -244,7 +245,8 @@ int main(int argc, char *argv[]) {
     // Compute embedding
     std::unique_ptr<hdi::dr::AbstractGradientDescentTSNE> tSNE;
     if (tsne_params._embedding_dimensionality == 2) {
-      tSNE = std::make_unique<hdi::dr::GradientDescentTSNETexture>();
+      tSNE = std::make_unique<hdi::dr::GradientDescentTSNE2D>();
+      // tSNE = std::make_unique<hdi::dr::GradientDescentTSNETexture>();
     } else if (tsne_params._embedding_dimensionality == 3) {
       tSNE = std::make_unique<hdi::dr::GradientDescentTSNE3D>();
     } else {

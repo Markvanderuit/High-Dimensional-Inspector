@@ -107,9 +107,7 @@ namespace hdi::dr {
                     const TsneParameters& params, 
                     const sparse_matrix_t& P) {
     TIMERS_CREATE()
-
     glClearColor(0, 0, 0, 0);
-
     _params = params;
     _bounds = computeEmbeddingBounds(embedding, 0.f);
     const int n = embedding->numDataPoints();
@@ -269,9 +267,7 @@ namespace hdi::dr {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q]);
     glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(float), &sum_Q);
     if (sum_Q == 0.f) {
-      std::cout << "SUM_Q was 0, bring out thine debuggers" << std::endl;
-      exit(0);
-      return;
+      throw std::runtime_error("SUM_Q was 0, bring out thine debuggers");
     }
 #endif // ASSERT_SUM_Q
 

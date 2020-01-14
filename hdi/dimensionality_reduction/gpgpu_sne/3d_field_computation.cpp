@@ -31,9 +31,6 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <algorithm>
-#include <random>
-#include <string>
-#include <bitset>
 #include "3d_field_computation.h"
 #include "3d_field_shaders.h"
 #include "hdi/visualization/opengl_helpers.h"
@@ -126,7 +123,6 @@ namespace hdi::dr {
 
   void BaselineFieldComputation::clean() {
     TIMERS_DESTROY()
-
     glDeleteTextures(_textures.size(), _textures.data());
     glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
     glDeleteVertexArrays(1, &_point_vao);
@@ -166,7 +162,7 @@ namespace hdi::dr {
 
     // Compute grid texture
     {
-      TIMER_TICK(GRID)
+      TIMER_TICK(TIMER_GRID)
       auto& program = _programs[PROGRAM_GRID];
       program.bind();
       
@@ -202,12 +198,12 @@ namespace hdi::dr {
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       glDisable(GL_LOGIC_OP);
       program.release();
-      TIMER_TOCK(GRID)
+      TIMER_TOCK(TIMER_GRID)
     }
 
     // Compute fields 3D texture
     {
-      TIMER_TICK(FIELD_3D)
+      TIMER_TICK(TIMER_FIELD_3D)
       auto &program = _programs[PROGRAM_FIELD_3D];
       program.bind();
 
@@ -231,12 +227,12 @@ namespace hdi::dr {
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
       
       program.release();
-      TIMER_TOCK(FIELD_3D)
+      TIMER_TOCK(TIMER_FIELD_3D)
     }
 
     // Query field texture for positional values
     {
-      TIMER_TICK(INTERP)
+      TIMER_TICK(TIMER_INTERP)
       auto &program = _programs[PROGRAM_INTERP];
       program.bind();
 
@@ -260,7 +256,7 @@ namespace hdi::dr {
 
       // Cleanup
       program.release();
-      TIMER_TOCK(INTERP)
+      TIMER_TOCK(TIMER_INTERP)
     }
 
     // Test output textures every 100 iterations
@@ -270,15 +266,15 @@ namespace hdi::dr {
     // }
     #endif // FIELD_IMAGE_OUTPUT 
     
+    // Update timers, log values on final iteration
     TIMERS_UPDATE()
     if (_iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "");
-      TIMER_LOG(_logger, GRID, "Grid")
-      TIMER_LOG(_logger, FIELD_3D, "Field")
-      TIMER_LOG(_logger, INTERP, "Interp")
+      TIMER_LOG(_logger, TIMER_GRID, "Grid")
+      TIMER_LOG(_logger, TIMER_FIELD_3D, "Field")
+      TIMER_LOG(_logger, TIMER_INTERP, "Interp")
       utils::secureLog(_logger, "");
     }
     _iteration++;
-    glAssert("After tock");
   }
 }

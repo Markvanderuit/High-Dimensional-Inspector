@@ -140,6 +140,14 @@ GLSL(field_src, 430,
   
   // Non component-wise findMSB() function
   int vFindMSB(uvec4 value) {
+    // 37 instructions
+    // ivec4 v = findMSB(value) + ivec4(96, 64, 32, 0);
+    // if (v[0] > 95) return v[0];
+    // if (v[1] > 63) return v[1];
+    // if (v[2] > 31) return v[2];
+    // return v[3];
+
+    // 7 instructions
     ivec4 v = ivec4(findMSB(value)); // 1111... interpeted as -1 in 2's 
     v += min(v + 1, 1) * ivec4(96, 64, 32, 0);
     return max(v.w, max(v.z, max(v.y, v.x)));

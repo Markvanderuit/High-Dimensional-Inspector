@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
@@ -60,6 +61,7 @@ namespace hdi::dr {
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
     }
+
   private:
     bool _initialized;
     int _iteration;
@@ -103,9 +105,9 @@ namespace hdi::dr {
     
     // Query timers matching to each shader
     TIMERS_DECLARE(
-      GRID, 
-      FIELD_3D, 
-      INTERP
+      TIMER_GRID, 
+      TIMER_FIELD_3D, 
+      TIMER_INTERP
     )
   };
 }

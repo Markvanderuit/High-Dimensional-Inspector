@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <array>
 #include <QMatrix4x4>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
