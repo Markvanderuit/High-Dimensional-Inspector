@@ -98,7 +98,7 @@ namespace hdi::dr {
     std::array<GLuint, TextureTypeLength> _textures;
     TsneParameters _params;
     utils::AbstractLog* _logger;
-    
+
     // Query timers matching to each shader
     TIMERS_DECLARE(
       TIMER_STENCIL, 

@@ -229,23 +229,17 @@ namespace hdi::dr {
     // Determine fields texture dimension (this has a rather significant impact in 3d)
     Point3D range = _bounds.range();
     
-#ifdef USE_DEPTH_FIELD
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
       : fixedFieldSize;
     uint32_t h = _adaptive_resolution 
       ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.y / range.x));
+#ifdef USE_DEPTH_FIELD
     uint32_t d = _adaptive_resolution 
       ? std::max((unsigned int)(range.z * _resolution_scaling * 0.25), minFieldSize) 
       : (int) (fixedFieldSize * (range.z / range.x));
 #else
-    uint32_t w = _adaptive_resolution 
-      ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
-      : fixedFieldSize;
-    uint32_t h = _adaptive_resolution 
-      ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
-      : (int) (fixedFieldSize * (range.y / range.x));
     uint32_t d = _adaptive_resolution 
       ? std::max((unsigned int)(range.z * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.z / range.x));

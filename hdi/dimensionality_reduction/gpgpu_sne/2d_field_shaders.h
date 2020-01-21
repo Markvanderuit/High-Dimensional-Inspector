@@ -74,7 +74,6 @@ GLSL(field_src, 430,
   layout(rgba32f, binding = 0) writeonly uniform image2D fields_texture;
   
   uniform uint num_points;
-  uniform uint grid_depth;
   uniform uvec2 texture_size;
   uniform usampler2D stencil_texture;
 

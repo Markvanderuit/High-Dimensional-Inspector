@@ -228,10 +228,10 @@ namespace hdi::dr {
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
     if (_iteration >= _params._iterations - 1) {
-      utils::secureLog(_logger, "");
-      TIMER_LOG(_logger, TIMER_STENCIL, "Stencil")
-      TIMER_LOG(_logger, TIMER_FIELD, "Field")
-      TIMER_LOG(_logger, TIMER_INTERP, "Interp")
+      utils::secureLog(_logger, "\nField computation");
+      TIMER_LOG(_logger, TIMER_STENCIL, "  Stencil")
+      TIMER_LOG(_logger, TIMER_FIELD, "  Field")
+      TIMER_LOG(_logger, TIMER_INTERP, "  Interp")
       utils::secureLog(_logger, "");
     }
     _iteration++;
