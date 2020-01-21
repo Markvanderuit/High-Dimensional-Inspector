@@ -68,14 +68,11 @@ void Shader::create()
 void Shader::compile()
 {
   glCompileShader(_handle);
-
+  
   GLint status;
   glGetShaderiv(_handle, GL_COMPILE_STATUS, &status);
-
-  _is_compiled = status == GL_TRUE;
-
-  if (!_is_compiled)
-  {
+  
+  if ((_is_compiled = status) != GL_TRUE) {
     std::string errorLog = getInfoLog();
     destroy();
     throw ShaderCompilationException(errorLog);

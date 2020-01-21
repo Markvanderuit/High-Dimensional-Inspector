@@ -39,8 +39,6 @@
 #include "hdi/data/io.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
-// #include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne_2d.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_3d.h"
 #include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
 #include "hdi/utils/visual_utils.h"
@@ -57,6 +55,13 @@
 #include <QOpenGLContext>
 #include <QOpenGLWidget>
 #include <QDebug>
+
+// #define USE_OLD_2D_TSNE
+#ifdef USE_OLD_2D_TSNE
+#include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
+#else
+#include "hdi/dimensionality_reduction/gradient_descent_tsne_2d.h"
+#endif
 
 typedef float scalar_type;
 
@@ -245,8 +250,11 @@ int main(int argc, char *argv[]) {
     // Compute embedding
     std::unique_ptr<hdi::dr::AbstractGradientDescentTSNE> tSNE;
     if (tsne_params._embedding_dimensionality == 2) {
+#ifdef USE_OLD_2D_TSNE
+      tSNE = std::make_unique<hdi::dr::GradientDescentTSNETexture>();
+#else 
       tSNE = std::make_unique<hdi::dr::GradientDescentTSNE2D>();
-      // tSNE = std::make_unique<hdi::dr::GradientDescentTSNETexture>();
+#endif 
     } else if (tsne_params._embedding_dimensionality == 3) {
       tSNE = std::make_unique<hdi::dr::GradientDescentTSNE3D>();
     } else {
@@ -296,7 +304,8 @@ int main(int argc, char *argv[]) {
 
     return app.exec();
   }
-  catch (std::logic_error& ex) { std::cout << "Logic error: " << ex.what() << std::endl; }
-  catch (std::runtime_error& ex) { std::cout << "Runtime error: " << ex.what() << std::endl; }
-  catch (...) { std::cout << "An unknown error occurred" << std::endl;; }
+  catch (std::logic_error& ex) { std::cerr << "Logic error: " << ex.what() << std::endl; }
+  catch (std::runtime_error& ex) { std::cerr << "Runtime error: " << ex.what() << std::endl; }
+  catch (std::exception& ex) { std::cerr << "General error: " << ex.what() << std::endl; }
+  catch (...) { std::cerr << "An unknown error occurred" << std::endl;; }
 }

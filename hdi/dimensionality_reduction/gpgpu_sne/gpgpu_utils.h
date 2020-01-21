@@ -79,13 +79,14 @@ namespace hdi::dr {
   inline void glAssert(const std::string& msg) {
     GLenum err; 
     while ((err = glGetError()) != GL_NO_ERROR) {
-      std::cerr << "Location: " << msg << ", err: " << err << std::endl;
-      exit(0);
+      std::stringstream ss;
+      ss << "glAssert failed with " << err << ", " << msg;
+      throw std::runtime_error(ss.str());
     }
   }
 
 #ifdef UTILS_QUERY_TIMERS
-  // GL timer query class
+  // GL timer query wrapper class
   class glTimerQuery {
   public:
     glTimerQuery()

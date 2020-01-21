@@ -7,7 +7,6 @@
 #endif // __APPLE__
 
 #include <exception>
-
 #include <string>
 #include <vector>
 #include <unordered_map>
