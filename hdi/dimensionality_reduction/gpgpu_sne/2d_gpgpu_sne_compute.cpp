@@ -46,6 +46,15 @@ namespace {
   typedef hdi::dr::Point2D Point2D;
   typedef hdi::dr::Bounds2D Bounds2D;
 
+  // Round up to the next highest power of 2 through float casting
+  // From Bit Twiddling Hacks
+  // src: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+  unsigned roundUpToNextPow2(unsigned i) {
+    float f = static_cast<float>(i);
+    unsigned t = 1u << ((*(unsigned*)&f >> 23) - 0x7f);
+    return t << static_cast<unsigned>(t < i);
+  }
+
   Bounds2D computeEmbeddingBounds(const embedding_t* embedding, 
                                   float padding) {
     const auto& points = embedding->getContainer();
@@ -224,10 +233,12 @@ namespace hdi::dr {
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
       : fixedFieldSize;
+    w = roundUpToNextPow2(w);
     uint32_t h = _adaptive_resolution 
       ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.y / range.x));
-    
+    h = roundUpToNextPow2(h);
+
     // Compute fields texture
     _fieldComputation.compute(w, h, 
                               functionSupport, n, 
@@ -264,11 +275,12 @@ namespace hdi::dr {
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point2D), embedding->getContainer().data());
       
       // Output timer averages
-      TIMER_LOG(_logger, TIMER_SUM_Q, "Sum Q")
-      TIMER_LOG(_logger, TIMER_GRADIENTS, "Grads")
-      TIMER_LOG(_logger, TIMER_UPDATE, "Update")
-      TIMER_LOG(_logger, TIMER_BOUNDS, "Bounds")
-      TIMER_LOG(_logger, TIMER_CENTERING, "Center")
+      utils::secureLog(_logger, "Gradient descent");
+      TIMER_LOG(_logger, TIMER_SUM_Q, "  Sum Q")
+      TIMER_LOG(_logger, TIMER_GRADIENTS, "  Grads")
+      TIMER_LOG(_logger, TIMER_UPDATE, "  Update")
+      TIMER_LOG(_logger, TIMER_BOUNDS, "  Bounds")
+      TIMER_LOG(_logger, TIMER_CENTERING, "  Center")
       utils::secureLog(_logger, "");
     }
   }

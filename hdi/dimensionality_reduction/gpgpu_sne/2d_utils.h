@@ -1,8 +1,13 @@
 #pragma once
 
 namespace hdi::dr {
-  // Simple 2D point representation
-  struct Point2D {
+  // Simple 2D unsigned point representation
+  struct alignas(8) Point2Dui {
+    unsigned x, y;
+  };
+
+  // Simple 2D floating point representation
+  struct alignas(8) Point2D {
     float x, y;
   };
 

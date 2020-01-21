@@ -35,11 +35,19 @@
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "2d_field_computation.h"
 #include "gpgpu_utils.h"
 #include "2d_utils.h"
 
 #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
+#define USE_DENSITY // Field computation leverages depth maps
+// #define USE_MIPMAP // Field computation leverages mipmaps
+
+#ifdef USE_DENSITY
+#include "2d_density_field_computation.h"
+#else
+#include "2d_field_computation.h"
+#endif 
+
 
 namespace hdi::dr {
   class Gpgpu2dSneCompute {
@@ -116,7 +124,11 @@ namespace hdi::dr {
 
     std::array<GLuint, BufferTypeLength> _buffers;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
+#ifdef USE_DENSITY
+    Density2dFieldComputation _fieldComputation;
+#else
     Baseline2dFieldComputation _fieldComputation;
+#endif
     TsneParameters _params;
     Bounds2D _bounds;
     utils::AbstractLog* _logger;
