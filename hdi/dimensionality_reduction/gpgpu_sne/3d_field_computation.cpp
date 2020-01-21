@@ -76,7 +76,6 @@ namespace hdi::dr {
     // Fill _cellData for precomputed voxel grid cell data
     std::vector<uint32_t> bitData;
     for (int i = 31; i >= 0; i--) {
-      // bitData.push_back(1u << i | (1u << std::min(31, i + 1)) | (1u << std::max(0, i - 1)));
       bitData.push_back(1u << i);
     }
     _cellData.fill(0u);
