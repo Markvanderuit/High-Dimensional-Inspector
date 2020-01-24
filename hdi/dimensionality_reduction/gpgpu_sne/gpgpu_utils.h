@@ -38,7 +38,7 @@
 #include "hdi/utils/glad/glad.h"
 
 // Toggle to globally enable/disable gl query timers
-#define UTILS_QUERY_TIMERS 
+// #define UTILS_QUERY_TIMERS 
 #ifdef UTILS_QUERY_TIMERS
 #include <array>
 #include <deque>
@@ -148,6 +148,10 @@ namespace hdi::dr {
       return static_cast<double>(_values[TIMER_AVERAGE]) / 1000000.0;
     }
 
+    double averageMicros() const {
+      return static_cast<double>(_values[TIMER_AVERAGE]) / 1000.0;
+    }
+
     double totalMillis() const {
       return static_cast<double>(_values[TIMER_TOTAL]) / 1000000.0;
     }
@@ -206,13 +210,21 @@ namespace hdi::dr {
   #define TIMER_TOCK(name) \
     glTimerQueries[name].tock();
 
-  #define TIMER_LOG(logger, name, str) \
-    utils::secureLogValue(logger, \
-      std::string(str) + " average, total (ms)", \
-      std::to_string(glTimerQueries[name].averageMillis()) \
-      + std::string(", ") \
-      + std::to_string(glTimerQueries[name].totalMillis()) \
-      );
+  #ifdef _WIN32
+    #define TIMER_LOG(logger, name, str) \
+      utils::secureLogValue(logger, \
+        std::string(str) + " average (\xE6s)", \
+        std::to_string(glTimerQueries[name].averageMicros()) \
+        );
+  #else
+    #define TIMER_LOG(logger, name, str) \
+        utils::secureLogValue(logger, \
+          std::string(str) + " average (\xC2\xB5s)", \
+          std::to_string(glTimerQueries[name].averageMicros()) \
+          );
+  #endif
+  
+  #define TIMERS_LOG_ENABLE true
 #else
   #define TIMERS_DECLARE(...)
   #define TIMERS_CREATE()
@@ -221,5 +233,6 @@ namespace hdi::dr {
   #define TIMER_TICK(name)
   #define TIMER_TOCK(name)
   #define TIMER_LOG(logger, name, str)
+  #define TIMERS_LOG_ENABLE false
 #endif // UTILS_QUERY_TIMERS
 }
