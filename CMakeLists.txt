@@ -1,65 +1,90 @@
 cmake_minimum_required (VERSION 3.10)
 
-# Fnd VCPKG on vcpkgRoot env variable, src: https://gist.github.com/caiorss/724942d43cd11c6ee5b3461ac067c846
-if (DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-  CACHE STRING "")
-  message(" [INFO] VCPKG CMAKE_TOOLCHAIN_FILE = ${CMAKE_TOOLCHAIN_FILE}")
-endif()
-
-# Enforce c++ 17
+# Create a C++ 17 project
+project(HighDimInspector LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-project (HighDimInspector LANGUAGES CXX)
-
 # Define available options
-option(HDI_USE_ROARING "Use roaring bitmaps" ON)
 option(HDI_BUILD_VISUALIZATION "Build the visualization library" ON)
-option(HDI_BUILD_CLI "Build command line tools" ON)
+option(HDI_BUILD_CLI "Build the command line tools" ON)
 
-# Toggle use of roaring
-if (HDI_USE_ROARING)
-  find_package(roaring REQUIRED)
-  add_definitions(-DPREPROC_USE_ROARING)
-endif(HDI_USE_ROARING)
+# CRoaring
+# Create lib from amalganation files
+add_library(roaring STATIC
+  ${PROJECT_SOURCE_DIR}/lib/CRoaringAmalganation/src/roaring.c
+)
+target_include_directories(roaring PUBLIC
+  ${PROJECT_SOURCE_DIR}/lib/CRoaringAmalganation/include
+)
 
-# For FLANN on unix/linux
-if (UNIX)
+# FLANN
+# Leverage find_package on Mac/Linux/Unix
+# Use included lib on Windows
+if(MSVC)
+  add_library(flann::flann_import STATIC IMPORTED)
+  set_property(TARGET flann::flann_import 
+    PROPERTY IMPORTED_LOCATION_DEBUG 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/flann_cpp_s.lib)
+  set_property(TARGET flann::flann_import 
+    PROPERTY IMPORTED_LOCATION_RELEASE 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/flann_cpp_s.lib)
+  set_property(TARGET flann::flann_import 
+    PROPERTY INTERFACE_INCLUDE_DIRECTORIES 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include)
+  add_library(flann::lz4_import STATIC IMPORTED)
+  set_property(TARGET flann::lz4_import 
+    PROPERTY IMPORTED_LOCATION_DEBUG 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/lz4_s.lib)
+  set_property(TARGET flann::lz4_import 
+    PROPERTY IMPORTED_LOCATION_RELEASE 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/lz4_s.lib)
+  set_property(TARGET flann::lz4_import 
+    PROPERTY INTERFACE_INCLUDE_DIRECTORIES 
+    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include)
+  add_library(flann_lz4_interface INTERFACE)
+  target_link_libraries(flann_lz4_interface INTERFACE flann::flann_import flann::lz4_import)
+  add_library(flann::flann ALIAS flann_lz4_interface)
+else()
   set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
-endif(UNIX)
+  find_package(FLANN REQUIRED)
+endif()
 
-if (MSVC)
-  add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-endif(MSVC)
+# OpenMP
+# Add support, if it is available
+find_package(OpenMP)
+if(OPENMP_FOUND)
+  message(STATUS "OpenMP found")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif()
 
-# Find required packages
-find_package(flann REQUIRED)
-find_package(OpenMP REQUIRED)
+# QT5
+# Leverage find_package if it is necessary
+if(HDI_BUILD_VISUALIZATION OR HDI_BUILD_CLI)
+  find_package(Qt5 REQUIRED Core Gui Widgets OpenGL)
+endif()
 
-# Add OpenMP, if available
-if (OPENMP_FOUND)
-  message (STATUS "OpenMP found")
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-endif(OPENMP_FOUND)
-
-# Disable some MSVC warnings GCC doesn't usually throw (yeah yeah I know)
-if (MSVC)
+# MSVC
+# Disable some warnings GCC/Clang don't usually throw (yeah yeah I know)
+if(MSVC)
   set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
-endif(MSVC)
+endif()
 
-# Add subdirectories where code is located
+# Build core libraries
 add_subdirectory (hdi/data)
 add_subdirectory (hdi/utils)
 add_subdirectory (hdi/dimensionality_reduction)
 add_subdirectory (hdi/clustering)
+
+# Build visualization library, requires QT
 if(HDI_BUILD_VISUALIZATION)
   add_subdirectory (hdi/visualization)
-endif(HDI_BUILD_VISUALIZATION)
+endif()
+
+# Build command line tools, requires QT and visualization toolkit
 if(HDI_BUILD_CLI)
     add_subdirectory (applications/command_line_tools)
     add_subdirectory (applications/command_line_tools/data_conversion)
-endif(HDI_BUILD_CLI)
+endif()
