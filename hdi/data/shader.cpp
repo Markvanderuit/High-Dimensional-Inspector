@@ -84,6 +84,7 @@ void Shader::destroy()
   if (_handle != 0)
     glDeleteShader(_handle);
 
+  _handle = 0;
   _is_created = false;
   _is_compiled = false;
 }
@@ -231,17 +232,14 @@ void ShaderProgram::destroy()
 {
   for (Shader& shader : _attached_shaders)
     shader.destroy();
-
-  // Crashes for reasons unknown, probably because the shader is
-  // being kept alive by the exception throwing
-  //_attached_shaders.clear();
-
+    
   if (_handle != 0)
   {
     glDeleteProgram(_handle);
     _handle = 0;
   }
 
+  _attached_shaders.clear();
   _is_created = false;
   _is_linked = false;
   _is_validated = false;
