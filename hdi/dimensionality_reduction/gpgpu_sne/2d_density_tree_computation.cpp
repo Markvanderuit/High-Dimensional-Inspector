@@ -40,6 +40,7 @@
 // Magic numbers
 constexpr unsigned maxNumLODLevels = 10;
 constexpr float pointSize = 1.f;
+constexpr unsigned numLayersPerIter = 4;
 
 namespace hdi::dr {
   Density2dTreeComputation::Density2dTreeComputation() 
@@ -123,8 +124,6 @@ namespace hdi::dr {
     if (_w != w || _h != h) {
       _w = w;
       _h = h;
-
-      std::cout << _w << " " << _h << std::endl;
       
       // Compute mipmap LOD dimensions starting from 0, current level
       std::vector<Point2Dui> dimensions;
@@ -159,7 +158,7 @@ namespace hdi::dr {
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, _atlasDimensions.x, _atlasDimensions.y, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
-    // Perform initial density computation at bottom of LOD treeb
+    // Perform initial density computation by splatting points
     {
       TIMER_TICK(TIMER_DENSITY_LOD_BOTTOM)
       auto& program = _programs[PROGRAM_DENSITY_LOD_BOTTOM];
@@ -201,9 +200,10 @@ namespace hdi::dr {
       auto& program = _programs[PROGRAM_DENSITY_LOD_BOTTOM_DIVIDE];
       program.bind();
 
-      // Bind texture for nice cached reading
+      // Bind atlas to texture slot 0 for nice cached reading
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DENSITY_ATLAS_32F]);
+      program.uniform1i("texture32f", 0);
 
       // Bind texture as image for writing
       glBindImageTexture(0, _textures[TEXTURE_DENSITY_ATLAS_32F], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -211,12 +211,10 @@ namespace hdi::dr {
       // Bind buffers to shader
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_ATLAS_DATA]);
 
-      // Bind uniforms
-      program.uniform1i("texture32f", 0);
-
       // Perform computation
+      // 8x8 amounts to 64 units per work group
       const auto& dims = _atlasLevels[0].size;
-      glDispatchCompute((dims.x / 4) + 1, (dims.y / 4) + 1, 1);
+      glDispatchCompute((dims.x / 8) + 1, (dims.y / 8) + 1, 1);
       glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
       program.release();
@@ -233,22 +231,23 @@ namespace hdi::dr {
       // Bind atlas to texture slot 0 for nice cached reading
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DENSITY_ATLAS_32F]);
+      program.uniform1i("texture32f", 0);
 
       // Also bind as image for writing
       glBindImageTexture(0, _textures[TEXTURE_DENSITY_ATLAS_32F], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-
-      // Bind uniforms
-      program.uniform1i("texture32f", 0);
       
       // Bind buffer to shader
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers[BUFFER_ATLAS_DATA]);
 
       // Compute LOD levels iteratively, synchronizing in between
-      for (int l = 1; l < _atlasLevels.size(); l += 3) {
+      for (int l = 1; l < _atlasLevels.size(); l += numLayersPerIter) {
+        // Set uniforms for the range of layers we want to compute
         program.uniform1i("l", l);
-        program.uniform1i("maxl", std::min<int>(l + 3, _atlasLevels.size()));
+        program.uniform1i("maxl", std::min<int>(l + numLayersPerIter + 1, _atlasLevels.size()));
+
+        // 8x8 amounts to 64 units per work group
         const auto& dims = _atlasLevels[l].size;
-        glDispatchCompute(std::max(dims.x / 4u, 1u), std::max(dims.y / 4u, 1u), 1u);
+        glDispatchCompute((dims.x / 8u) + 1, (dims.y / 8u) + 1, 1u);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
       }
 
@@ -256,6 +255,48 @@ namespace hdi::dr {
       TIMER_TOCK(TIMER_DENSITY_LOD_UPPER)
       glAssert("Density2dTreeComputation::compute::PROGRAM_DENSITY_LOD_UPPER");
     }
+
+    /* { // Debug output for density atlas
+      std::vector<float> buffer32f(_atlasDimensions.x * _atlasDimensions.y * 4, 0.f);
+      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_DENSITY_ATLAS_32F]);
+      glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, buffer32f.data());
+
+      {
+        const auto& dim = _atlasLevels[_atlasLevels.size() - 1].offset;
+        const auto idx = dim.y * (4 * _atlasDimensions.x) + dim.x * 4;
+        const auto i = static_cast<unsigned>(buffer32f[idx]);
+        if (i != n) {
+          std::stringstream msg;
+          msg << "Output density at top level was "
+              << i 
+              << ", but should be "
+              << n
+              << ", during iteration "\
+              << _iteration
+              << ", with resolution "
+              << _atlasDimensions.x << " " << _atlasDimensions.y;
+          std::cerr << msg.str() << std::endl;
+
+          // Output iteration
+          std::vector<float> image32f(_atlasDimensions.x * _atlasDimensions.y, 0.f);
+          for (int y = 0; y < _atlasDimensions.y; y++) {
+            for (int x = 0; x < _atlasDimensions.x; x++) {
+                const auto idx = y * (4 * _atlasDimensions.x) + x * 4;
+                float f = buffer32f[idx];
+                image32f[y * _atlasDimensions.x + x] = (f > 0.f) ? 255.f : 0.f;
+            }
+          }
+          utils::valuesToImage("./images/densityAtlas_" + std::to_string(_iteration), image32f, _atlasDimensions.x, _atlasDimensions.y, 1);
+      
+          // throw std::runtime_error(msg.str());
+        } else {
+          // std::stringstream msg;
+          // msg << "All fine with resolution "
+          //     << _atlasDimensions.x << " " << _atlasDimensions.y;
+          // std::cerr << msg.str() << std::endl;
+        }
+      }
+    } */
 
     // TODO Remove debugging output
     // Output density texture values for debugging
@@ -280,7 +321,12 @@ namespace hdi::dr {
         const auto idx = dim.y * (4 * _atlasDimensions.x) + dim.x * 4;
         const auto i = static_cast<unsigned>(buffer32f[idx]);
         if (i != n) {
-          throw std::runtime_error("Output density does not match number of input points");
+          std::stringstream msg;
+          msg << "Output density at top level was "
+              << i 
+              << ", should be "
+              << n;
+          throw std::runtime_error(msg.str());
         }
       }
       
@@ -318,7 +364,7 @@ namespace hdi::dr {
 
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
-    if (_iteration >= _params._iterations - 1) {
+    if (TIMERS_LOG_ENABLE && _iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "\nTree building");
       TIMER_LOG(_logger, TIMER_DENSITY_LOD_BOTTOM, "  Bottom")
       TIMER_LOG(_logger, TIMER_DENSITY_LOD_BOTTOM_DIVIDE, "  Divide")

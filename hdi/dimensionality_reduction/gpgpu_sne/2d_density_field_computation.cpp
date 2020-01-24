@@ -35,6 +35,7 @@
 #include "2d_density_field_shaders.h"
 #include "hdi/visualization/opengl_helpers.h"
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/utils/visual_utils.h"
 
 // Magic numbers
 constexpr float pointSize = 3.f;
@@ -62,8 +63,7 @@ namespace hdi::dr {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROGRAM_STENCIL].addShader(VERTEX, stencil_vert_src);
-      _programs[PROGRAM_STENCIL].addShader(FRAGMENT, stencil_fragment_src);
+      _programs[PROGRAM_STENCIL].addShader(COMPUTE, stencil_src);
       _programs[PROGRAM_FIELD].addShader(COMPUTE, field_src); 
       _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
@@ -145,33 +145,30 @@ namespace hdi::dr {
     _densityComputation.compute(_w, _h, n,
                                 position_buff, bounds_buff,
                                 bounds);
-
-    // Compute stencil texture
+  
+    // Compute stencil texture from density texture
     {
       TIMER_TICK(TIMER_STENCIL)
       auto& program = _programs[PROGRAM_STENCIL];
       program.bind();
 
-      // Bind bounds buffer
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
+      // Set uniforms in compute shader
+      program.uniform1i("density_atlas", 0);
 
-      // Prepare for drawing
-      glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_STENCIL]);
-      glViewport(0, 0, _w, _h);
-      glClearColor(0.f, 0.f, 0.f, 0.f);
-      glClearDepthf(1.f);
-      glClear(GL_COLOR_BUFFER_BIT);
-      
-      // Draw a point at each embedding position
-      glBindVertexArray(_point_vao);
-      glBindBuffer(GL_ARRAY_BUFFER, position_buff);
-      glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-      glEnableVertexAttribArray(0);
-      glPointSize(pointSize);
-      glDrawArrays(GL_POINTS, 0, n);
+      // Bind density atlas to 0 for reading
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, _densityComputation.getDensityAtlasTexture());
 
-      // Cleanup
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      // Bind atlas data buffer
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _densityComputation.getDensityAtlasBuffer());
+
+      // Bind stencil texture for writing
+      glBindImageTexture(0, _textures[TEXTURE_STENCIL], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8UI);
+
+      // Perform computation
+      glDispatchCompute((_w / 16 + 1), (_h / 16 + 1), 1);
+      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
       program.release();
       TIMER_TOCK(TIMER_STENCIL)
     }
@@ -185,15 +182,20 @@ namespace hdi::dr {
       // Attach stencil texture for sampling
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D, _densityComputation.getDensityAtlasTexture());
 
       // Set uniforms in compute shader
       program.uniform1ui("num_points", n);
       program.uniform2ui("texture_size", _w, _h);
       program.uniform1i("stencil_texture", 0);
+      program.uniform1i("density_atlas", 1);
+      // program.uniform1i("num_levels", _densityComputation.getDensityAtlasLevels().size());
 
       // Bind textures and buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _densityComputation.getDensityAtlasBuffer());
       glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
       // Perform computation
@@ -226,16 +228,37 @@ namespace hdi::dr {
 
       // Dispatch compute shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute(128, 1, 1);
+      glDispatchCompute((n / 128) + 1, 1, 1);
 
       // Cleanup
       program.release();
       TIMER_TOCK(TIMER_INTERP)
     }
+
+    // TODO: DEBUG OUTPUT, SHOULD BE REMOVED
+    if (_iteration >= _params._iterations - 1) {
+      std::vector<uint8_t> buffer(_w * _h, 0);
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
+      glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, buffer.data());
+      utils::valuesToImage("./images/stencil", buffer, _w, _h, 1);
+
+      const Point2Dui dims = _densityComputation.getDensityAtlasSize();
+      std::vector<float> atlasBuffer(dims.x * dims.y * 4, 0.f);
+      glBindTexture(GL_TEXTURE_2D, _densityComputation.getDensityAtlasTexture());
+      glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, atlasBuffer.data());
+      std::vector<float> atlas(dims.x * dims.y, 0.f);
+      for (int y = 0; y < dims.y; y++) {
+        for (int x = 0; x < dims.x; x++) {
+          atlas[y * dims.x + x] = std::min(1.f, atlasBuffer[y * 4 * dims.x + 4 * x]);
+        }
+      }
+      utils::valuesToImage("./images/atlas", atlas, dims.x, dims.y, 1);
+    }
     
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
-    if (_iteration >= _params._iterations - 1) {
+    if (TIMERS_LOG_ENABLE && _iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
       TIMER_LOG(_logger, TIMER_STENCIL, "  Stencil")
       TIMER_LOG(_logger, TIMER_FIELD, "  Field")

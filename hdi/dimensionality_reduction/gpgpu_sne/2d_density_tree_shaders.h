@@ -66,7 +66,7 @@ GLSL(density_lod_bottom_fragment, 430,
 );
 
 GLSL(density_lod_bottom_divide_comp, 430,
-  layout(local_size_x = 4, local_size_y = 4, local_size_z = 1) in;
+  layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
   layout(std430, binding = 0) buffer AtlasDataBlock { 
     struct {
       uvec2 offset; 
@@ -93,7 +93,7 @@ GLSL(density_lod_bottom_divide_comp, 430,
 
 // Density computation for upper LOD levels, 2 steps
 GLSL(density_lod_upper_src, 430,
-  layout(local_size_x = 4, local_size_y = 4, local_size_z = 1) in;
+  layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
   layout(std430, binding = 0) buffer AtlasDataBlock { 
     struct {
       uvec2 offset; 
@@ -106,7 +106,6 @@ GLSL(density_lod_upper_src, 430,
   uniform int l;
   uniform int maxl;
   const ivec2 groupSize = ivec2(gl_WorkGroupSize.xy);
-  const ivec2 halfGroupSize = groupSize / 2;
   shared vec4 reductionArray[64];
 
   void addTo(inout vec4 v, in vec4 add) {
@@ -123,68 +122,85 @@ GLSL(density_lod_upper_src, 430,
     v = vec4(n, xv, yv, 0);
   }
 
-  vec4 sampleToplayer(ivec2 xy) {
-    ivec2 prevxy = 2 * xy + ivec2(atlasLevelData[l - 1].offset);
-
-    vec4 v = texelFetch(texture32f, prevxy, 0);
-    addTo(v, texelFetch(texture32f, prevxy + ivec2(1, 0), 0));
-    addTo(v, texelFetch(texture32f, prevxy + ivec2(0, 1), 0));
-    addTo(v, texelFetch(texture32f, prevxy + ivec2(1, 1), 0));
-
-    return v;
-  }
-
   int toLid(ivec2 lxy) {
     return int(gl_WorkGroupSize.x) * lxy.y + lxy.x;
+  }
+
+  bool isInside(ivec2 xy, ivec2 minBounds, ivec2 maxBounds) {
+    return clamp(xy, minBounds, maxBounds) == xy;
+  }
+
+  bool isBelow(ivec2 xy, ivec2 maxBounds) {
+    return min(xy, maxBounds) == xy;
+  }
+
+  vec4 sampleToplayer(ivec2 xy) {
+    ivec2 prevMin = ivec2(atlasLevelData[l - 1].offset);
+    ivec2 prevMax = prevMin + ivec2(atlasLevelData[l - 1].size) - 1;
+    ivec2 prevxy = prevMin + 2 * xy;
+
+    vec4 v = vec4(0);
+
+    if (isInside(prevxy, prevMin, prevMax)) {
+      v += texelFetch(texture32f, prevxy, 0);
+    }
+    if (isInside(prevxy + ivec2(1, 0), prevMin, prevMax)) {
+      addTo(v, texelFetch(texture32f, prevxy + ivec2(1, 0), 0));
+    }
+    if (isInside(prevxy + ivec2(0, 1), prevMin, prevMax)) {
+      addTo(v, texelFetch(texture32f, prevxy + ivec2(0, 1), 0));
+    }
+    if (isInside(prevxy + ivec2(1, 1), prevMin, prevMax)) {
+      addTo(v, texelFetch(texture32f, prevxy + ivec2(1, 1), 0));
+    }
+
+    return v;
   }
 
   void main() {
     // Location of work unit
     const ivec2 xy = ivec2(gl_WorkGroupID * gl_WorkGroupSize + gl_LocalInvocationID);
     const ivec2 lxy = ivec2(gl_LocalInvocationID.xy);
-    const ivec2 lxyMod = lxy % 2;
     const uint lid = gl_LocalInvocationIndex;
 
-    // Perform sample in 2x2 pixel area layer above and store result
+    // Perform sample in 2x2 pixel area in l - 1, and store result in l
     vec4 v = sampleToplayer(xy);
-    {
+    if (isBelow(xy, ivec2(atlasLevelData[l].size) - 1)) {
       const ivec2 _xy = ivec2(atlasLevelData[l].offset) + xy;
       imageStore(level32f, _xy, v);
     }
+    reductionArray[lid] = v;
+    barrier();
 
-    // Reduce add uneven to even if we still have levels left to compute
-    if (l + 1 >= maxl) {
-      return;
-    }
-    if (lxyMod.y != 0) {
-      reductionArray[toLid(lxy - ivec2(0, 1))] = v;
-    }
-    barrier();
-    if (lxyMod.y == 0) {
-      addTo(reductionArray[lid], v);
-    }
-    barrier();
-    if (lxyMod.x == 0) {
-      addTo(reductionArray[lid], reductionArray[toLid(lxy + ivec2(1, 0))]);
-    }
-    barrier();
-    if (lxyMod == ivec2(0)) {
-      const ivec2 _xy = ivec2(atlasLevelData[l + 1].offset) + xy / 2;
-      imageStore(level32f, _xy, reductionArray[lid]);
-    }
+    // Reduce add using modulo, dropping 3/4th of remaining pixels every l + 1
+    int modOffset = 1;
+    int modFactor = 2;
+    for (int _l = l + 1; _l < maxl; _l++) {
+      const ivec2 lxyMod = lxy % modFactor;
+      ivec2 xyHor = lxy + ivec2(modOffset, 0);
+      ivec2 xyVer = lxy + ivec2(0, modOffset);
 
-    // Reduce add 2 to 0 if we still have levels left to compute
-    if (l + 2 >= maxl) {
-      return;
-    }
-    if (lxy.y == 0) {
-      addTo(reductionArray[lid], reductionArray[toLid(lxy + ivec2(0, 2))]);
-    }
-    barrier();
-    if (lxy == ivec2(0)) {
-      addTo(reductionArray[0], reductionArray[toLid(lxy + ivec2(2, 0))]);
-      const ivec2 _xy = ivec2(atlasLevelData[l + 2].offset) + xy / 4;
-      imageStore(level32f, _xy, reductionArray[0]);
+      // Horizontal shift
+      if (lxyMod.x == 0) {
+        addTo(reductionArray[lid], reductionArray[toLid(xyHor)]);
+      }
+      barrier();
+
+      // Vertical shift
+      if (lxyMod.y == 0) {
+        addTo(reductionArray[lid], reductionArray[toLid(xyVer)]);
+      }
+      barrier();
+
+      // Store result in atlas layer _l
+      ivec2 _xy = xy / modFactor;
+      if (lxyMod == ivec2(0) && isBelow(_xy, ivec2(atlasLevelData[_l].size) - 1)) {
+        _xy += ivec2(atlasLevelData[_l].offset);
+        imageStore(level32f, _xy, reductionArray[lid]);
+      }
+
+      modOffset *= 2;
+      modFactor *= 2;
     }
   }
 );

@@ -80,6 +80,11 @@ namespace hdi::dr {
       return _atlasLevels;
     }
 
+    // Obtain density atlas size
+    Point2Dui getDensityAtlasSize() const {
+      return _atlasDimensions;
+    }
+
   private:
     enum TextureType {
       TEXTURE_DENSITY_ATLAS_32F,

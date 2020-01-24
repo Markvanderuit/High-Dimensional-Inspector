@@ -33,49 +33,101 @@
   static const char * name = \
   "#version " #version "\n" #shader
 
-// Vertex shader for stencil computation
-GLSL(stencil_vert_src, 430,
-  layout(location = 0) in vec2 point;
-  layout(std430, binding = 0) buffer BoundsInterface { 
-    vec2 minBounds;
-    vec2 maxBounds;
-    vec2 range;
-    vec2 invRange;
+// Expand density texture to stencil texture
+GLSL(stencil_src, 430,
+  layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+  layout(std430, binding = 0) buffer AtlasDataBlock { 
+    struct {
+      uvec2 offset; 
+      uvec2 size;
+    } atlasLevelData[];
   };
+  layout(r8ui, binding = 0) writeonly uniform uimage2D stencil_texture;
+  
+  uniform sampler2D density_atlas;
 
-  void main() {
-    // Transform point into [0, 1] space
-    vec2 position = (point - minBounds) * invRange;
-    
-    // Transform point into [-1, 1] clip space
-    gl_Position =  vec4(position * 2.f - 1.f, 0.f, 1.f);
+  // Shared memory is made slightly larger than group size
+  const ivec2 groupSize = ivec2(gl_WorkGroupSize);
+  const ivec2 xGroupSize = ivec2(groupSize.x, 0);
+  const ivec2 yGroupSize = ivec2(0, groupSize.y);
+  const ivec2 sharedBorder = ivec2(1);
+  const ivec2 sharedDims = groupSize + 2 * sharedBorder;
+  shared float sharedReads[sharedDims.x * sharedDims.y];
+
+  const uint numOffsets = 9;
+  const ivec2[] offsets = ivec2[](
+    ivec2(-1, -1), ivec2(0, -1), ivec2(1, -1),
+    ivec2(-1, 0), ivec2(0, 0), ivec2(1, 0),
+    ivec2(-1, 1), ivec2(0, 1), ivec2(1, 1)
+  );
+
+  int sharedMemoryIdx(ivec2 lxy) {
+    return sharedDims.x * lxy.y + lxy.x;
   }
-);
-
-// Fragment shader for stencil computation
-GLSL(stencil_fragment_src, 430,
-  layout (location = 0) out uint color;
 
   void main() {
-    color = 1u;;
+    const ivec2 xy = ivec2(gl_WorkGroupID * gl_WorkGroupSize + gl_LocalInvocationID);
+    const ivec2 lxy = ivec2(gl_LocalInvocationID);
+ 
+    // Fetch texel value at current invocation into shared memory
+    const ivec2 _xy = xy - sharedBorder;
+    sharedReads[sharedMemoryIdx(lxy)] = texelFetch(density_atlas, _xy, 0).x;
+    // Account for borders as well
+    if (lxy.x < 2) {
+      sharedReads[sharedMemoryIdx(lxy + xGroupSize)] 
+        = texelFetch(density_atlas, _xy + xGroupSize, 0).x;
+    }
+    if (lxy.y < 2) {
+      sharedReads[sharedMemoryIdx(lxy + yGroupSize)] 
+        = texelFetch(density_atlas, _xy + yGroupSize, 0).x;
+    }
+    if (lessThan(lxy, ivec2(2)) == bvec2(true)) {
+      sharedReads[sharedMemoryIdx(lxy + groupSize)] 
+        = texelFetch(density_atlas, _xy + groupSize, 0).x;
+    }
+
+    // Ensure shared memory is synchronized across group
+    barrier();
+
+    // Accumulate values inside kernel, reading from shared memory only
+    float stencilValue = 0.f;
+    const ivec2 _lxy = sharedBorder + lxy;
+    for (int i = 0; i < numOffsets; i++) {
+      stencilValue += sharedReads[sharedMemoryIdx(_lxy + offsets[i])];
+    }
+    
+    // Don't allow stores beyond texture size
+    // const ivec2 textureSize = ivec2(atlasLevelData[0].size);
+    // if (lessThan(xy, textureSize) == bvec2(true)) {
+      imageStore(stencil_texture, xy, uvec4(uint(stencilValue > 0.f)));
+    // }
   }
 );
 
 // Compute shader for field computation
 GLSL(field_src, 430,
   layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer PosInterface { vec2 Positions[]; };
-  layout(std430, binding = 1) buffer BoundsInterface { 
+  layout(std430, binding = 0) buffer PositionsBlock { 
+    vec2 Positions[]; 
+  };
+  layout(std430, binding = 1) buffer BoundsBlock { 
     vec2 minBounds;
     vec2 maxBounds;
     vec2 range;
     vec2 invRange;
+  };
+  layout(std430, binding = 2) buffer AtlasDataBlock { 
+    struct {
+      uvec2 offset; 
+      uvec2 size;
+    } atlasLevelData[];
   };
   layout(rgba32f, binding = 0) writeonly uniform image2D fields_texture;
   
   uniform uint num_points;
   uniform uvec2 texture_size;
   uniform usampler2D stencil_texture;
+  uniform sampler2D density_atlas;
 
   // Reduction components
   const uint groupSize = gl_WorkGroupSize.x;
@@ -87,11 +139,8 @@ GLSL(field_src, 430,
     ivec2 xyFixed = ivec2(gl_WorkGroupID.xy);
     uint lid = gl_LocalInvocationIndex.x;
 
-    // Map to pixel pos
-    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size);
-
     // Skip pixel if stencil is empty
-    if (texture(stencil_texture, domain_pos).x == 0u) {
+    if (texelFetch(stencil_texture, xyFixed, 0).x == 0u) {
       if (lid < 1) {
         imageStore(fields_texture, xyFixed, vec4(0));
       }
@@ -99,6 +148,7 @@ GLSL(field_src, 430,
     } 
 
     // Map to domain pos
+    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size);
     domain_pos = domain_pos * range + minBounds;
 
     // Iterate over points to obtain density/gradient
@@ -136,7 +186,7 @@ GLSL(field_src, 430,
 
 // Compute shader for point sampling from field
 GLSL(interp_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer Val { vec3 Values[]; };
   layout(std430, binding = 2) buffer BoundsInterface { 
@@ -151,36 +201,15 @@ GLSL(interp_src, 430,
   uniform sampler2D fields_texture;
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-        i < num_points;
-        i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      // Map position of point to [0, 1]
-      vec2 position = (Positions[i] - minBounds) * invRange;
-
-      // Sample texture at mapped position
-      Values[i] = texture(fields_texture, position).xyz;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    if (i >= num_points) {
+      return;
     }
-  }
-);
-
-GLSL(density_compute_src, 430,
-  layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-  layout(rgba32f, binding = 0) writeonly uniform image2D fields_texture;
-  
-
-  void main() {
     
-  }
-);
+    // Map position of point to [0, 1]
+    vec2 position = (Positions[i] - minBounds) * invRange;
 
-// Test src, pls ignore
-GLSL(density_fragment_src, 430,
-  layout(location = 0) out vec4 field32f;
-
-  uniform sampler2D density32f;
-
-  void main() {
-    // ...
+    // Sample texture at mapped position
+    Values[i] = texture(fields_texture, position).xyz;
   }
 );
