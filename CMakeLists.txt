@@ -60,9 +60,10 @@ if(OPENMP_FOUND)
 endif()
 
 # QT5
-# Leverage find_package if it is necessary
+# Leverage find_package to find required components
+find_package(Qt5 REQUIRED Core Widgets)
 if(HDI_BUILD_VISUALIZATION OR HDI_BUILD_CLI)
-  find_package(Qt5 REQUIRED Core Gui Widgets OpenGL)
+  find_package(Qt5 REQUIRED Gui OpenGL)
 endif()
 
 # MSVC
@@ -76,7 +77,6 @@ endif()
 add_subdirectory (hdi/data)
 add_subdirectory (hdi/utils)
 add_subdirectory (hdi/dimensionality_reduction)
-add_subdirectory (hdi/clustering)
 
 # Build visualization library, requires QT
 if(HDI_BUILD_VISUALIZATION)

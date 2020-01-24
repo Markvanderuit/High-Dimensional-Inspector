@@ -4,11 +4,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include_directories ("${CMAKE_SOURCE_DIR}")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}")
 
-find_package(Qt5 REQUIRED
-  Core
-  Widgets
-)
-
 # Gather list of all .h files in "/"
 file(GLOB HeaderFiles *.h)
 file(GLOB QOBJHeaderFiles *_qobj.h)
@@ -22,7 +17,7 @@ qt5_add_resources(Resources ${ResourceFiles})
 
 add_library(hdiutils ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSources} ${Resources} )
 
-target_link_libraries (hdiutils Qt5::Core Qt5::Widgets roaring::roaring)
+target_link_libraries (hdiutils Qt5::Core Qt5::Widgets roaring)
 if (UNIX)
     target_link_libraries (hdiutils ${CMAKE_DL_LIBS}) # glad.cpp requires -ldl
 endif (UNIX)
