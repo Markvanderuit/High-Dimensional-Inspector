@@ -46,6 +46,7 @@ namespace {
   typedef hdi::dr::Point2D Point2D;
   typedef hdi::dr::Bounds2D Bounds2D;
 
+#ifdef FORCE_FIELD_DIMENSIONS_POW_2
   // Round up to the next highest power of 2 through float casting
   // From Bit Twiddling Hacks
   // src: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
@@ -54,6 +55,7 @@ namespace {
     unsigned t = 1u << ((*(unsigned*)&f >> 23) - 0x7f);
     return t << static_cast<unsigned>(t < i);
   }
+#endif // FORCE_FIELD_DIMENSIONS_POW_2
 
   Bounds2D computeEmbeddingBounds(const embedding_t* embedding, 
                                   float padding) {
@@ -233,11 +235,13 @@ namespace hdi::dr {
     uint32_t w = _adaptive_resolution 
       ? std::max((unsigned int)(range.x * _resolution_scaling), minFieldSize) 
       : fixedFieldSize;
-    w = roundUpToNextPow2(w);
     uint32_t h = _adaptive_resolution 
       ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.y / range.x));
+#ifdef FORCE_FIELD_DIMENSIONS_POW_2
+    w = roundUpToNextPow2(w);
     h = roundUpToNextPow2(h);
+#endif FORCE_FIELD_DIMENSIONS_POW_2
 
     // Compute fields texture
     _fieldComputation.compute(w, h, 
@@ -266,14 +270,18 @@ namespace hdi::dr {
     updatePoints(n, iteration, mult);
     updateEmbedding(n, exaggeration, iteration);
     
-    TIMERS_UPDATE()
-
     // Update host embedding data
-    if (iteration >= _params._iterations - 1) {
+#ifndef WRITE_EMBEDDING_EVERY_ITERATION
+    if (iteration >= _params._iterations - 1) 
+#endif // WRITE_EMBEDDING_EVERY_ITERATION
+    {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point2D), embedding->getContainer().data());
-      
+    }
+
+    TIMERS_UPDATE()
+    if (TIMERS_LOG_ENABLE && iteration >= _params._iterations - 1) {
       // Output timer averages
       utils::secureLog(_logger, "Gradient descent");
       TIMER_LOG(_logger, TIMER_SUM_Q, "  Sum Q")
@@ -370,7 +378,7 @@ namespace hdi::dr {
 
       // Run shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute(128, 1, 1);
+      glDispatchCompute((n / 128) + 1, 1, 1);
 
       program.release();
     }
@@ -403,7 +411,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute(128, 1, 1);
+    glDispatchCompute((n / 128) + 1, 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_UPDATE)
@@ -431,7 +439,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute(128, 1, 1);
+    glDispatchCompute((n / 128) + 1, 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_CENTERING)

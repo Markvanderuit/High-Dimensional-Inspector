@@ -38,8 +38,10 @@
 #include "gpgpu_utils.h"
 #include "2d_utils.h"
 
-#define ASSERT_SUM_Q // Enable SumQ != 0 assertion
-#define USE_DENSITY // Field computation leverages depth maps
+#define WRITE_EMBEDDING_EVERY_ITERATION // Write to embedding after every iteration 
+// #define FORCE_FIELD_DIMENSIONS_POW_2 // Field dimensions always a power of 2
+// #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
+// #define USE_DENSITY // Field computation leverages depth maps
 // #define USE_MIPMAP // Field computation leverages mipmaps
 
 #ifdef USE_DENSITY
@@ -47,7 +49,6 @@
 #else
 #include "2d_field_computation.h"
 #endif 
-
 
 namespace hdi::dr {
   class Gpgpu2dSneCompute {
