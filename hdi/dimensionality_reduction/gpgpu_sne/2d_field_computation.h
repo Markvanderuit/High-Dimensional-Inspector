@@ -52,7 +52,7 @@ namespace hdi::dr {
 
     // Compute field and depth textures
     void compute(unsigned w, unsigned h,
-                 float function_support, unsigned n,
+                 float function_support, unsigned iteration, unsigned n,
                  GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
                  Bounds2D bounds);
 
@@ -62,7 +62,6 @@ namespace hdi::dr {
 
   private:
     bool _initialized;
-    int _iteration;
     unsigned _w, _h;
 
     enum TextureType {

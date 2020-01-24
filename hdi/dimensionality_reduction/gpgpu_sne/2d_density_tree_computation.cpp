@@ -101,7 +101,7 @@ namespace hdi::dr {
     glGenVertexArrays(1, &_point_vao);
     _iteration = 0;
     _initialized = true;
-    glAssert("Density2dTreeComputation::initialize");
+    GL_ASSERT("Density2dTreeComputation::initialize");
   }
 
   void Density2dTreeComputation::clean() {
@@ -114,7 +114,7 @@ namespace hdi::dr {
     }
     _iteration = 0;
     _initialized = false;
-    glAssert("Density2dTreeComputation::clean");
+    GL_ASSERT("Density2dTreeComputation::clean");
   }
 
   void Density2dTreeComputation::compute(unsigned w, unsigned h, unsigned n,
@@ -191,7 +191,7 @@ namespace hdi::dr {
 
       program.release();
       TIMER_TOCK(TIMER_DENSITY_LOD_BOTTOM)
-      glAssert("Density2dTreeComputation::compute::DENSITY_LOD_BOTTOM");
+      GL_ASSERT("Density2dTreeComputation::compute::DENSITY_LOD_BOTTOM");
     }
 
     // Divide centers of mass by n for every pixel
@@ -219,7 +219,7 @@ namespace hdi::dr {
 
       program.release();
       TIMER_TOCK(TIMER_DENSITY_LOD_BOTTOM_DIVIDE)
-      glAssert("Density2dTreeComputation::compute::DENSITY_LOD_BOTTOM_DIVIDE");
+      GL_ASSERT("Density2dTreeComputation::compute::DENSITY_LOD_BOTTOM_DIVIDE");
     }
 
     // Generate upper LOD level density
@@ -253,7 +253,7 @@ namespace hdi::dr {
 
       program.release();
       TIMER_TOCK(TIMER_DENSITY_LOD_UPPER)
-      glAssert("Density2dTreeComputation::compute::PROGRAM_DENSITY_LOD_UPPER");
+      GL_ASSERT("Density2dTreeComputation::compute::PROGRAM_DENSITY_LOD_UPPER");
     }
 
     /* { // Debug output for density atlas
@@ -371,6 +371,6 @@ namespace hdi::dr {
       TIMER_LOG(_logger, TIMER_DENSITY_LOD_UPPER, "  Upper")
     }
     _iteration++;
-    glAssert("Density2dTreeComputation::compute");
+    GL_ASSERT("Density2dTreeComputation::compute");
   }
 }

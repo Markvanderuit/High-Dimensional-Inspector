@@ -95,7 +95,7 @@ namespace hdi::dr {
       }
     }
 
-    GpgpuSneCompute::Bounds2D bounds() const { 
+    Bounds2D bounds() const { 
       return _gpgpu_compute_tsne.bounds(); 
     }
 

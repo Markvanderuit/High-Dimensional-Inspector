@@ -55,6 +55,10 @@ namespace hdi::dr {
   void GradientDescentTSNE2D::initialize(const sparse_scalar_matrix_t& probabilities,
                                          data::Embedding<scalar_t>* embedding, 
                                          TsneParameters params) {
+    if (_initialized) {
+      clean();
+    }
+    
     utils::secureLog(_logger, "Initializing 2d-tSNE...");
     _params = params;
     _embedding = embedding;
@@ -110,6 +114,16 @@ namespace hdi::dr {
     _iteration = 0;
     _initialized = true;
     utils::secureLog(_logger, "Initialization complete!");
+  }
+
+  void GradientDescentTSNE2D::clean() {
+    if (_initialized) {
+      _embedding = nullptr;
+      _P.clear();
+      _gpgpu_sne_compute.clean();
+      _iteration = 0;
+      _initialized = false;
+    }
   }
 
   void GradientDescentTSNE2D::iterate(double mult) {

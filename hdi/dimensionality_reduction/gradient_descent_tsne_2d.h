@@ -41,10 +41,12 @@ namespace hdi::dr {
   public:
     GradientDescentTSNE2D();
     ~GradientDescentTSNE2D();
-
+    
     void initialize(const sparse_scalar_matrix_t& probabilities,
                     data::Embedding<scalar_t>* embedding, 
                     TsneParameters params = TsneParameters()) override;
+    
+    void clean();
 
     void iterate(double mult = 1.0) override;
 

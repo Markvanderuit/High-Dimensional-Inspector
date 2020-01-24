@@ -157,7 +157,7 @@ namespace hdi::dr {
       glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _w, _h, _d, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
-    glAssert("Before field");
+    GL_ASSERT("Before field");
 
     // Compute grid texture
     {

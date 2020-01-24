@@ -108,16 +108,15 @@ namespace hdi::dr {
   }
 
   void Gpgpu2dSneCompute::initialize(const embedding_t* embedding, 
-                    const TsneParameters& params, 
-                    const sparse_matrix_t& P) {
+                                     const TsneParameters& params, 
+                                     const sparse_matrix_t& P) {
     TIMERS_CREATE()
-    glClearColor(0, 0, 0, 0);
     _params = params;
     _bounds = computeEmbeddingBounds(embedding, 0.f);
     const int n = embedding->numDataPoints();
     _fieldComputation.initialize(_params, n);
 
-  // Create shader programs 
+    // Create shader programs 
     try {
       for (auto& program : _programs) {
         program.create();
@@ -195,7 +194,7 @@ namespace hdi::dr {
       glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * 128 * sizeof(Point2D), ones.data(), GL_STREAM_READ);
     }
 
-    glAssert("Initialized buffers");
+    GL_ASSERT("Initialized buffers");
     _initialized = true;
   }
 
@@ -245,7 +244,7 @@ namespace hdi::dr {
 
     // Compute fields texture
     _fieldComputation.compute(w, h, 
-                              functionSupport, n, 
+                              functionSupport, iteration, n, 
                               _buffers[BUFFER_POSITION], 
                               _buffers[BUFFER_BOUNDS], 
                               _buffers[BUFFER_INTERP_FIELDS],
@@ -272,7 +271,7 @@ namespace hdi::dr {
     
     // Update host embedding data
 #ifndef WRITE_EMBEDDING_EVERY_ITERATION
-    if (iteration >= _params._iterations - 1) 
+    if (iteration == _params._iterations - 1) 
 #endif // WRITE_EMBEDDING_EVERY_ITERATION
     {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -281,7 +280,7 @@ namespace hdi::dr {
     }
 
     TIMERS_UPDATE()
-    if (TIMERS_LOG_ENABLE && iteration >= _params._iterations - 1) {
+    if (TIMERS_LOG_ENABLE && iteration == _params._iterations - 1) {
       // Output timer averages
       utils::secureLog(_logger, "Gradient descent");
       TIMER_LOG(_logger, TIMER_SUM_Q, "  Sum Q")

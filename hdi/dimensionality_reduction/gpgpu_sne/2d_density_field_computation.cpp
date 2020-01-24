@@ -103,7 +103,7 @@ namespace hdi::dr {
 
     _densityComputation.initialize(_params, n);
 
-    glAssert("2dFieldComputation initialize");
+    GL_ASSERT("2dFieldComputation initialize");
   }
 
   // Remove gpu components

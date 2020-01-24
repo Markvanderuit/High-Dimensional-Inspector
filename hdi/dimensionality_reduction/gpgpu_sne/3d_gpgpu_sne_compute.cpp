@@ -191,7 +191,7 @@ namespace hdi::dr {
       glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * 128 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
     }
 
-    glAssert("Initialized buffers");
+    GL_ASSERT("Initialized buffers");
     _initialized = true;
   }
 

@@ -42,7 +42,7 @@ constexpr float pointSize = 3.f;
 
 namespace hdi::dr {
   Baseline2dFieldComputation::Baseline2dFieldComputation()
-  : _initialized(false), _iteration(0), _w(0), _h(0) {
+  : _initialized(false), _w(0), _h(0) {
     // ...
   }
 
@@ -99,10 +99,7 @@ namespace hdi::dr {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glGenVertexArrays(1, &_point_vao);
-    _iteration = 0;
     _initialized = true;
-
-    glAssert("2dFieldComputation initialize");
   }
 
   // Remove gpu components
@@ -114,13 +111,13 @@ namespace hdi::dr {
     for (auto& program : _programs) {
       program.destroy();
     }
-    _iteration = 0;
+    _programs.fill(ShaderProgram());
     _initialized = false;
   }
 
   // Compute field and depth textures
   void Baseline2dFieldComputation::compute(unsigned w, unsigned h,
-                float function_support, unsigned n,
+                float function_support, unsigned iteration, unsigned n,
                 GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
                 Bounds2D bounds) {
     Point2D minBounds = bounds.min;
@@ -227,13 +224,12 @@ namespace hdi::dr {
     
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
-    if (TIMERS_LOG_ENABLE && _iteration >= _params._iterations - 1) {
+    if (TIMERS_LOG_ENABLE && iteration == _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
       TIMER_LOG(_logger, TIMER_STENCIL, "  Stencil")
       TIMER_LOG(_logger, TIMER_FIELD, "  Field")
       TIMER_LOG(_logger, TIMER_INTERP, "  Interp")
       utils::secureLog(_logger, "");
     }
-    _iteration++;
   }
 }
