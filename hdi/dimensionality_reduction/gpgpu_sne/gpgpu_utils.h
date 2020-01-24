@@ -37,14 +37,20 @@
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/utils/glad.h"
 
-// Toggle to globally enable/disable gl query timers
+// Toggle to globally enable/disable GL_ASSERT()
+// #define UTILS_GL_ASSERTS
+#ifdef UTILS_GL_ASSERTS
+#include <sstream>
+#endif // UTILS_GL_ASSERTS
+
+// Toggle to globally enable/disable GL_TICK GL_TOCK
 // #define UTILS_QUERY_TIMERS 
 #ifdef UTILS_QUERY_TIMERS
 #include <array>
 #include <deque>
 #include <numeric>
 #include <stdexcept>
-#endif
+#endif // UTILS_QUERY_TIMERS
 
 namespace hdi::dr {
   // Internal types
@@ -74,16 +80,21 @@ namespace hdi::dr {
     }
     return LP;
   }
-  
+
   // For aggressive debugging
-  inline void glAssert(const std::string& msg) {
-    GLenum err; 
-    while ((err = glGetError()) != GL_NO_ERROR) {
-      std::stringstream ss;
-      ss << "glAssert failed with " << err << ", " << msg;
-      throw std::runtime_error(ss.str());
+#ifdef UTILS_GL_ASSERTS
+ #define GL_ASSERT(msg) \
+    { \
+      GLenum err; \
+      while ((err = glGetError()) != GL_NO_ERROR) { \
+        std::stringstream ss; \
+        ss << "glAssert failed at: " << msg << ", with " << err; \
+        throw std::runtime_error(ss.str()); \
+      } \
     }
-  }
+#else
+  #define GL_ASSERT(msg)
+#endif // UTILS_GL_ASSERTS
 
 #ifdef UTILS_QUERY_TIMERS
   // GL timer query wrapper class
