@@ -87,11 +87,8 @@ GLSL(field_src, 430,
     ivec2 xyFixed = ivec2(gl_WorkGroupID.xy);
     uint lid = gl_LocalInvocationIndex.x;
 
-    // Map to pixel pos
-    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size);
-
     // Skip pixel if stencil is empty
-    if (texture(stencil_texture, domain_pos).x == 0u) {
+    if (texelFetch(stencil_texture, xyFixed, 0).x == 0u) {
       if (lid < 1) {
         imageStore(fields_texture, xyFixed, vec4(0));
       }
@@ -99,6 +96,7 @@ GLSL(field_src, 430,
     } 
 
     // Map to domain pos
+    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size);
     domain_pos = domain_pos * range + minBounds;
 
     // Iterate over points to obtain density/gradient
@@ -136,7 +134,7 @@ GLSL(field_src, 430,
 
 // Compute shader for point sampling from field
 GLSL(interp_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer Val { vec3 Values[]; };
   layout(std430, binding = 2) buffer BoundsInterface { 
@@ -151,15 +149,15 @@ GLSL(interp_src, 430,
   uniform sampler2D fields_texture;
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-        i < num_points;
-        i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      // Map position of point to [0, 1]
-      vec2 position = (Positions[i] - minBounds) * invRange;
-
-      // Sample texture at mapped position
-      Values[i] = texture(fields_texture, position).xyz;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    if (i >= num_points) {
+      return;
     }
+
+    // Map position of point to [0, 1]
+    vec2 position = (Positions[i] - minBounds) * invRange;
+
+    // Sample texture at mapped position
+    Values[i] = texture(fields_texture, position).xyz;
   }
 );

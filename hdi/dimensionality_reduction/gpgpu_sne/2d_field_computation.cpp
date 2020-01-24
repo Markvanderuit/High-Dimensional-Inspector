@@ -218,7 +218,7 @@ namespace hdi::dr {
 
       // Dispatch compute shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute(128, 1, 1);
+      glDispatchCompute((n / 128) + 1, 1, 1);
 
       // Cleanup
       program.release();
@@ -227,7 +227,7 @@ namespace hdi::dr {
     
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
-    if (_iteration >= _params._iterations - 1) {
+    if (TIMERS_LOG_ENABLE && _iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
       TIMER_LOG(_logger, TIMER_STENCIL, "  Stencil")
       TIMER_LOG(_logger, TIMER_FIELD, "  Field")

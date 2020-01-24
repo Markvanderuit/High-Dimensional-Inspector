@@ -153,7 +153,7 @@ GLSL(positive_forces_src, 430,
 
 // Copied from compute_shaders.glsl, adapted for 3d
 GLSL(gradients_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Posit { vec2 PositiveForces[]; };
   layout(std430, binding = 1) buffer Fiel { vec3 Fields[]; };
   layout(std430, binding = 2) buffer SumQInterface { 
@@ -166,19 +166,20 @@ GLSL(gradients_src, 430,
   uniform float exaggeration;
 
   void main() {
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-          i < num_points;
-          i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      vec2 positive = PositiveForces[i];
-      vec2 negative = Fields[i].yz * invSumQ;
-      Gradients[i] = 4.f * (exaggeration * positive - negative);
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    if (i >= num_points) {
+      return;
     }
+
+    vec2 positive = PositiveForces[i];
+    vec2 negative = Fields[i].yz * invSumQ;
+    Gradients[i] = 4.f * (exaggeration * positive - negative);
   }
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
 GLSL(update_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer GradientLayout { vec2 Gradients[]; };
   layout(std430, binding = 2) buffer PrevGradientLayout { vec2 PrevGradients[]; };
@@ -205,25 +206,25 @@ GLSL(update_src, 430,
   }
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-         i < num_points;
-         i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      vec2 grad = Gradients[i];
-      vec2 pgrad = PrevGradients[i];
-      vec2 gain = Gain[i];
-
-      gain = mix(gain * 0.8, gain + 0.2, matches(grad, pgrad));
-      gain = max(gain, vec2(minGain));
-
-      vec2 etaGain = eta * gain;
-      grad = dir(grad) * abs(grad * etaGain) / etaGain;
-      pgrad = iter_mult * pgrad - etaGain * grad;
-
-      Gain[i] = gain;
-      PrevGradients[i] = pgrad;
-      Positions[i] += pgrad * mult;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    if (i >= num_points) {
+      return;
     }
+    
+    vec2 grad = Gradients[i];
+    vec2 pgrad = PrevGradients[i];
+    vec2 gain = Gain[i];
+
+    gain = mix(gain * 0.8, gain + 0.2, matches(grad, pgrad));
+    gain = max(gain, vec2(minGain));
+
+    vec2 etaGain = eta * gain;
+    grad = dir(grad) * abs(grad * etaGain) / etaGain;
+    pgrad = iter_mult * pgrad - etaGain * grad;
+
+    Gain[i] = gain;
+    PrevGradients[i] = pgrad;
+    Positions[i] += pgrad * mult;
   }
 );
 
@@ -314,7 +315,7 @@ GLSL(bounds_src, 430,
 
 // Copied from compute_shader.glsl, adapted for 3d
 GLSL(centering_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
     vec2 minBounds;
@@ -328,11 +329,11 @@ GLSL(centering_src, 430,
   uniform float scaling;
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-          i < num_points;
-          i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      Positions[i] = scaling * (Positions[i] - center);
-    }    
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    if (i >= num_points) {
+      return;
+    }
+    
+    Positions[i] = scaling * (Positions[i] - center); 
   }
 );
