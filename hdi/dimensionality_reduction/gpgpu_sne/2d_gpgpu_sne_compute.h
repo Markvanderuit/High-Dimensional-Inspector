@@ -42,7 +42,6 @@
 // #define FORCE_FIELD_DIMENSIONS_POW_2 // Field dimensions always a power of 2
 // #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
 // #define USE_DENSITY // Field computation leverages depth maps
-// #define USE_MIPMAP // Field computation leverages mipmaps
 
 #ifdef USE_DENSITY
 #include "2d_density_field_computation.h"
