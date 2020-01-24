@@ -9,9 +9,6 @@
 
 namespace hdi {
   namespace dr {
-    typedef GpgpuSneCompute::Bounds2D Bounds2D;
-    typedef GpgpuSneCompute::Point2D Point2D;
-
     enum BufferType
     {
       POSITION,
@@ -230,7 +227,7 @@ namespace hdi {
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, _compute_buffers[BOUNDS]);
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(Point2D) * 2, &_bounds);
-      Point2D range = _bounds.getRange();
+      Point2D range = _bounds.range();
 
       float aspect = range.x / range.y;
 
