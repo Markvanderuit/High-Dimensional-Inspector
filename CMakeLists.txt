@@ -88,3 +88,9 @@ if(HDI_BUILD_CLI)
     add_subdirectory (applications/command_line_tools)
     add_subdirectory (applications/command_line_tools/data_conversion)
 endif()
+
+# Install
+# We don't want to install in the default location, just use ./install
+if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "..." FORCE)
+endif()
