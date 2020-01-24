@@ -90,7 +90,7 @@ if(HDI_BUILD_CLI)
 endif()
 
 # Install
-# We don't want to install in the default location, just use ./install
+# We don't want to install in the default location, just use ./bin for now
 if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "..." FORCE)
 endif()

@@ -35,7 +35,7 @@
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
 #include "hdi/utils/scoped_timers.h"
-#include "hdi/utils/glad/glad.h"
+#include "hdi/utils/glad.h"
 
 // Toggle to globally enable/disable gl query timers
 // #define UTILS_QUERY_TIMERS 
