@@ -19,5 +19,5 @@ add_library(hdivisualization ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSou
 target_link_libraries (hdivisualization Qt5::Widgets Qt5::OpenGL hdiutils)
 
 ########### INSTALL ##############
-install (TARGETS hdivisualization DESTINATION bin/hdi)
+install (TARGETS hdivisualization DESTINATION bin)
 install (FILES ${HeaderFiles} ${UiHeaders} DESTINATION include/hdi/visualization)

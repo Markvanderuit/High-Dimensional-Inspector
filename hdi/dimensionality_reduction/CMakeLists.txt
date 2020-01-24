@@ -14,7 +14,7 @@ target_link_libraries (hdidimensionalityreduction hdiutils hdidata flann::flann)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction 
-  DESTINATION bin/hdi)
+  DESTINATION bin)
 install (FILES ${HeaderFiles} 
   DESTINATION include/hdi/dimensionality_reduction)
 install (FILES ${GpgpuHeaderFiles} 

@@ -23,5 +23,5 @@ if (UNIX)
 endif (UNIX)
 
 ########### INSTALL ##############
-install (TARGETS hdiutils DESTINATION bin/hdi)
+install (TARGETS hdiutils DESTINATION bin)
 install (FILES ${HeaderFiles} ${UiHeaders} DESTINATION include/hdi/utils)

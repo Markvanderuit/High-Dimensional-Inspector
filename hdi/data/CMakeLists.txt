@@ -10,5 +10,5 @@ add_library (hdidata ${HeaderFiles} ${SourceFiles} )
 target_link_libraries (hdidata roaring)
 
 ########### INSTALL ##############
-install (TARGETS hdidata DESTINATION bin/hdi)
+install (TARGETS hdidata DESTINATION bin)
 install (FILES ${HeaderFiles} DESTINATION include/hdi/data)
