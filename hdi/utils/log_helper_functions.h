@@ -1,6 +1,7 @@
 #ifndef LOG_HELPER_FUNCTIONS_H
 #define LOG_HELPER_FUNCTIONS_H
 
+#include <algorithm>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -25,7 +26,7 @@ namespace hdi{
           std::stringstream ss;
           ss << text;
           ss << ":";
-          for(int i = 0; i < num_tabs; ++i){ss << "\t";}
+          for(size_t i = 0; i < num_tabs; ++i){ss << "\t";}
           ss << v;
           logPtr->display(ss.str());
         }
