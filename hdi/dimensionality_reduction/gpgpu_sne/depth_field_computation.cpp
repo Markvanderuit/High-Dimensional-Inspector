@@ -81,6 +81,7 @@ namespace hdi::dr {
   }
 
   void DepthFieldComputation::initialize(const TsneParameters& params, 
+                                          GLuint position_buff,
                                           unsigned n) {
     TIMERS_CREATE()
 

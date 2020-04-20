@@ -34,7 +34,7 @@
   "#version " #version "\n" #shader
 
 // Vertex shader for voxel grid computation
-GLSL(grid_vert_src, 430,
+GLSL(grid_vert_src, 450,
   layout(location = 0) in vec4 point;
   layout(std430, binding = 0) buffer BoundsInterface { 
     vec3 minBounds;
@@ -53,7 +53,7 @@ GLSL(grid_vert_src, 430,
 );
 
 // Fragment shader for voxel grid computation
-GLSL(grid_fragment_src, 430,
+GLSL(grid_fragment_src, 450,
   layout (location = 0) out uvec4 color;
 
   uniform usampler1D cellMap;
@@ -71,7 +71,7 @@ GLSL(grid_fragment_src, 430,
 );
 
 // Compute shader for field computation
-GLSL(field_src, 430,
+GLSL(field_src, 450,
   layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer PosInterface { vec3 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
@@ -164,32 +164,174 @@ GLSL(field_src, 430,
   }
 );
 
-// Compute shader for point sampling from field
-GLSL(interp_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
-  layout(std430, binding = 1) buffer Val { vec4 Values[]; };
-  layout(std430, binding = 2) buffer BoundsInterface { 
-    vec3 minBounds;
-    vec3 maxBounds;
+GLSL(field_bvh_src, 450,
+  // Wrapper structure for BoundsBuffer data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
     vec3 range;
     vec3 invRange;
   };
 
-  uniform uint num_points;
-  uniform uvec3 texture_size;
-  uniform sampler3D fields_texture;
+  // Wrapper structure for NodeBuffer data
+  struct Node {
+    vec3 center;  // Center of mass
+    float n;      // Mass, fit here to prevent padding
+    vec3 min;     // Min bounds
+    float diams2; // Squard diams of bounds, fit here to prevent padding
+    vec3 max;     // Max bounds
+  };
+
+  layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+  layout(binding = 0, std430) restrict readonly buffer PosBuffer { vec3 positions[]; };
+  layout(binding = 1, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  layout(binding = 2, std430) restrict readonly buffer NodeBuffer { Node nodes[]; };
+  layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
+  layout(location = 0) uniform uint nPoints;
+  layout(location = 1) uniform float theta;
+  layout(location = 2) uniform uvec3 textureSize;
+  layout(location = 3) uniform usampler2D gridSampler;
+  layout(location = 4) uniform uint gridDepth;
+
+  // Local memory for traversal
+  uint loc = 2u;    // Set to 1 to enable bitshifts
+  uint stack = 2u;  // Set to 1 to kickstart traversal
+  uint depth = 1u;
+
+  // Const values
+  const ivec3 gid = ivec3(gl_WorkGroupID.xyz
+                        * gl_WorkGroupSize.xyz
+                        + gl_LocalInvocationID.xyz);
+  const float theta2 = theta * theta;
+
+  void descend() {
+    // Move down tree
+    depth++;
+    loc <<= 1;
+
+    // Push unvisited location on stack
+    stack |= (1u << depth);
+  }
+
+  void ascend() {
+    // Find next level based on MSB
+    uint nextDepth = findMSB(stack);
+
+    // Move up and/or forward in tree
+    loc >>= (depth - nextDepth);
+    loc++;
+    depth = nextDepth;
+
+    // Pop visited location from stack
+    stack &= ~(1u << depth);
+  }
+
+  bool approx(in vec3 domainPos, inout vec4 fieldValue) {
+    Node node = nodes[loc - 1];
+
+    // Squared eucl. distance between pixel and node center
+    vec3 t = domainPos - node.center;
+    float t2 = dot(t, t);
+    
+    // Truncate if... 
+    bool trunc = (node.n <= 1.f)                // Node is leaf or empty
+              || (node.diams2 / t2 < theta2);   // Approxim. cond. passes
+    
+    // Compute field value and add to total
+    if (trunc) {
+      float tStud = 1.f / (1.f + t2);
+      vec3 tStud2 = t * (tStud * tStud);
+
+      // Field layout is: S, V.x, V.y, V.z
+      fieldValue += node.n * vec4(tStud, tStud2);
+    }
+
+    return trunc;
+  }
+
+  vec4 traverse(in vec3 domainPos) {
+    vec4 fieldValue = vec4(0);
+
+    do {
+      if (approx(domainPos, fieldValue)) {
+        ascend();
+      } else {
+        descend();
+      }
+    } while (depth != 0u);
+
+    return fieldValue;
+  }
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-        i < num_points;
-        i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      // Map position of point to [0, 1]
-      vec3 position = (Positions[i] - minBounds) * invRange;
-
-      // Sample texture at mapped position
-      Values[i] = texture(fields_texture, position);
+    // Check that invocation is inside field texture
+    if (min(gid, textureSize - 1) != gid) {
+      return;
     }
+
+    // Compute pixel position in [0, 1]
+    vec3 domainPos = (vec3(gid) + 0.5) / vec3(textureSize);
+
+    // Read voxel grid to skip empty pixels
+    uvec4 gridValue = texture(gridSampler, domainPos.xy);
+    int z = int(domainPos.z * gridDepth);
+    if (bitfieldExtract(gridValue[z / 32], 31 - (z % 32) , 1) == 0) {
+      return;
+    }
+
+    // Map pixel position to domain bounds
+    domainPos = domainPos * bounds.range + bounds.min;
+
+    // Traverse tree and store result
+    vec4 v = traverse(domainPos);
+    imageStore(fieldImage, gid, v);
+  }
+);
+
+// Compute shader for point sampling from field
+GLSL(interp_src, 450,
+  // Wrapper structure for BoundsBuffer data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
+    vec3 range;
+    vec3 invRange;
+  };
+
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+  layout(binding = 0, std430) buffer PosBuffer { vec3 positions[]; };
+  layout(binding = 1, std430) buffer ValueBuffer { vec4 values[]; };
+  layout(binding = 2, std430) buffer BoundsBuffer { Bounds bounds; };
+  layout(location = 0) uniform uint nPoints;
+  layout(location = 1) uniform uvec3 fieldSize;
+  layout(location = 2) uniform sampler3D fieldSampler;
+
+  shared vec3 minBounds;
+  shared vec3 invRange;
+
+  void main() {
+    // Invocation ID
+    const uint lid = gl_LocalInvocationID.x;
+    const uint gid = gl_WorkGroupID.x
+                   * gl_WorkGroupSize.x
+                   + gl_LocalInvocationID.x;
+
+    // Load shared memory
+    if (lid < 1) {
+      minBounds = bounds.min;
+      invRange = bounds.invRange;
+    }
+    barrier();
+
+    // Only invocations under nPoints should proceed
+    if (gid >= nPoints) {
+      return;
+    }
+
+    // Map position of point to [0, 1]
+    vec3 pos = (positions[gid] - minBounds) * invRange;
+
+    // Sample texture at mapped position
+    values[gid] = texture(fieldSampler, pos);
   }
 );

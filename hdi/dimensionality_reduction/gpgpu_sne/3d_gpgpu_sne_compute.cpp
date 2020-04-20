@@ -111,7 +111,9 @@ namespace hdi::dr {
     _params = params;
     _bounds = computeEmbeddingBounds(embedding, 0.f);
     const int n = embedding->numDataPoints();
-    _fieldComputation.initialize(_params, n);
+#ifdef ENABLE_SCREEN_DRAW
+    _screenOutput.initialize(_params);
+#endif
 
     // Create shader programs 
     try {
@@ -191,6 +193,8 @@ namespace hdi::dr {
       glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * 128 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
     }
 
+    _fieldComputation.initialize(_params, _buffers[BUFFER_POSITION], n);
+
     GL_ASSERT("Initialized buffers");
     _initialized = true;
   }
@@ -252,6 +256,10 @@ namespace hdi::dr {
                               _buffers[BUFFER_BOUNDS], 
                               _buffers[BUFFER_INTERP_FIELDS],
                               _bounds);
+
+#ifdef ENABLE_SCREEN_DRAW
+    _screenOutput.compute(_fieldComputation.texture(), w, h, iteration);
+#endif
 
     // Calculate normalization sum
     sumQ(n);

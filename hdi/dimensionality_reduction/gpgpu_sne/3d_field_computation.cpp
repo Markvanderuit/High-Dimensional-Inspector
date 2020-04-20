@@ -42,7 +42,7 @@ constexpr float pointSize = 2.f;
 
 namespace hdi::dr {
   BaselineFieldComputation::BaselineFieldComputation()
-  : _initialized(false), _iteration(0), _w(0), _h(0), _d(0) {
+  : _initialized(false), _iteration(0), _w(0), _h(0), _d(0), _logger(nullptr) {
     // ...
   }
 
@@ -52,7 +52,9 @@ namespace hdi::dr {
     }
   }
 
-  void BaselineFieldComputation::initialize(const TsneParameters& params, unsigned n) {
+  void BaselineFieldComputation::initialize(const TsneParameters& params, 
+                                            GLuint position_buff, 
+                                            unsigned n) {
     TIMERS_CREATE()
     _params = params;
 
@@ -63,7 +65,12 @@ namespace hdi::dr {
       }
       _programs[PROGRAM_GRID].addShader(VERTEX, grid_vert_src);
       _programs[PROGRAM_GRID].addShader(FRAGMENT, grid_fragment_src);
+      
+// #ifdef USE_BVH
+//       _programs[PROGRAM_FIELD_3D].addShader(COMPUTE, field_bvh_src); 
+// #else
       _programs[PROGRAM_FIELD_3D].addShader(COMPUTE, field_src); 
+// #endif
       _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
@@ -116,12 +123,22 @@ namespace hdi::dr {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glGenVertexArrays(1, &_point_vao);
+
+#ifdef USE_BVH
+    _bvh.init(params, position_buff, n);
+    // _bvhCompute.initialize(params, position_buff, n);
+#endif
+
     _iteration = 0;
     _initialized = true;
   }
 
   void BaselineFieldComputation::clean() {
     TIMERS_DESTROY()
+#ifdef USE_BVH
+    _bvh.destr();
+    // _bvhCompute.clean();
+#endif
     glDeleteTextures(_textures.size(), _textures.data());
     glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
     glDeleteVertexArrays(1, &_point_vao);
@@ -157,7 +174,10 @@ namespace hdi::dr {
       glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _w, _h, _d, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
-    GL_ASSERT("Before field");
+#ifdef USE_BVH
+    _bvh.compute(bounds);
+    // _bvhCompute.compute(w, h, d, n, position_buff, bounds_buff, bounds);
+#endif
 
     // Compute grid texture
     {
@@ -194,13 +214,47 @@ namespace hdi::dr {
       glDrawArrays(GL_POINTS, 0, n);
 
       // Cleanup
+      glDisable(GL_COLOR_LOGIC_OP);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      glDisable(GL_LOGIC_OP);
       program.release();
       TIMER_TOCK(TIMER_GRID)
     }
 
-    // Compute fields 3D texture
+/* #ifdef USE_BVH
+    // Compute fields 3D texture through O(px log n) approximation
+    {
+      TIMER_TICK(TIMER_FIELD_3D)
+      auto &program = _programs[PROGRAM_FIELD_3D];
+      program.bind();
+
+      // Bind 2D grid texture to texture unit 0
+      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
+
+      // Bind buffers to SSBO binding points 0, 1, 2
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _bvhCompute.buffer());
+
+      // Bind 3D field texture to image unit 0
+      glBindImageTexture(0, _textures[TEXTURE_FIELD_3D], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+      // Set uniforms
+      program.uniform1ui("nPoints", n);
+      program.uniform1f("theta", 1.25f);
+      program.uniform3ui("textureSize", _w, _h, _d);
+      program.uniform1i("gridSampler", 0);
+      program.uniform1ui("gridDepth", std::min(128u, _d));
+
+      // Dispatch compute shader
+      glDispatchCompute(ceilDiv(_w, 4u), ceilDiv(_h, 4u), ceilDiv(_d, 4u));
+      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
+      program.release();
+      GL_ASSERT("BaselineFieldComputation::compute::field_bvh_src")
+      TIMER_TOCK(TIMER_FIELD_3D)
+    }
+#else */
+    // Compute fields 3D texture through O(px n) reduction
     {
       TIMER_TICK(TIMER_FIELD_3D)
       auto &program = _programs[PROGRAM_FIELD_3D];
@@ -228,6 +282,7 @@ namespace hdi::dr {
       program.release();
       TIMER_TOCK(TIMER_FIELD_3D)
     }
+  // #endif
 
     // Query field texture for positional values
     {
@@ -236,8 +291,7 @@ namespace hdi::dr {
       program.bind();
 
       // Bind the textures for this shader
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD_3D]);
+      glBindTextureUnit(0, _textures[TEXTURE_FIELD_3D]);
 
       // Bind buffers for this shader
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
@@ -245,13 +299,13 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bounds_buff);
 
       // Bind uniforms for this shader
-      program.uniform1ui("num_points", n);
-      program.uniform3ui("texture_size", _w, _h, _d);
-      program.uniform1i("fields_texture", 0);
+      program.uniform1ui("nPoints", n);
+      program.uniform3ui("fieldSize", _w, _h, _d);
+      program.uniform1i("fieldSampler", 0);
 
       // Dispatch compute shader
+      glDispatchCompute(ceilDiv(n, 128u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute(128, 1, 1);
 
       // Cleanup
       program.release();
@@ -268,10 +322,10 @@ namespace hdi::dr {
     // Update timers, log values on final iteration
     TIMERS_UPDATE()
     if (_iteration >= _params._iterations - 1) {
-      utils::secureLog(_logger, "");
-      TIMER_LOG(_logger, TIMER_GRID, "Grid")
-      TIMER_LOG(_logger, TIMER_FIELD_3D, "Field")
-      TIMER_LOG(_logger, TIMER_INTERP, "Interp")
+      utils::secureLog(_logger, "Field computation");
+      TIMER_LOG(_logger, TIMER_GRID, "  Grid")
+      TIMER_LOG(_logger, TIMER_FIELD_3D, "  Field")
+      TIMER_LOG(_logger, TIMER_INTERP, "  Interp")
       utils::secureLog(_logger, "");
     }
     _iteration++;

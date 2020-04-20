@@ -49,7 +49,7 @@ GLSL(sumq_src, 430,
   shared float reduction_array[halfGroupSize];
 
   void main() {
-    uint lid = gl_LocalInvocationIndex.x;
+    uint lid = gl_LocalInvocationID.x;
     float sum = 0.f;
     if (iteration == 0) {
       // First iteration adds all values
@@ -166,7 +166,7 @@ GLSL(gradients_src, 430,
   uniform float exaggeration;
 
   void main() {
-    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
     if (i >= num_points) {
       return;
     }
@@ -191,37 +191,41 @@ GLSL(update_src, 430,
   uniform float mult;
   uniform float iter_mult;
 
-  vec2 dir(vec2 v) {
-    return vec2(
-      v.x > 0 ? 1 : -1, 
-      v.y > 0 ? 1 : -1
-    );
-  }
-
-  vec2 matches(vec2 a, vec2 b) {
-    return vec2(
-      sign(a.x) != sign(b.x) ? 1 : 0, 
-      sign(a.y) != sign(b.y) ? 1 : 0
-    );
-  }
-
   void main() {
+    // Invocation location
     uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
     if (i >= num_points) {
       return;
     }
     
+    // Load values
     vec2 grad = Gradients[i];
     vec2 pgrad = PrevGradients[i];
     vec2 gain = Gain[i];
 
-    gain = mix(gain * 0.8, gain + 0.2, matches(grad, pgrad));
-    gain = max(gain, vec2(minGain));
+    // Compute gain, clamp at minGain
+    vec2 gainDir = vec2(!equal(sign(grad), sign(pgrad)));
+    gain = mix(gain * 0.8f, 
+      gain + 0.2f, 
+      gainDir);
+    gain = max(gain, minGain);
 
+    // Compute gradient
     vec2 etaGain = eta * gain;
-    grad = dir(grad) * abs(grad * etaGain) / etaGain;
-    pgrad = iter_mult * pgrad - etaGain * grad;
+    grad = fma(
+      vec2(greaterThan(grad, vec2(0))), 
+      vec2(2f), 
+      vec2(-1f)
+    ) * abs(grad * etaGain) / etaGain;
 
+    // Compute previous gradient
+    pgrad = fma(
+      pgrad,
+      vec2(iter_mult),
+      -etaGain * grad
+    );
+
+    // Store values again
     Gain[i] = gain;
     PrevGradients[i] = pgrad;
     Positions[i] += pgrad * mult;
@@ -249,13 +253,6 @@ GLSL(bounds_src, 430,
   const uint halfGroupSize = gl_WorkGroupSize.x / 2;
   shared vec2 min_reduction[halfGroupSize];
   shared vec2 max_reduction[halfGroupSize];
-
-  vec2 removeZero(in vec2 v) {
-    // This can be done a lot faster
-    if (v.x == 0.f) v.x = 1.f;
-    if (v.y == 0.f) v.y = 1.f;
-    return v;
-  }
 
   void main() {
     const uint lid = gl_LocalInvocationIndex.x;
@@ -307,7 +304,8 @@ GLSL(bounds_src, 430,
         minBounds = min_local - padding;
         maxBounds = max_local + padding;
         range = (maxBounds - minBounds);
-        invRange = 1.f / removeZero(range);
+        // Prevent div-by-0, set 0 to 1
+        invRange = 1.f / (range + vec2(equal(range, vec2(0))));
       }
     }
   }

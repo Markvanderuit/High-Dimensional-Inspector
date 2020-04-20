@@ -38,6 +38,12 @@
 #include "3d_utils.h"
 
 // #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
+#define USE_BVH // Use BVH for px log n force computations
+
+#ifdef USE_BVH
+// #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/3d_bvh_compute.h" 
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
+#endif
 
 namespace hdi::dr {
   class BaselineFieldComputation {
@@ -47,6 +53,7 @@ namespace hdi::dr {
 
     // Initialize gpu components for computation
     void initialize(const TsneParameters& params,
+                    GLuint position_buff,
                     unsigned n);
 
     // Remove gpu components
@@ -60,6 +67,14 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
+#ifdef USE_BVH
+      _bvh.setLogger(logger);
+      // _bvhCompute.setLogger(logger);
+#endif
+    }
+
+    GLuint texture() const {
+      return _textures[TEXTURE_GRID];
     }
 
   private:
@@ -102,6 +117,11 @@ namespace hdi::dr {
     std::array<uint32_t, 4 * 128> _cellData;
     TsneParameters _params;
     utils::AbstractLog* _logger;
+
+#ifdef USE_BVH
+    bvh::BVH _bvh;
+    // bvh::BVH3DCompute _bvhCompute;
+#endif
     
     // Query timers matching to each shader
     TIMERS_DECLARE(

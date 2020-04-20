@@ -30,115 +30,119 @@
 
 #pragma once
 
-#include <array>
-#include <cstdlib>
-#include "hdi/utils/abstract_log.h"
+#include "2d_screen_output.h"
+#include "2d_utils.h"
+#include "gpgpu_utils.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "gpgpu_utils.h"
-#include "2d_utils.h"
+#include "hdi/utils/abstract_log.h"
+#include <array>
+#include <cstdlib>
 
-#define WRITE_EMBEDDING_EVERY_ITERATION // Write to embedding after every iteration 
-// #define FORCE_FIELD_DIMENSIONS_POW_2 // Field dimensions always a power of 2
+// #define WRITE_EMBEDDING_EVERY_ITERATION // Write to embedding after every iteration
 // #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
-// #define USE_DENSITY // Field computation leverages depth maps
+#define ENABLE_SCREEN_DRAW // Enable drawing of field texture to screen
+#define USE_BARNES_HUT     // Field computation leverages barnes-hut approximation
+// #define USE_DT_BARNES_HUT // Field computation leverages dual-tree  approximation
 
-#ifdef USE_DENSITY
-#include "2d_density_field_computation.h"
+#ifdef USE_BARNES_HUT
+#define FORCE_FIELD_DIMENSIONS_POW_2
+#include "2d_bh_field_computation.h"
+#elif defined(USE_DT_BARNES_HUT)
+#define FORCE_FIELD_DIMENSIONS_POW_2
+#include "2d_dtbh_field_computation.h"
 #else
 #include "2d_field_computation.h"
-#endif 
+#endif
 
 namespace hdi::dr {
-  class Gpgpu2dSneCompute {
-  public:
-    Gpgpu2dSneCompute();
-    ~Gpgpu2dSneCompute();
+class Gpgpu2dSneCompute {
+public:
+  Gpgpu2dSneCompute();
+  ~Gpgpu2dSneCompute();
 
-    // Initialize gpu components for computation
-    void initialize(const embedding_t* embedding, 
-                    const TsneParameters& params, 
-                    const sparse_matrix_t& P);
+  // Initialize gpu components for computation
+  void initialize(const embedding_t *embedding, const TsneParameters &params,
+                  const sparse_matrix_t &P);
 
-    // Remove gpu components
-    void clean();
+  // Remove gpu components
+  void clean();
 
-    // Perform computation for specified iteration
-    void compute(embedding_t* embedding, 
-                 float exaggeration, 
-                 unsigned iteration, 
-                 float mult);
-    
-    Bounds2D bounds() const {
-      return _bounds;
-    }
+  // Perform computation for specified iteration
+  void compute(embedding_t *embedding, float exaggeration, unsigned iteration, float mult);
 
-    void setLogger(utils::AbstractLog* logger) {
-      _logger = logger; 
-      _fieldComputation.setLogger(logger);
-    }
+  Bounds2D bounds() const { return _bounds; }
 
-  private:
-    void computeBounds(unsigned n, float padding);
-    void sumQ(unsigned n);
-    void computeGradients(unsigned n, float exaggeration);
-    void updatePoints(unsigned n, float iteration, float mult);
-    void updateEmbedding(unsigned n, float exaggeration, float iteration);
-  
-    bool _initialized;
-    bool _adaptive_resolution;
-    float _resolution_scaling;
+  void setLogger(utils::AbstractLog *logger) {
+    _logger = logger;
+    _fieldComputation.setLogger(logger);
+    _screenOutput.setLogger(logger);
+  }
 
-    enum BufferType {
-      // Enums matching to storage buffers in _buffers array
-      BUFFER_POSITION,
-      BUFFER_INTERP_FIELDS,
-      BUFFER_SUM_Q,
-      BUFFER_SUM_Q_REDUCE_ADD,
-      BUFFER_NEIGHBOUR,
-      BUFFER_PROBABILITIES,
-      BUFFER_INDEX,
-      BUFFER_POSITIVE_FORCES,
-      BUFFER_GRADIENTS,
-      BUFFER_PREV_GRADIENTS,
-      BUFFER_GAIN,
-      BUFFER_BOUNDS_REDUCE_ADD,
-      BUFFER_BOUNDS,
-      
-      // Static enum length
-      BufferTypeLength 
-    };
+private:
+  void computeBounds(unsigned n, float padding);
+  void sumQ(unsigned n);
+  void computeGradients(unsigned n, float exaggeration);
+  void updatePoints(unsigned n, float iteration, float mult);
+  void updateEmbedding(unsigned n, float exaggeration, float iteration);
 
-    enum ProgramType {
-      // Enums matching to shader programs in _programs array
-      PROGRAM_SUM_Q,
-      PROGRAM_POSITIVE_FORCES,
-      PROGRAM_GRADIENTS,
-      PROGRAM_UPDATE,
-      PROGRAM_BOUNDS,
-      PROGRAM_CENTERING,
-      
-      // Static enum length
-      ProgramTypeLength 
-    };
+  bool _initialized;
+  bool _adaptive_resolution;
+  float _resolution_scaling;
 
-    std::array<GLuint, BufferTypeLength> _buffers;
-    std::array<ShaderProgram, ProgramTypeLength> _programs;
-#ifdef USE_DENSITY
-    Density2dFieldComputation _fieldComputation;
-#else
-    Baseline2dFieldComputation _fieldComputation;
-#endif
-    TsneParameters _params;
-    Bounds2D _bounds;
-    utils::AbstractLog* _logger;
+  enum BufferType {
+    // Enums matching to storage buffers in _buffers array
+    BUFFER_POSITION,
+    BUFFER_INTERP_FIELDS,
+    BUFFER_SUM_Q,
+    BUFFER_SUM_Q_REDUCE_ADD,
+    BUFFER_NEIGHBOUR,
+    BUFFER_PROBABILITIES,
+    BUFFER_INDEX,
+    BUFFER_POSITIVE_FORCES,
+    BUFFER_GRADIENTS,
+    BUFFER_PREV_GRADIENTS,
+    BUFFER_GAIN,
+    BUFFER_BOUNDS_REDUCE_ADD,
+    BUFFER_BOUNDS,
 
-    TIMERS_DECLARE(
-      TIMER_SUM_Q,
-      TIMER_GRADIENTS,
-      TIMER_UPDATE,
-      TIMER_BOUNDS,
-      TIMER_CENTERING
-    )
+    // Static enum length
+    BufferTypeLength
   };
-}
+
+  enum ProgramType {
+    // Enums matching to shader programs in _programs array
+    PROGRAM_SUM_Q,
+    PROGRAM_POSITIVE_FORCES,
+    PROGRAM_GRADIENTS,
+    PROGRAM_UPDATE,
+    PROGRAM_BOUNDS,
+    PROGRAM_CENTERING,
+
+    // Static enum length
+    ProgramTypeLength
+  };
+
+  std::array<GLuint, BufferTypeLength> _buffers;
+  std::array<ShaderProgram, ProgramTypeLength> _programs;
+  TsneParameters _params;
+  Bounds2D _bounds;
+  utils::AbstractLog *_logger;
+
+  // Field computation unit
+#ifdef USE_BARNES_HUT
+  BarnesHut2dFieldComputation _fieldComputation;
+#elif defined(USE_DT_BARNES_HUT)
+  DualTree2dFieldComputation _fieldComputation;
+#else
+  Baseline2dFieldComputation _fieldComputation;
+#endif
+
+  // Screen drawing unit
+#ifdef ENABLE_SCREEN_DRAW
+  Screen2dOutput _screenOutput;
+#endif
+
+  TIMERS_DECLARE(TIMER_SUM_Q, TIMER_GRADIENTS, TIMER_UPDATE, TIMER_BOUNDS, TIMER_CENTERING)
+};
+} // namespace hdi::dr

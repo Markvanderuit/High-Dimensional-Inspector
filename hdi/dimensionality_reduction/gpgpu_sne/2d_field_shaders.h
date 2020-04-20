@@ -149,7 +149,7 @@ GLSL(interp_src, 430,
   uniform sampler2D fields_texture;
 
   void main() {
-    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
+    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
     if (i >= num_points) {
       return;
     }

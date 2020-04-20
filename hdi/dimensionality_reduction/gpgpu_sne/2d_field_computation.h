@@ -60,6 +60,10 @@ namespace hdi::dr {
       _logger = logger; 
     }
 
+    GLuint texture() const {
+      return _textures[TEXTURE_FIELD];
+    }
+
   private:
     bool _initialized;
     unsigned _w, _h;

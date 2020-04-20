@@ -35,8 +35,8 @@
 
 // Magic numbers
 constexpr bool adaptiveResolution = true;
-const unsigned int fixedFieldSize = 40;
-const unsigned int minFieldSize = 5;
+const unsigned int fixedFieldSize = 256;
+const unsigned int minFieldSize = 64; // Start larger because we underuse gpu too much
 const float pixelRatio = 2.0f;
 const float functionSupport = 6.5f;
 
@@ -115,6 +115,9 @@ namespace hdi::dr {
     _bounds = computeEmbeddingBounds(embedding, 0.f);
     const int n = embedding->numDataPoints();
     _fieldComputation.initialize(_params, n);
+#ifdef ENABLE_SCREEN_DRAW
+    _screenOutput.initialize(_params);
+#endif
 
     // Create shader programs 
     try {
@@ -205,6 +208,9 @@ namespace hdi::dr {
         program.destroy();
       }
       glDeleteBuffers(_buffers.size(), _buffers.data());
+#ifdef ENABLE_SCREEN_DRAW
+      _screenOutput.clean();
+#endif
       _fieldComputation.clean();
       _initialized = false;
     }
@@ -236,10 +242,10 @@ namespace hdi::dr {
       : fixedFieldSize;
     uint32_t h = _adaptive_resolution 
       ? std::max((unsigned int)(range.y * _resolution_scaling), minFieldSize) 
-      : (int) (fixedFieldSize * (range.y / range.x));
+      : fixedFieldSize;
 #ifdef FORCE_FIELD_DIMENSIONS_POW_2
-    w = roundUpToNextPow2(w);
-    h = roundUpToNextPow2(h);
+    // Keep both w and h as powers of 2, and keep the image square
+    w = h = std::max<unsigned>(roundUpToNextPow2(w), roundUpToNextPow2(h));
 #endif FORCE_FIELD_DIMENSIONS_POW_2
 
     // Compute fields texture
@@ -249,6 +255,10 @@ namespace hdi::dr {
                               _buffers[BUFFER_BOUNDS], 
                               _buffers[BUFFER_INTERP_FIELDS],
                               _bounds);
+
+#ifdef ENABLE_SCREEN_DRAW
+    _screenOutput.compute(_fieldComputation.texture(), w, h, iteration);
+#endif
 
     // Calculate normalization sum
     sumQ(n);
@@ -312,6 +322,7 @@ namespace hdi::dr {
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     program.uniform1ui("iteration", 1u);
     glDispatchCompute(1, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
     program.release();
     TIMER_TOCK(TIMER_BOUNDS)
@@ -377,7 +388,7 @@ namespace hdi::dr {
 
       // Run shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute((n / 128) + 1, 1, 1);
+      glDispatchCompute(ceilDiv(n, 128u), 1, 1);
 
       program.release();
     }
@@ -410,7 +421,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute((n / 128) + 1, 1, 1);
+    glDispatchCompute(ceilDiv(n, 128u), 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_UPDATE)
@@ -438,7 +449,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute((n / 128) + 1, 1, 1);
+    glDispatchCompute(ceilDiv(n, 128u), 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_CENTERING)

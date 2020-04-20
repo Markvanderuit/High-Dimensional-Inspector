@@ -49,6 +49,7 @@ namespace hdi::dr {
 
     // Initialize gpu components for computation
     void initialize(const TsneParameters& params,
+                    GLuint position_buff,
                     unsigned n);
 
     // Remove gpu components
@@ -62,6 +63,10 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
+    }
+
+    GLuint texture() const {
+      return _textures[TEXTURE_DEPTH_SINGLE];
     }
 
   private:
