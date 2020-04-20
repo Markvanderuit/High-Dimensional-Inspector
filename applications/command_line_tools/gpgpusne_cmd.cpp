@@ -30,31 +30,32 @@
 *
 */
 
-#include "hdi/dimensionality_reduction/tsne.h"
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/utils/dataset_utils.h"
+#include "hdi/utils/visual_utils.h"
+#include "hdi/utils/scoped_timers.h"
 #include "hdi/data/embedding.h"
 #include "hdi/data/panel_data.h"
 #include "hdi/data/io.h"
-#include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne_3d.h"
-#include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
-#include "hdi/utils/visual_utils.h"
-#include "hdi/utils/scoped_timers.h"
+#include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
 #include <QApplication>
-#include <QIcon>
 #include <QCommandLineParser>
+#include <cstdlib>
 #include <iostream>
 #include <fstream>
-#include <cstdio>
 #include <memory>
+
+#define USE_GLFW_CONTEXT
+#ifdef USE_GLFW_CONTEXT
+#include "glfw/glfw3.h"
+#else
 #include <QWindow>
 #include <QOpenGLContext>
-#include <QOpenGLWidget>
-#include <QDebug>
+#endif
 
 // #define USE_OLD_2D_TSNE
 #ifdef USE_OLD_2D_TSNE
@@ -65,39 +66,92 @@
 
 typedef float scalar_type;
 
-class OffscreenBuffer : public QWindow {
+#define GLSL(name, version, shader) \
+  static const char * name = \
+  "#version " #version "\n" #shader
+
+#ifdef USE_GLFW_CONTEXT
+class UniqueContext {
 public:
-  OffscreenBuffer()
-  {
-    setSurfaceType(QWindow::OpenGLSurface);
+  UniqueContext() {
+    if (!glfwInit()) {
+      throw std::runtime_error("Could not initialize GLFW");
+    }
 
-    _context = new QOpenGLContext(this);
-    _context->setFormat(requestedFormat());
+    // Employ window hints to create a OpenGL 4.5 core profile context
+    // and no visible window
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR , 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR , 5);
 
-    if (!_context->create())
-      qFatal("Cannot create requested OpenGL context.");
+    pWindow = glfwCreateWindow(980, 980, "", nullptr, nullptr);
+    if (!pWindow) {
+      throw std::runtime_error("Could not create window");
+    }
 
-    create();
+    glfwMakeContextCurrent(pWindow);
+
+    if (!gladLoadGL()) {
+      throw std::runtime_error("Could not initialize GLAD");
+    }
+
+    glfwSwapInterval(0);
   }
 
-  QOpenGLContext* getContext() { return _context; }
+  ~UniqueContext() {
+    glfwDestroyWindow(pWindow);
+    glfwTerminate();
+  }
 
-  void bindContext()
-  {
+  void swapBuffers() {
+    glfwSwapBuffers(pWindow);
+  }
+
+  void poll() {
+    glfwPollEvents();
+  }
+
+  bool shouldClose() {
+    return glfwWindowShouldClose(pWindow);
+  }
+
+private:
+  GLFWwindow* pWindow;
+};
+#else
+class UniqueContext : public QWindow {
+public:
+  UniqueContext() {
+    setSurfaceType(QWindow::OpenGLSurface);
+    _context = new QOpenGLContext(this);
+    auto fmt = requestedFormat();
+    fmt.setMajorVersion(4);
+    fmt.setMinorVersion(5);
+    fmt.setProfile(QSurfaceFormat::OpenGLContextProfile::CoreProfile);
+    _context->setFormat(fmt);
+    if (!_context->create())
+      qFatal("Cannot create requested OpenGL context.");
+    
+    create();
+
     _context->makeCurrent(this);
     if (!gladLoadGL()) {
       qFatal("No OpenGL context is currently bound, therefore OpenGL function loading has failed.");
     }
   }
 
-  void releaseContext()
-  {
+  ~UniqueContext() {
     _context->doneCurrent();
   }
 
 private:
   QOpenGLContext* _context;
 };
+#endif
 
 void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filename_data, unsigned int num_points, unsigned int num_dims) {
   panel_data.clear();
@@ -127,9 +181,11 @@ void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filenam
 
 int main(int argc, char *argv[]) {
   try {
-    QApplication app(argc, argv);
-
+    QApplication app(argc, argv); // QT application really only serves for parsing at this point
     QCommandLineParser parser;
+    hdi::utils::CoutLog log;
+
+    // Configure parser
     parser.setApplicationDescription("Compute embedding from given raw input data");
     parser.addHelpOption();
     parser.addVersionOption();
@@ -161,8 +217,8 @@ int main(int argc, char *argv[]) {
 
     const QStringList args = parser.positionalArguments();
     if (args.size() != 4) {
-      std::cout << "Not enough arguments!" << std::endl;
-      return -1;
+      hdi::utils::secureLog(&log, "Not enough arguments!");
+      return EXIT_FAILURE;
     }
 
     int iterations = 1000;
@@ -190,7 +246,6 @@ int main(int argc, char *argv[]) {
 
     typedef float scalar_type;
 
-    hdi::utils::CoutLog log;
     hdi::dr::HDJointProbabilityGenerator<scalar_type> prob_gen;
     hdi::dr::HDJointProbabilityGenerator<scalar_type>::sparse_scalar_matrix_type distributions;
     hdi::dr::HDJointProbabilityGenerator<scalar_type>::Parameters prob_gen_param;
@@ -207,7 +262,6 @@ int main(int argc, char *argv[]) {
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
 
-    
     // Timer values
     float data_loading_time = 0.f;
     float similarities_comp_time = 0.f;
@@ -224,7 +278,6 @@ int main(int argc, char *argv[]) {
       hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
     } else  { // No cache file, start from scratch
       {
-        
         hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
       }
       // Load the input data
@@ -243,9 +296,8 @@ int main(int argc, char *argv[]) {
       hdi::data::IO::saveSparseMatrix(distributions, outputFile);
     }
 
-    // Create offscreen buffer for OpenGL context
-    OffscreenBuffer offscreen;
-    offscreen.bindContext();
+    // OpenGL context so we can make OpenGL calls
+    UniqueContext context;
 
     // Compute embedding
     std::unique_ptr<hdi::dr::AbstractGradientDescentTSNE> tSNE;
@@ -262,14 +314,17 @@ int main(int argc, char *argv[]) {
     }
     tSNE->setLogger(&log);
     tSNE->initialize(distributions, &embedding, tsne_params);
+    
     {
       hdi::utils::secureLog(&log, "Computing gradient descent...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
       for (int iter = 0; iter < iterations; ++iter) {
         tSNE->iterate();
+        context.swapBuffers();
+        context.poll();
       }
     }
-    
+
     hdi::utils::secureLog(&log, "Removing padding from embedding data...");  
     embedding.removePadding();
 
@@ -289,10 +344,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    offscreen.releaseContext();
-
     hdi::utils::secureLog(&log, "");
-    if (data_loading_time > 0.f) {
+    if (data_loading_time != 0.f) {
       hdi::utils::secureLogValue(&log, "Data loading (s)", data_loading_time);
     }
     hdi::utils::secureLogValue(&log, "Similarities (s)", similarities_comp_time);
@@ -302,10 +355,16 @@ int main(int argc, char *argv[]) {
     hdi::utils::secureLog(&log, "");
     hdi::utils::secureLogValue(&log, "KL Divergence", KL);
 
-    return app.exec();
+    // Spin until window is closed
+    while (!context.shouldClose()) {
+      context.poll();
+    }
+
+    return EXIT_SUCCESS; // nah app.exec();
   }
   catch (std::logic_error& ex) { std::cerr << "Logic error: " << ex.what() << std::endl; }
   catch (std::runtime_error& ex) { std::cerr << "Runtime error: " << ex.what() << std::endl; }
   catch (std::exception& ex) { std::cerr << "General error: " << ex.what() << std::endl; }
-  catch (...) { std::cerr << "An unknown error occurred" << std::endl;; }
+  catch (...) { std::cerr << "An unknown error occurred" << std::endl; }
+  return EXIT_FAILURE;
 }

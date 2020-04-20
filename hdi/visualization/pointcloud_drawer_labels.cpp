@@ -102,8 +102,8 @@ namespace hdi{
       glPointSize(_point_size);
 
       auto diameter = std::abs(maxb.distanceToPoint(minb));
-      auto mind = -0.5 * diameter;
-      auto maxd = 0.5 * diameter;
+      auto mind = -0.3 * diameter;
+      auto maxd = 0.3 * diameter;
 
       _program->bind();
       auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));

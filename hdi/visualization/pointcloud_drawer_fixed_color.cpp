@@ -69,8 +69,8 @@ namespace hdi{
         in lowp vec3 col;
 
         void main() {
-          float f = 1.f - 0.85 * max(0.0, gl_FragCoord.z - 0.15);   
-          gl_FragColor = vec4(col * f, 1);
+          float f = 1.f - 0.55 * max(0.0, gl_FragCoord.z - 0.45);   
+          gl_FragColor = vec4(2.f * col * f, 1);
         }                      
       );
 
@@ -105,8 +105,8 @@ namespace hdi{
       glPointSize(_point_size);
 
       auto diameter = std::abs(maxb.distanceToPoint(minb));
-      auto mind = -0.5 * diameter;
-      auto maxd = 0.5 * diameter;
+      auto mind = -0.35 * diameter;
+      auto maxd = 0.35 * diameter;
 
       _program->bind();
       auto eye = rotation.rotatedVector(QVector3D(0, 0, -1));

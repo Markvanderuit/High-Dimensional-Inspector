@@ -62,7 +62,7 @@ namespace hdi{
     void PointcloudCanvas::paintGL(){
       // A bit overcomplicated... revise it
       utils::secureLog(_logger, "paintGl", _verbose);
-      glClearColor(0.2,0.2,0.2,1);
+      glClearColor(1, 1, 1, 1);
       glClearDepth(1.0);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
