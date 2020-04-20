@@ -11,6 +11,7 @@ MACRO(ADD_PROJECT Name Sources MocSources)
     Qt5::Widgets
     Qt5::OpenGL
     OpenGL::GL
+    glfw
   )
   MESSAGE( STATUS "Project: " ${Name} )
   set_target_properties(${Name} PROPERTIES FOLDER "Applications/Command line tools")

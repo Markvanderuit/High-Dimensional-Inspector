@@ -1,8 +1,10 @@
 cmake_minimum_required (VERSION 3.10)
 
 # Create a C++ 17 project
-project(HighDimInspector LANGUAGES CXX C)
+project(HighDimInspector LANGUAGES CXX CUDA C)
+set(CMAKE_CUDA_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Define available options
@@ -23,25 +25,17 @@ target_include_directories(roaring PUBLIC
 # Use included lib on Windows
 if(MSVC)
   add_library(flann::flann_import STATIC IMPORTED)
-  set_property(TARGET flann::flann_import 
-    PROPERTY IMPORTED_LOCATION_DEBUG 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/flann_cpp_s.lib)
-  set_property(TARGET flann::flann_import 
-    PROPERTY IMPORTED_LOCATION_RELEASE 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/flann_cpp_s.lib)
-  set_property(TARGET flann::flann_import 
-    PROPERTY INTERFACE_INCLUDE_DIRECTORIES 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include)
+  set_target_properties(flann::flann_import PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/flann_cpp_s.lib
+    IMPORTED_LOCATION_RELEASE ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/flann_cpp_s.lib
+    INTERFACE_INCLUDE_DIRECTORIES ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include
+  )
   add_library(flann::lz4_import STATIC IMPORTED)
-  set_property(TARGET flann::lz4_import 
-    PROPERTY IMPORTED_LOCATION_DEBUG 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/lz4_s.lib)
-  set_property(TARGET flann::lz4_import 
-    PROPERTY IMPORTED_LOCATION_RELEASE 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/lz4_s.lib)
-  set_property(TARGET flann::lz4_import 
-    PROPERTY INTERFACE_INCLUDE_DIRECTORIES 
-    ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include)
+  set_target_properties(flann::lz4_import PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Debug/lz4_s.lib
+    IMPORTED_LOCATION_RELEASE ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Release/lz4_s.lib
+    INTERFACE_INCLUDE_DIRECTORIES ${PROJECT_SOURCE_DIR}/lib/Flann/Win/Include
+  )
   add_library(flann_lz4_interface INTERFACE)
   target_link_libraries(flann_lz4_interface INTERFACE flann::flann_import flann::lz4_import)
   add_library(flann::flann ALIAS flann_lz4_interface)
@@ -58,6 +52,23 @@ if(OPENMP_FOUND)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
+
+# GLFW
+# Add support for GLFW, if necessary. Docs/tests/examples are trimmed from src
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/Glfw)
+
+# CUB
+# Add CUB library, for CUDA radix sort implementation
+add_library(cub INTERFACE)
+target_include_directories(cub INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/lib/cub/include)
+
+# CUDA helper
+# Add CUDA helper headers, for basic math functions
+add_library(cuda_helper INTERFACE)
+target_include_directories(cuda_helper INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/lib/cuda/include)
 
 # QT5
 # Leverage find_package to find required components
