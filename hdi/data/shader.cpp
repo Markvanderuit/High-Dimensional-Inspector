@@ -1,5 +1,5 @@
 #include "shader.h"
-
+#include <iostream>
 #include <sstream>
 
 struct ShaderCompilationException : public ErrorMessageException
@@ -299,6 +299,12 @@ GLint ShaderProgram::getUniformLocation(const char* name)
   }
   else {
     int location = glGetUniformLocation(_handle, name);
+    if (location == -1) {
+      std::string err = "getUniformLocation failed for " + std::string(name);
+      std::cerr << err << std::endl;
+      // exit(0);
+      // throw ErrorMessageException(err);
+    }
     _location_map[std::string(name)] = location;
     return location;
   }

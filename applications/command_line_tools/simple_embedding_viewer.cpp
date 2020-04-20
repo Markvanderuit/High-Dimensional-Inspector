@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     drawer.initialize(viewer.context());
     drawer.setData(data.data(), flags.data(), num_data_points);
     drawer.setAlpha(0.5);
-    drawer.setPointSize(5);
+    drawer.setPointSize(2);
     viewer.addDrawer(&drawer);
 
     return app.exec();
