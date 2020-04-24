@@ -29,27 +29,15 @@
  */
 
 
- #define _USE_MATH_DEFINES
- #include <cmath>
- #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_kern.h"
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include <cuda/helper_math.h>
+#include <cub/cub.cuh>
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_kern.h"
 
- namespace hdi {
+namespace hdi {
   namespace dr {
     namespace bvh {
-      __device__
-      inline
-      float4 max4f(const float4 &a, const float4 &b)
-      {
-        return make_float4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w));
-      }
-
-      __device__
-      inline
-      float4 min4f(const float4 &a, const float4 &b)
-      {
-        return make_float4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w));
-      }
-
       __device__
       inline
       uint expandBits(uint i)
@@ -89,130 +77,138 @@
       }
 
       __global__
-      void kernConstrLeaves(BVHLayout layout, 
-        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB)
+      void kernConstrLeaves(
+        BVHLayout layout, 
+        float4 *pPos, 
+        float4 *pNode, 
+        uint *pMass, 
+        uint *pIdx, 
+        float4 *pMinB, 
+        float4 *pMaxB)
       {
-        const uint gid = blockIdx.x * blockDim.x + threadIdx.x;
-        if (gid >= layout.nLeaves) {
+        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (globalIdx >= layout.nLeaves) {
           return;
         }
-
-        uint idx = gid * layout.kLeaf; 
-        uint mass = 0u; 
-
-        // Check border condition to determine mass
-        // as empty leaves likely exist in the current BVH structure
-        int incr = static_cast<int>(layout.nPos) - static_cast<int>(idx);
-        if (incr > 0) {
-          mass = min(layout.kLeaf, static_cast<uint>(incr));
-        }
         
+        // Initial leaf values
         float4 center = make_float4(0);
         float4 minb = make_float4(0);
         float4 maxb = make_float4(0);
+        uint mass = 0u;
         
-        // Iterate over kLeaf points to determine center of mass, min and max bounds
-        if (mass > 0) {
-          center = pPos[idx];
+        // Determine nr. of positions under leaf
+        const uint posIdx = globalIdx * layout.kLeaf;
+        int borderValue = static_cast<int>(layout.nPos) - static_cast<int>(posIdx);
+        if (borderValue > 0) {
+          // Add values of first node
+          mass = min(layout.kLeaf, static_cast<uint>(borderValue));
+          center = pPos[posIdx];
           minb = center;
           maxb = center;
-        }
-        for (int i = ++idx; i < idx + mass; ++i) {
-          float4 pos = pPos[i];
-          center += pos;
-          minb = min4f(minb, pos);
-          maxb = max4f(maxb, pos);
-        }
-        center /= static_cast<float>(max(mass, 1u));
-        center.w = dot(minb, maxb);
-
-        // Store leaf node data
-        uint addr = layout.nNodes + gid;
-        pNode[addr] = center;
-        pMass[addr] = mass;
-        pMinB[addr] = minb;
-        pMaxB[addr] = maxb;
-        pIdx[gid] = idx;
-      }
-
-      __device__
-      void reduce(
-        float4 &lnode, uint &lmass, float4 &lminb, float4 &lmaxb,
-        float4 rnode, uint rmass, float4 rminb, float4 rmaxb)
-      {
-        const uint _mass = lmass + rmass;
-        lnode = (static_cast<float>(lmass) * lnode + static_cast<float>(rmass) * rnode)
-              / static_cast<float>(_mass);
-        lmass = _mass;
-        lminb = min4f(lminb, rminb);
-        lmaxb = max4f(lmaxb, rmaxb);
-        lnode.w = dot(lminb, lmaxb);
-      }
-
-      __device__
-      void reduceOuter(BVHLayout layout, 
-        float4 node, uint mass, float4 minB, float4 maxB,
-        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB)
-      {
-        const uint lid = threadIdx.x;
-        const uint idx = lid / 2;
-        const uint mod = lid % 2;
-        if (mod == 0u) {
-          // FIXME only works on first iteration
-          pNode[idx] = node;
-          pMinB[idx] = minB;
-          pMaxB[idx] = maxB;
-          pMass[idx] = mass;
-        }
-        __syncthreads();
-        if (mod == 1u) {
-          // ...
-        }
-      }
-
-      __global__
-      void kernConstrNodes(BVHLayout layout, 
-        uint lbegin, uint lend,
-        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB)
-      {
-        // Declare shared memory and ptrs for different data parts
-        // For kNode = 2, at most requires 26kb per thread block
-        // which of course becomes smaller as kNode increases
-        extern __shared__ float4 _pShared[];
-        const uint nSharedValues = blockDim.x / layout.kNode; 
-        float4 *pSharedNode = _pShared;
-        float4 *pSharedMinB = (float4 *) &pSharedNode[nSharedValues];
-        float4 *pSharedMaxB = (float4 *) &pSharedMinB[nSharedValues];
-        uint *pSharedMass = (uint *) &pSharedMaxB[nSharedValues];
-        
-        const uint lid = threadIdx.x;
-        const uint shid = threadIdx.x / layout.kNode;
-        const uint gid = blockIdx.x * blockDim.x + threadIdx.x;
-        const uint logk = static_cast<uint>(log2(_layout.kNode));
-        const uint idx = (1u << (logk * (lbegin + 1))) +  gid;
-        
-        float4 prevNode = pNode[idx];
-        float4 prevMinB = pMinB[idx];
-        float4 prevMaxB = pMaxB[idx];
-        uint prevMass = pMass[idx];
-
-        /* // Load node from previous level
-
-        // Perform first reduction by hand
-        if (lid % _layout.kNode == 0u) {
-          pSharedNode[lid] = prevNode;
-          pSharedMinB[lid] = prevMinB;
-          pSharedMaxB[lid] = prevMaxB;
-          pSharedMass[lid] = prevMass;
-        }
-        __syncthreads();
-        for (uint i = 1; i < _layout.kNode; i++) {
-          if (lid % _layout.kNode == i) {
-            
+          
+          // Add values of rest of nodes
+          for (uint i = 1; i < mass; ++i) {
+            float4 pos = pPos[posIdx + i];
+            center += pos;
+            minb = fminf(minb, pos);
+            maxb = fmaxf(maxb, pos);
           }
-        } */
-        
+
+          // Average
+          center /= static_cast<float>(max(mass, 1u));
+          float4 diamsv = maxb - minb;
+          center.w = dot(diamsv, diamsv); // Compute squared diameter
+        }
+
+        // Store leaf values
+        uint leafAddr = layout.nNodes + globalIdx;
+        pNode[leafAddr] = center;
+        pMass[leafAddr] = mass;
+        pMinB[leafAddr] = minb;
+        pMaxB[leafAddr] = maxb;
+        pIdx[globalIdx] = posIdx;
       }
+
+      struct AONode {
+        float4 node;
+        float4 minb;
+        float4 maxb;
+        uint mass;
+      };
+
+      struct AOReductor {
+        __device__
+        AONode operator()(const AONode &l, const AONode &r) {
+          // Escape empty nodes
+          if (l.mass == 0) {
+            return r;
+          } else if (r.mass == 0) {
+            return l;
+          }
+          
+          // Reduce node from two non-empty nodes
+          AONode node;
+          node.mass = l.mass + r.mass;
+          node.node = (static_cast<float>(l.mass) * l.node + static_cast<float>(r.mass) * r.node) / static_cast<float>(node.mass);
+          node.minb = fminf(l.minb, r.minb);
+          node.maxb = fmaxf(l.maxb, r.maxb);
+
+          float4 diamv = node.maxb - node.minb;
+          node.node.w = dot(diamv, diamv);
+
+          return node;
+        }
+      };
+
+      template <uint KNode>
+      __global__
+      void kernConstrNodes(
+        BVHLayout layout,
+        uint level, uint lNodes, uint lOffset,
+        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB)
+      {
+        typedef cub::WarpReduce<AONode, KNode> WarpReduce;
+        
+        // Allocate WarpReduce shared memory for 1 warp
+        __shared__ typename WarpReduce::TempStorage temp_storage;
+
+        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (globalIdx >= lNodes) {
+          return;
+        }
+
+        // Obtain input item per thread
+        const uint logk = static_cast<uint>(log2f(layout.kNode));
+        uint posIdx = lOffset + globalIdx;
+        AONode node = {
+          pNode[posIdx],
+          pMinB[posIdx],
+          pMaxB[posIdx],
+          pMass[posIdx]
+        };
+        
+        // Perform reduction
+        AONode aggregate = WarpReduce(temp_storage).Reduce(node, AOReductor());
+
+        // Store in lower level
+        posIdx = lOffset - (1u << (logk * (level - 1))) + globalIdx / 8;
+        if (globalIdx % 8 == 0) {
+          pNode[posIdx] = aggregate.node;
+          pMinB[posIdx] = aggregate.minb;
+          pMaxB[posIdx] = aggregate.maxb;
+          pMass[posIdx] = aggregate.mass;
+        }
+      }
+
+      template __global__
+      void kernConstrNodes<2>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
+      template __global__
+      void kernConstrNodes<4>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
+      template __global__
+      void kernConstrNodes<8>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
+      template __global__
+      void kernConstrNodes<16>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
     }
   }
 }

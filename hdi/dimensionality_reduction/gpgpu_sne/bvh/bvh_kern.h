@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_utils.h"
+#include <cuda_runtime.h>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
 
 namespace hdi {
@@ -78,10 +78,11 @@ namespace hdi {
        * - pMinB  ptr to memory in which node minimum bounds will be stored
        * - pMaxb  ptr to memory in which node maximum bounds will be stored
        */
+      template <uint KNode>
       __global__
       void kernConstrNodes(
-        BVHLayout layout, 
-        uint lbegin, uint lend,
+        BVHLayout layout,
+        uint level, uint lNodes, uint lOffset,
         float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB);
     }
   }
