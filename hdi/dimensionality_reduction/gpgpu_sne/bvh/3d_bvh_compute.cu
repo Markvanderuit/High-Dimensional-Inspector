@@ -35,9 +35,10 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <cuda_runtime.h>
+#include <cuda/helper_math.h>
 #include <cub/cub.cuh>
 #include "hdi/utils/log_helper_functions.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_utils.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/3d_bvh_compute.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/3d_bvh_kernels.h"
 #include <cuda_gl_interop.h> // include last to prevent double OpenGL includes from GLFW/QT

@@ -30,7 +30,8 @@
 
 #pragma once
 
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_utils.h"
+#include <cuda_runtime.h>
+#include <cuda/helper_math.h>
 #include <sstream>
 #include <string>
 
