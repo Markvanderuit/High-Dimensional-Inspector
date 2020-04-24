@@ -171,7 +171,7 @@ namespace hdi {
         typedef cub::WarpReduce<AONode, KNode> WarpReduce;
         
         // Allocate WarpReduce shared memory for 1 warp
-        __shared__ typename WarpReduce::TempStorage temp_storage;
+        __shared__ typename WarpReduce::TempStorage temp_storage[8];
 
         const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
         if (globalIdx >= lNodes) {
@@ -189,7 +189,8 @@ namespace hdi {
         };
         
         // Perform reduction
-        AONode aggregate = WarpReduce(temp_storage).Reduce(node, AOReductor());
+        int warp_id = threadIdx.x / 32;
+        AONode aggregate = WarpReduce(temp_storage[warp_id]).Reduce(node, AOReductor());
 
         // Store in lower level
         posIdx = lOffset - (1u << (logk * (level - 1))) + globalIdx / 8;
