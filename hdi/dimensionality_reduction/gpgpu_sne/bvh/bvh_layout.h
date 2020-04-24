@@ -88,7 +88,7 @@ namespace hdi {
       };
 
       inline
-      std::string to_string(const BVHLayout& layout)\
+      std::string to_string(const BVHLayout& layout)
       {
         std::stringstream ss;
         ss << "BVHLayout {\n";
