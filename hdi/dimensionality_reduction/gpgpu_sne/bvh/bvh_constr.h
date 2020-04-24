@@ -76,20 +76,30 @@ namespace hdi {
       private:
         // Pointer handles for internal memory: components used during BVH construction
         enum IntrMemType {
+          // Sort memory
           INTR_TMP,         // (... *)    Sort in, temporary storage, size stored in _tempSize
           INTR_MORTON_I,    // (uint *)   Sort in, unsorted morton codes
           INTR_MORTON_O,    // (uint *)   Sort out, sorted morton codes
+
+          // Node memory
           INTR_MIN_BND,     // (float4 *) Node minimum bounds vectors
           INTR_MAX_BND,     // (float4 *) Node maximum bounds vectors
+
+          // Static enum length
           IntrMemTypeLength
         };
 
         // Pointer handles for external memory: components used for Barnes-Hut TSNE
         enum ExtrMemType {
+          // Node memory
           EXTR_NODE,        // (float4 *) Node structure: xyz = center of mass, w = diams^2
           EXTR_MASS,        // (uint *)   Node mass: nr of contained embedding positions
           EXTR_IDX,         // (uint *)   Starting idx of leaf node's contained embedding position
+
+          // Embeddng memory
           EXTR_POS,         // (float4 *) Sorted embedding positions
+
+          // Static enum length
           ExtrMemTypeLength
         };
         
@@ -99,12 +109,14 @@ namespace hdi {
           TIMR_SORT,        // Radix sort timer
           TIMR_LEAVES,      // Leaf node computation timer
           TIMR_NODES,       // Non-leaf node computation timer
+
+          // Static enum length
           TimerTypeLength
         };
 
         bool _isInit;       // Is class initialized, ie is memory allocated
         BVHLayout _layout;  // Layout and size description of the BVH
-        size_t _tempSize;   // Size in bytes of temp storage for sort
+        std::size_t _tempSize;   // Size in bytes of temp storage for sort
         utils::AbstractLog* _logger;
         std::array<CuTimer, TimerTypeLength> _timers;  // Timers for kernel perf.
         std::array<void *, IntrMemTypeLength> _pIntr;  // Ptrs to internal memory
