@@ -29,7 +29,7 @@
  */
 
  #include "hdi/utils/log_helper_functions.h"
- #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_utils.h"
+ #include <cuda_runtime.h>
  #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_timer.h"
 
  namespace hdi {
