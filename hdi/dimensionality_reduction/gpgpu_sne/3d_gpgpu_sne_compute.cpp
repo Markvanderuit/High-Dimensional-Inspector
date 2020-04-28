@@ -248,7 +248,7 @@ namespace hdi::dr {
       ? std::max((unsigned int)(range.z * _resolution_scaling), minFieldSize) 
       : (int) (fixedFieldSize * (range.z / range.x));
 #endif
-    
+
     // Compute fields texture
     _fieldComputation.compute(w, h,  d, 
                               functionSupport, n, 

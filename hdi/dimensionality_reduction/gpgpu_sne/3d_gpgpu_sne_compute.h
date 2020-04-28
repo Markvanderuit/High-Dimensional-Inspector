@@ -40,9 +40,12 @@
 
 // #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
 #define ENABLE_SCREEN_DRAW // Enable drawing of field texture to screen
+#define USE_BVH // Field computation leverages BVH and BH-approximation
 // #define USE_DEPTH_FIELD    // Field computation leverages depth maps
 
-#ifdef USE_DEPTH_FIELD
+#ifdef USE_BVH
+#include "3d_bvh_field_computation.h"
+#elif defined USE_DEPTH_FIELD
 #include "depth_field_computation.h"
 #else
 #include "3d_field_computation.h"
@@ -126,7 +129,9 @@ private:
   utils::AbstractLog *_logger;
 
   // Field computation unit
-#ifdef USE_DEPTH_FIELD
+#ifdef USE_BVH
+  BVHFieldComputation _fieldComputation;
+#elif defined USE_DEPTH_FIELD
   DepthFieldComputation _fieldComputation;
 #else
   BaselineFieldComputation _fieldComputation;
