@@ -32,11 +32,12 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <bitset>
+#include <cuda_runtime.h>
+#include <cuda/helper_math.h>
 #include <cub/cub.cuh>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_constr.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_kern.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_utils.h"
 
 /**
  * Integer division of n by div, but rounds up instead of down.
@@ -184,29 +185,74 @@ namespace hdi {
         
         gpuAssert(cudaDeviceSynchronize());
 
-        // Generate non-leaf nodes through reduction of leaf nodes in
-        // probably a few passes
+        // Generate non-leaf nodes through reduction
         _timers[TIMR_NODES].tick();
         {
-          const uint nThreads = 256;
           const uint logk = static_cast<uint>(std::log2(_layout.kNode));
-          const int iter = static_cast<int>(std::log2(nThreads) / logk);
-          for (int lbegin = _layout.nLvls - 1; lbegin >= 0; lbegin -= iter) {
-            const int lend = std::max(0, lbegin - (iter + 1));
-            
-            kernConstrNodes<<<256, 256>>>(
-              _layout, 
-              lbegin, lend, 
-              (float4 *)  _pExtr[EXTR_NODE],
-              (uint *)    _pExtr[EXTR_MASS],
-              (float4 *)  _pIntr[INTR_MIN_BND], 
-              (float4 *)  _pIntr[INTR_MAX_BND]
-            );
+          uint offset = _layout.nNodes + _layout.nLeaves;
+          for (uint level = _layout.nLvls - 1; level > 0; level--) {
+            const uint nNodes = 1u << (logk * level);
+            offset -= nNodes;
+            if (_layout.kNode == 2u) {
+              kernConstrNodes<2><<<ceilDiv(nNodes, 256u), 256>>>(
+                _layout, level, nNodes, offset,
+                (float4 *)  _pExtr[EXTR_NODE],
+                (uint *)    _pExtr[EXTR_MASS],
+                (float4 *)  _pIntr[INTR_MIN_BND], 
+                (float4 *)  _pIntr[INTR_MAX_BND]
+              );
+            } else if (_layout.kNode == 4u) {
+              kernConstrNodes<4><<<ceilDiv(nNodes, 256u), 256>>>(
+                _layout, level, nNodes, offset,
+                (float4 *)  _pExtr[EXTR_NODE],
+                (uint *)    _pExtr[EXTR_MASS],
+                (float4 *)  _pIntr[INTR_MIN_BND], 
+                (float4 *)  _pIntr[INTR_MAX_BND]
+              );
+            } else if (_layout.kNode == 8u) {
+              kernConstrNodes<8><<<ceilDiv(nNodes, 256u), 256>>>(
+                _layout, level, nNodes, offset,
+                (float4 *)  _pExtr[EXTR_NODE],
+                (uint *)    _pExtr[EXTR_MASS],
+                (float4 *)  _pIntr[INTR_MIN_BND], 
+                (float4 *)  _pIntr[INTR_MAX_BND]
+              );
+            } else if (_layout.kNode == 16u) {
+              kernConstrNodes<16><<<ceilDiv(nNodes, 256u), 256>>>(
+                _layout, level, nNodes, offset,
+                (float4 *)  _pExtr[EXTR_NODE],
+                (uint *)    _pExtr[EXTR_MASS],
+                (float4 *)  _pIntr[INTR_MIN_BND], 
+                (float4 *)  _pIntr[INTR_MAX_BND]
+              );
+            }
           }
         }
         _timers[TIMR_NODES].tock();
         
         gpuAssert(cudaDeviceSynchronize());
+
+        /* std::vector<float4> nodebuff(_layout.nNodes + _layout.nLeaves);
+        cudaMemcpy(nodebuff.data(), ((float4 *) _pExtr[EXTR_NODE]), nodebuff.size() * sizeof(float4), cudaMemcpyDeviceToHost);
+        std::vector<float4> minbbuff(_layout.nNodes + _layout.nLeaves);
+        cudaMemcpy(minbbuff.data(), ((float4 *) _pIntr[INTR_MIN_BND]), minbbuff.size() * sizeof(float4), cudaMemcpyDeviceToHost);
+        std::vector<float4> maxbbuff(_layout.nNodes + _layout.nLeaves);
+        cudaMemcpy(maxbbuff.data(), ((float4 *) _pIntr[INTR_MAX_BND]), maxbbuff.size() * sizeof(float4), cudaMemcpyDeviceToHost); 
+        std::vector<uint> buff(_layout.nNodes + _layout.nLeaves);
+        cudaMemcpy(buff.data(), ((uint *) _pExtr[EXTR_MASS]), buff.size() * sizeof(uint), cudaMemcpyDeviceToHost);
+        for (int i = 0; i < minbbuff.size(); i++) {
+          float4 minb = minbbuff[i];
+          float4 maxb = maxbbuff[i];
+          std::cout << nodebuff[i].w
+                    << "\t:\t"
+                    << minb.x << ", " << minb.y << ", " << minb.z 
+                    << "\t:\t"
+                    << maxb.x << ", " << maxb.y << ", " << maxb.z
+                    << "\t:\t"
+                    << buff[i]
+                    << '\n';
+        }
+        exit(1); */
         
         for (auto &timer : _timers) {
           timer.poll();
