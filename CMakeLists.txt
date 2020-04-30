@@ -60,6 +60,10 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/Glfw)
 
+# GLM
+# Add glm library (is only an alias)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/glm)
+
 # CUB
 # Add CUB library, for CUDA radix sort implementation
 add_library(cub INTERFACE)
