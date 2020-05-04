@@ -79,12 +79,8 @@ namespace hdi {
       __global__
       void kernConstrLeaves(
         BVHLayout layout, 
-        float4 *pPos, 
-        float4 *pNode, 
-        uint *pMass, 
-        uint *pIdx, 
-        float4 *pMinB, 
-        float4 *pMaxB)
+        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, 
+        float4 *pMinB, float4 *pMaxB) 
       {
         const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
         if (globalIdx >= layout.nLeaves) {
