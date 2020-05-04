@@ -26,7 +26,7 @@ add_library (hdidimensionalityreduction
 # target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_11)
 set_target_properties(hdidimensionalityreduction PROPERTIES CUDA_STANDARD 14)
 target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_14)
-target_link_libraries(hdidimensionalityreduction hdiutils hdidata cub cuda_helper flann::flann)
+target_link_libraries(hdidimensionalityreduction hdiutils hdidata cub cuda_helper flann::flann glm)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction 
