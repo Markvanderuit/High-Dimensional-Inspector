@@ -55,28 +55,31 @@ namespace hdi {
        */
       class BVHLayout {
       public:
-        uint kLeaf;   // Fan-out of leaf nodes
         uint kNode;   // Fan-out of non-leaf nodes
         uint nPos;    // Nr of embedding points stored in tree
         uint nLvls;   // Nr of tree levels
         uint nLeaves; // Nr of leaf nodes
-        uint nNodes;  // Nr of non-leaf nodes
+        uint nNodes;  // Nr of nodes total
 
         /**
          * Constructor computes specific layout based on arity k
          * and number of contained embedding points nPos.
          */
-        BVHLayout(uint kLeaf, uint kNode, uint nPos)
-        : kLeaf(kLeaf),
-          kNode(kNode), 
-          nPos(nPos)
+        BVHLayout(uint kNode, uint nPos)
+        : kNode(kNode), 
+          nPos(nPos),
+          nLeaves(nPos)
         {
-          nLeaves = ceilDiv(nPos, kLeaf);
           const uint logk = static_cast<uint>(std::log2(kNode));
+
           nLvls = static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
-          nLeaves = 1u << (logk * (nLvls - 1)); // Take nearest convenient nr of leaves
+
+          // Raise to nearest convenient nr of leaves for this fanout
+          nLeaves = 1u << (logk * (nLvls - 1));
+
+          // Compute nr of nodes iteratively (a bit more work because kNode >= 2)
           nNodes = 0u;
-          for (uint i = 0u; i < (nLvls - 1); i++) {
+          for (uint i = 0u; i < nLvls; i++) {
             nNodes |= 1u << (logk * i); 
           }
         }
@@ -92,7 +95,6 @@ namespace hdi {
       {
         std::stringstream ss;
         ss << "BVHLayout {\n";
-        ss << "  kLeaf    " << layout.kLeaf << '\n';
         ss << "  kNode    " << layout.kNode << '\n';
         ss << "  nPos     " << layout.nPos << '\n';
         ss << "  nLvls    " << layout.nLvls << '\n';
