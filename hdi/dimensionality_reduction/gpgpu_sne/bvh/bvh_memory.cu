@@ -111,23 +111,19 @@ namespace hdi {
         size_t uintSize = sizeof(uint);
         
         // Specify memory area sizes
-        _memrSizes[to_underlying(MemrType::eNode)] = (layout.nNodes + layout.nLeaves) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMinB)] = (layout.nNodes + layout.nLeaves) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMaxB)] = (layout.nNodes + layout.nLeaves) * float4Size;
-        _memrSizes[to_underlying(MemrType::ePos)] = (layout.nPos) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMass)] = (layout.nNodes + layout.nLeaves) * uintSize;
-        _memrSizes[to_underlying(MemrType::eIdx)] = (layout.nLeaves) * uintSize;
+        _memrSizes[to_underlying(MemrType::eNode)] = (layout.nNodes) * float4Size;
+        _memrSizes[to_underlying(MemrType::eMinB)] = (layout.nNodes) * float4Size;
+        _memrSizes[to_underlying(MemrType::eMaxB)] = (layout.nNodes) * float4Size;
+        _memrSizes[to_underlying(MemrType::eMass)] = (layout.nNodes) * uintSize;
         
         // Specify memory area offsets
         _memrOffsets[to_underlying(MemrType::eNode)] = 0;
         _memrOffsets[to_underlying(MemrType::eMinB)] = memrOffset(MemrType::eNode) + align(memrSize(MemrType::eNode), float4Size);
         _memrOffsets[to_underlying(MemrType::eMaxB)] = memrOffset(MemrType::eMinB) + align(memrSize(MemrType::eMinB), float4Size);
-        _memrOffsets[to_underlying(MemrType::ePos)] = memrOffset(MemrType::eMaxB) + align(memrSize(MemrType::eMaxB), float4Size);
-        _memrOffsets[to_underlying(MemrType::eMass)] = memrOffset(MemrType::ePos) + align(memrSize(MemrType::ePos), float4Size);
-        _memrOffsets[to_underlying(MemrType::eIdx)] = memrOffset(MemrType::eMass) + align(memrSize(MemrType::eMass), float4Size);
+        _memrOffsets[to_underlying(MemrType::eMass)] = memrOffset(MemrType::eMaxB) + align(memrSize(MemrType::eMaxB), float4Size);
         
         // Create buffer object to hold entire memory area
-        size_t size = memrOffset(MemrType::eIdx) + align(memrSize(MemrType::eIdx), float4Size);
+        size_t size = memrOffset(MemrType::eMass) + align(memrSize(MemrType::eMass), float4Size);
         glCreateBuffers(1, &_glHandle);
         glNamedBufferStorage(_glHandle, size, nullptr, GL_DYNAMIC_STORAGE_BIT);
 

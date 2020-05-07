@@ -74,9 +74,7 @@ namespace hdi {
           eNode,  // 4 x float
           eMinB,  // 4 x float
           eMaxB,  // 4 x float
-          ePos,   // 4 x float
           eMass,  // 1 x uint
-          eIdx,   // 1 x uint
 
           size    // static size, eg to_underlying(MemrType::size)
         };
