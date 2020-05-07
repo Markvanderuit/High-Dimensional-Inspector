@@ -13,9 +13,9 @@ namespace hdi::dr::bvh {
       BVHRenderer();
       ~BVHRenderer();
 
-      void init(const bvh::BVHLayout& bvhLayout, GLuint posBuffer);
+      void init(const bvh::BVH& bvh);
       void destr();
-      void compute(const bvh::BVH& bvh, GLuint posBuffer, GLuint boundsBuffer);
+      void compute(const bvh::BVH& bvh, GLuint boundsBuffer);
 
       GLuint texture() const {
         // return _textures[TEXR_FB_COLOR];
@@ -28,7 +28,8 @@ namespace hdi::dr::bvh {
     private:
       enum BufferType {
         // Enum values matching to buffers in _buffers array
-        BUFF_LINES,
+        BUFF_BBOX,
+        BUFF_ORDER,
         BUFF_TEST,
 
         // Static enum length
@@ -37,7 +38,7 @@ namespace hdi::dr::bvh {
 
       enum VertexArrayType {
         // Enum values matching to vertex arrays in _vertexArrays array
-        VRAO_NODES,
+        VRAO_BBOX,
         VRAO_POINTS,
 
         // Static enum length
@@ -46,8 +47,9 @@ namespace hdi::dr::bvh {
 
       enum ProgramType {
         // Enum values matching to shader programs in _programs array
-        PROG_TRIANGULATE,
+        PROG_TRIANGULATE_BBOX,
         PROG_BVH_DRAW,
+        PROG_ORDER_DRAW,
         PROG_EMB_DRAW,
 
         // Static enum length
@@ -56,7 +58,6 @@ namespace hdi::dr::bvh {
 
     bool _initialized;
     GLuint fbo; // framebuffer object
-    GLuint vao; // vertex array object
     glm::mat4 transform;
     std::array<GLuint, BufferTypeLength> _buffers;
     std::array<GLuint, VertexArrayTypeLength> _vertexArrays;

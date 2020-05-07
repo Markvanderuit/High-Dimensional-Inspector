@@ -3,7 +3,7 @@
   static const char * name = \
   "#version " #version "\n" #shader
 
-GLSL(triangulate_comp, 450,
+GLSL(triangulate_bbox_comp, 450,
   // Wrapper structure for BoundsBuffer data
   struct Bounds {
     vec3 min;
@@ -79,11 +79,12 @@ GLSL(draw_bvh_vert, 450,
 
   layout (location = 0) in vec4 vertex;
   layout (location = 0) out float density;
+  layout (location = 1) out vec3 pos;
   layout (location = 0) uniform mat4 uTransform;
   layout (binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
 
   void main() {
-    vec3 pos = (vertex.xyz - bounds.min) * bounds.invRange;
+    pos = (vertex.xyz - bounds.min) * bounds.invRange;
     density = vertex.w;
     gl_Position = uTransform * vec4(pos, 1);
   }
@@ -91,11 +92,44 @@ GLSL(draw_bvh_vert, 450,
 
 GLSL(draw_bvh_frag, 450,
   layout (location = 0) in float density;
+  layout (location = 1) in vec3 pos;
   layout (location = 0) out vec4 color;
 
   void main() {
-    // vec3 m = mix(vec3(1, 0, 1), vec3(0, 1, 1), density);
-    color = vec4(vec3(0, 1, 1), 0.1);
+    color = vec4(pos, 0.15);
+    // color = vec4(pos, 0.25 * density);
+  }
+);
+
+GLSL(draw_order_vert, 450,
+  // Wrapper structure for BoundsBuffer data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
+    vec3 range;
+    vec3 invRange;
+  };
+
+  layout (location = 0) in vec4 vertex;
+  layout (location = 0) out vec3 pos;
+  layout (location = 0) uniform mat4 uTransform;
+  layout (binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+
+  void main() {
+    vec3 _fpos = (vertex.xyz - bounds.min) * bounds.invRange;
+    ivec3 _ipos = ivec3(clamp(_fpos * 1024.f, 0.f, 1023.f));
+
+    pos = vec3(_ipos) / 1024.f;
+    gl_Position = uTransform * vec4(pos, 1);
+  }
+);
+
+GLSL(draw_order_frag, 450,
+  layout (location = 0) in vec3 pos;
+  layout (location = 0) out vec4 color;
+
+  void main() {
+    color = vec4(pos, 0.4);
   }
 );
 
@@ -125,6 +159,5 @@ GLSL(draw_emb_frag, 450,
 
   void main() {
     color = vec4(pos, 1.0);
-    // color = vec4(0.2, 1, 0.2, 1.0);
   }
 );
