@@ -57,7 +57,7 @@ namespace hdi {
 
       void BVH::init(const TsneParameters &params, GLuint posBuffer, unsigned nPos) {
         _params = params;
-        _layout = BVHLayout(4, 8, nPos);
+        _layout = BVHLayout(2, nPos);
 
         // Fire up cub::RadixSort to figure out temporary memory size in bytes
         size_t tempSize;
@@ -103,7 +103,6 @@ namespace hdi {
           (float4 *) _extPos.ptr(),
           (uint *) _intMemr.ptr(BVHIntMemr::MemrType::eMortonIn)
         );
-        gpuAssert(cudaDeviceSynchronize());
         _timers[TIMR_MORTON].tock();
 
         // Perform radix sort on embedding positions using generated morton codes
@@ -115,53 +114,28 @@ namespace hdi {
           (uint *) _intMemr.ptr(BVHIntMemr::MemrType::eMortonIn),
           (uint *) _intMemr.ptr(BVHIntMemr::MemrType::eMortonOut),
           (float4 *)  _extPos.ptr(), 
-          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::ePos),
+          ((float4 *) _extMemr.ptr(BVHExtMemr::MemrType::eNode)) + _layout.nNodes - _layout.nLeaves,
           (int) _layout.nPos, 
           0, 30
         );
-        gpuAssert(cudaDeviceSynchronize());
         _timers[TIMR_SORT].tock();
-
-        // Try to find a split point
-        /* if (logTimers) {
-          std::vector<uint> codebuffer(_layout.nPos);
-          std::vector<float4> posBuffer(_layout.nPos);
-          cudaMemcpy(codebuffer.data(), _intMemr.ptr(BVHIntMemr::MemrType::eMortonOut), _layout.nPos * sizeof(uint), cudaMemcpyDeviceToHost);
-          cudaMemcpy(posBuffer.data(), _extMemr.ptr(BVHExtMemr::MemrType::ePos), _layout.nPos * sizeof(float4), cudaMemcpyDeviceToHost);
-
-          uint first = codebuffer[0];
-          uint last = codebuffer[codebuffer.size() - 1];
-          uint diff = last ^ first;
-
-          for (int i = 1; i < _layout.nPos; i++) {
-            uint prev = codebuffer[i - 1];
-            uint curr = codebuffer[i];
-
-
-            std::cout << std::bitset<32>(codebuffer[i]) << "\t:\t"
-                      << posBuffer[i].x << ", " << posBuffer[i].y << ", " << posBuffer[i].z
-                      << '\n';
-          }
-        } */
 
         // Compute leaves
         _timers[TIMR_LEAVES].tick();
         kernConstrLeaves<<<ceilDiv(_layout.nLeaves, 256u), 256u>>>(
           _layout, 
-          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::ePos), // _pExtr[EXTR_POS], 
-          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eNode), // _pExtr[EXTR_NODE],
-          (uint *)    _extMemr.ptr(BVHExtMemr::MemrType::eMass), // _pExtr[EXTR_MASS], 
-          (uint *)    _extMemr.ptr(BVHExtMemr::MemrType::eIdx), // _pExtr[EXTR_IDX], 
-          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eMinB), //_pIntr[INTR_MIN_BND], 
-          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eMaxB) //_pIntr[INTR_MAX_BND]
+          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eNode),
+          (uint *)    _extMemr.ptr(BVHExtMemr::MemrType::eMass),
+          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eMinB),
+          (float4 *)  _extMemr.ptr(BVHExtMemr::MemrType::eMaxB)
         );
-        gpuAssert(cudaDeviceSynchronize());
         _timers[TIMR_LEAVES].tock();
 
+        // Compute non-leaf nodes
         _timers[TIMR_NODES].tick();
         {
           const uint logk = static_cast<uint>(std::log2(_layout.kNode));
-          uint offset = _layout.nNodes + _layout.nLeaves;
+          uint offset = _layout.nNodes;
           for (uint level = _layout.nLvls - 1; level > 0; level--) {
             const uint nNodes = 1u << (logk * level);
             offset -= nNodes;
@@ -200,16 +174,7 @@ namespace hdi {
             }
           }
         }
-        gpuAssert(cudaDeviceSynchronize());
         _timers[TIMR_NODES].tock();
-
-        // Perform subdivision
-        // ...
-        // gpuAssert(cudaDeviceSynchronize());
-        
-        // Construct tree bounds, diams
-        // ...
-        // gpuAssert(cudaDeviceSynchronize());
         
         // Unmap external resources for access
         _extMemr.unmap();

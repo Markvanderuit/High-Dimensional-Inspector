@@ -39,7 +39,7 @@ namespace hdi {
   namespace dr {
     namespace bvh {
       __device__
-      inline
+      // inline
       uint expandBits(uint i)
       {
         i = (i * 0x00010001u) & 0xFF0000FFu;
@@ -50,7 +50,7 @@ namespace hdi {
       }
       
       __device__
-      inline
+      // inline
       uint mortonCode(float4 f)
       {
         f = clamp(f * 1024.f, 0.f, 1023.f);
@@ -62,24 +62,59 @@ namespace hdi {
 
       __global__
       void kernConstrMorton(BVHLayout layout, 
-        float4 minb, float4 invr, float4 *pEmb, uint *pMorton)
+        float4 minb, float4 invr, 
+        float4 *pEmb, uint *pMorton)
       {
-        const uint gid = blockIdx.x * blockDim.x + threadIdx.x;
-        if (gid >= layout.nPos) {
+        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (globalIdx >= layout.nPos) {
           return;
         }
       
-        // Normalize position
-        const float4 pos = (pEmb[gid] - minb) * invr;
+        // Normalize position to [0, 1]
+        const float4 pos = (pEmb[globalIdx] - minb) * invr;
 
-        // Store morton code
-        pMorton[gid] = mortonCode(pos);
+        // Compute and store morton code
+        pMorton[globalIdx] = mortonCode(pos);
       }
+      
+      __device__
+      inline
+      uint findMSB(uint bitset)
+      {
+        return 31 - __clz(bitset);
+      }
+
+      /* __global__
+      void _kernConstr(BVHLayout layout, uint *pMorton, uint level,
+        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB)
+      {
+        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (globalIdx >= layout.nPos) {
+          return;
+        }
+
+        if (globalIdx == 0) {
+          return;
+        }
+
+        uint prev = pMorton[globalIdx];
+        uint curr = pMorton[globalIdx];
+        // uint level = __clz(curr ^ prev) - 2;
+
+        uint begin = 0;
+        uint end = layout.nPos - 1;
+        uint first = pMorton[begin];
+        uint last = pMorton[end];
+
+        // Find first differing bit position from left
+        uint mask = (~0) >> (2 + level);
+        uint msb = findMSB((first & mask) ^ (last & mask));
+      } */
 
       __global__
       void kernConstrLeaves(
         BVHLayout layout, 
-        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, 
+        float4 *pNode, uint *pMass, 
         float4 *pMinB, float4 *pMaxB) 
       {
         const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -89,41 +124,23 @@ namespace hdi {
         
         // Initial leaf values
         float4 center = make_float4(0);
-        float4 minb = make_float4(0);
-        float4 maxb = make_float4(0);
         uint mass = 0u;
-        
-        // Determine nr. of positions under leaf
-        const uint posIdx = globalIdx * layout.kLeaf;
-        int borderValue = static_cast<int>(layout.nPos) - static_cast<int>(posIdx);
-        if (borderValue > 0) {
-          // Add values of first node
-          mass = min(layout.kLeaf, static_cast<uint>(borderValue));
-          center = pPos[posIdx];
-          minb = center;
-          maxb = center;
-          
-          // Add values of rest of nodes
-          for (uint i = 1; i < mass; ++i) {
-            float4 pos = pPos[posIdx + i];
-            center += pos;
-            minb = fminf(minb, pos);
-            maxb = fmaxf(maxb, pos);
-          }
 
-          // Average
-          center /= static_cast<float>(max(mass, 1u));
-          float4 diamsv = maxb - minb;
-          center.w = dot(diamsv, diamsv); // Compute squared diameter
+        // Offset to leaf node positions
+        const uint posAddr = layout.nNodes - layout.nLeaves + globalIdx;
+        
+        // Read sorted positions from pNode
+        if (globalIdx < layout.nPos) {
+          mass = 1u;
+          center = pNode[posAddr];
+          center.w = 0.f;
         }
 
         // Store leaf values
-        uint leafAddr = layout.nNodes + globalIdx;
-        pNode[leafAddr] = center;
-        pMass[leafAddr] = mass;
-        pMinB[leafAddr] = minb;
-        pMaxB[leafAddr] = maxb;
-        pIdx[globalIdx] = posIdx;
+        pNode[posAddr] = center;
+        pMass[posAddr] = mass;
+        pMinB[posAddr] = center;
+        pMaxB[posAddr] = center;
       }
 
       struct AONode {
@@ -146,10 +163,13 @@ namespace hdi {
           // Reduce node from two non-empty nodes
           AONode node;
           node.mass = l.mass + r.mass;
-          node.node = (static_cast<float>(l.mass) * l.node + static_cast<float>(r.mass) * r.node) / static_cast<float>(node.mass);
+          node.node = (static_cast<float>(l.mass) * l.node 
+                    + static_cast<float>(r.mass) * r.node) 
+                    / static_cast<float>(node.mass);
           node.minb = fminf(l.minb, r.minb);
           node.maxb = fmaxf(l.maxb, r.maxb);
-
+          
+          // Compute node diameter as maxb - minb
           float4 diamv = node.maxb - node.minb;
           node.node.w = dot(diamv, diamv);
 
@@ -189,8 +209,8 @@ namespace hdi {
         AONode aggregate = WarpReduce(temp_storage[warp_id]).Reduce(node, AOReductor());
 
         // Store in lower level
-        posIdx = lOffset - (1u << (logk * (level - 1))) + globalIdx / 8;
-        if (globalIdx % 8 == 0) {
+        posIdx = lOffset - (1u << (logk * (level - 1))) + globalIdx / KNode;
+        if (globalIdx % KNode == 0) {
           pNode[posIdx] = aggregate.node;
           pMinB[posIdx] = aggregate.minb;
           pMaxB[posIdx] = aggregate.maxb;

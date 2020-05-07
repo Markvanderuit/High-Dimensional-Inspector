@@ -52,6 +52,10 @@ namespace hdi {
         float4 minb, float4 invr, 
         float4 *pEmb, uint *pMorton);
 
+      __global__
+      void _kernConstr(BVHLayout layout, uint *pMorton, uint level,
+        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB);
+
       /**
        * CUDA kernel to construct BVH leaf nodes over sorted 3D embedding positions.
        * 
@@ -65,7 +69,7 @@ namespace hdi {
        */
       __global__
       void kernConstrLeaves(BVHLayout layout, 
-        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB);
+        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB);
 
       /**
        * CUDA kernel to reduce lend - lbegin + 1 levels of BVH nodes into higher-level nodes.
