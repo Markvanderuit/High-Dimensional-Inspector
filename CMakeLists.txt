@@ -44,6 +44,10 @@ else()
   find_package(FLANN REQUIRED)
 endif()
 
+# Imgui
+# Add Imgui library, might be useful for debugging
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/imgui)
+
 # OpenMP
 # Add support, if it is available
 find_package(OpenMP)
@@ -52,6 +56,10 @@ if(OPENMP_FOUND)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
+
+# GLAD
+# Add glad library
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/glad)
 
 # GLFW
 # Add support for GLFW, if necessary. Docs/tests/examples are trimmed from src
@@ -63,6 +71,11 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/Glfw)
 # GLM
 # Add glm library (is only an alias)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/glm)
+
+# CXXOpts
+# Add cxxopts library (only an alias)
+add_library(cxxopts INTERFACE)
+target_include_directories(cxxopts INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/lib/cxxopts/include)
 
 # CUB
 # Add CUB library, for CUDA radix sort implementation
@@ -91,6 +104,7 @@ endif()
 # Build core libraries
 add_subdirectory (hdi/data)
 add_subdirectory (hdi/utils)
+add_subdirectory (hdi/debug)
 add_subdirectory (hdi/dimensionality_reduction)
 
 # Build visualization library, requires QT
