@@ -30,87 +30,122 @@
 *
 */
 
-#include "hdi/dimensionality_reduction/tsne.h"
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/utils/dataset_utils.h"
+#include "hdi/utils/scoped_timers.h"
 #include "hdi/data/embedding.h"
 #include "hdi/data/panel_data.h"
 #include "hdi/data/io.h"
-#include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne_texture.h"
-// #include "hdi/dimensionality_reduction/tsne.h"
+#include "hdi/dimensionality_reduction/tsne.h"
 #include "hdi/dimensionality_reduction/sparse_tsne_user_def_probabilities.h"
-#include "hdi/utils/visual_utils.h"
-#include "hdi/utils/scoped_timers.h"
+#include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
-
-#include <QApplication>
-#include <QIcon>
-#include <QCommandLineParser>
-
+#include <cxxopts/cxxopts.hpp>
 #include <iostream>
 #include <fstream>
-#include <stdio.h>
-
-#include <QWindow>
-#include <QOpenGLContext>
-#include <QOpenGLWidget>
-#include <QDebug>
+#include <cstdio>
 
 typedef float scalar_type;
 
-enum Technique
-{
+enum Technique {
   TSNE,
   BH05,
   BH01
 };
 
-class OffscreenBuffer : public QWindow
-{
-public:
-  OffscreenBuffer()
-  {
-    setSurfaceType(QWindow::OpenGLSurface);
+// Required CLI parameters
+std::string inputFileName;
+std::string outputFileName;
+unsigned num_data_points;
+unsigned num_dimensions;
 
-    _context = new QOpenGLContext(this);
-    _context->setFormat(requestedFormat());
+// Optional CLI parameters with default values
+int iterations = 1000;
+int exaggeration_iter = 250;
+int perplexity = 30;
+double theta = 0.5;
+unsigned embedding_dimensions = 2;
+bool doKlDivergence = false;
+bool doNNPreservation = false;
 
-    if (!_context->create())
-      qFatal("Cannot create requested OpenGL context.");
+// Timer values
+float data_loading_time = 0;
+float similarities_comp_time = 0;
+float gradient_desc_comp_time = 0;
+float kl_divergence_comp_time = 0;
+float nnp_comp_time = 0;
+float data_saving_time = 0;
 
-    create();
+void parseCli(int argc, char* argv[]) {
+  hdi::utils::CoutLog log;
+
+  // Configure command line options
+  cxxopts::Options options("BH T-SNE", "Compute embedding from given raw input data");
+  options.add_options()
+    ("input", "Input data file (required)", cxxopts::value<std::string>())
+    ("output", "Output data file (required)", cxxopts::value<std::string>())
+    ("size", "number of data points (required)", cxxopts::value<unsigned>())
+    ("dims", "number of dims (required)", cxxopts::value<unsigned>())
+    ("d,dimensions", "target embedding dimensions", cxxopts::value<int>())
+    ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<int>())
+    ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
+    ("t,theta", "BH-approximation theta", cxxopts::value<float>())
+    ("h,help", "Print help and exit")
+    ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
+    ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
+    ;
+  options.parse_positional({"input", "output", "size", "dims"});
+  options.positional_help("<input> <output> <size> <dims>");
+
+  // Parse results
+  auto result = options.parse(argc, argv);
+
+  // Help message
+  if (result.count("help")) {
+    hdi::utils::secureLog(&log, options.help());
+    exit(0);
   }
 
-  QOpenGLContext* getContext() { return _context; }
-
-  void bindContext()
-  {
-    _context->makeCurrent(this);
-    if (!gladLoadGL()) {
-      qFatal("No OpenGL context is currently bound, therefore OpenGL function loading has failed.");
-    }
+  if (!result.count("input") || !result.count("output") 
+      || !result.count("size") || !result.count("dims")) {
+    hdi::utils::secureLog(&log, options.help());
+    exit(0);
   }
+  inputFileName = result["input"].as<std::string>();
+  outputFileName = result["output"].as<std::string>();
+  num_data_points = result["size"].as<unsigned>();
+  num_dimensions = result["dims"].as<unsigned>();
 
-  void releaseContext()
-  {
-    _context->doneCurrent();
+  // Parse optional arguments
+  if (result.count("perplexity")) {
+    perplexity = result["perplexity"].as<int>();
   }
-
-private:
-  QOpenGLContext* _context;
-};
+  if (result.count("iterations")) {
+    iterations = result["iterations"].as<int>();
+  }
+  if (result.count("dimensions")) {
+    embedding_dimensions = result["dimensions"].as<int>();
+  }
+  if (result.count("theta")) {
+    theta = result["theta"].as<float>();
+  }
+  if (result.count("kld")) {
+    doKlDivergence = result["kld"].as<bool>();
+  }
+  if (result.count("nnp")) {
+    doNNPreservation = result["nnp"].as<bool>();
+  }
+}
 
 void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filename_data, unsigned int num_points, unsigned int num_dims)
 {
-  panel_data.clear();
   std::ifstream file_data(filename_data, std::ios::in | std::ios::binary);
-
   if (!file_data.is_open()) {
     throw std::runtime_error("data file cannot be found");
   }
 
+  panel_data.clear();
   for (int j = 0; j < num_dims; ++j) {
     panel_data.addDimension(std::make_shared<hdi::data::EmptyData>());
   }
@@ -129,88 +164,9 @@ void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filenam
   }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
   try {
-    QApplication app(argc, argv);
-
-    QCommandLineParser parser;
-    parser.setApplicationDescription("Compute embedding from given raw input data using Barnes-Hut t-SNE");
-    parser.addHelpOption();
-    parser.addVersionOption();
-
-    // Required arguments: input output input_data_points input_dimensions
-    parser.addPositionalArgument("data", QApplication::translate("main", "Name of input file."));
-    parser.addPositionalArgument("output", QCoreApplication::translate("main", "Output file."));
-    parser.addPositionalArgument("num_data_points", QCoreApplication::translate("main", "Num of data-points."));
-    parser.addPositionalArgument("num_dimensions", QCoreApplication::translate("main", "Num of dimensions."));
-
-    // Iterations
-    QCommandLineOption iterations_option(QStringList() << "i" << "iterations",
-        QCoreApplication::translate("main", "Run the gradient for <iterations>."),
-        QCoreApplication::translate("main", "iterations"));
-    parser.addOption(iterations_option);
-
-    // Target dimensions
-    QCommandLineOption target_dimensions_option(QStringList() << "d" << "target_dimensions",
-        QCoreApplication::translate("main", "Reduce the dimensionality to <target_dimensions>."),
-        QCoreApplication::translate("main", "target_dimensions"));
-    parser.addOption(target_dimensions_option);
-
-    // BH theta
-    QCommandLineOption theta_option(QStringList() << "t" << "theta",
-        QCoreApplication::translate("main", "Use theta value of <theta>."),
-        QCoreApplication::translate("main", "theta"));
-    parser.addOption(theta_option);
-
-    // Perplexity
-    QCommandLineOption perplexity_option(QStringList() << "p" << "perplexity",
-        QCoreApplication::translate("main", "Use perplexity value of <perplexity>."),
-        QCoreApplication::translate("main", "perplexity"));
-    parser.addOption(perplexity_option);
-
-    // Process the actual command line arguments given by the user
-    parser.process(app);
-
-    const QStringList args = parser.positionalArguments();
-    if (args.size() != 4) {
-      std::cout << "Not enough arguments!" << std::endl;
-      return -1;
-    }
-
-    // Initial default params
-    int iterations = 1000;
-    int exaggeration_iter = 250;
-    int perplexity = 30;
-    double theta = 0.5;
-    unsigned embedding_dimensions = 2;
-    
-    // Parse arguments
-    std::string inputFileName = args.at(0).toStdString();
-    std::string probDistFileName = inputFileName + "_P";
-    std::string outputFileName = args.at(1).toStdString();
-    unsigned num_data_points = std::atoi(args.at(2).toStdString().c_str());
-    unsigned num_dimensions = std::atoi(args.at(3).toStdString().c_str());
-    if(parser.isSet(iterations_option)){
-      iterations  = std::atoi(parser.value(iterations_option).toStdString().c_str());
-    }
-    if(parser.isSet(target_dimensions_option)){
-      embedding_dimensions = std::atoi(parser.value(target_dimensions_option).toStdString().c_str());
-    }
-    if(parser.isSet(perplexity_option)){
-      perplexity = std::atoi(parser.value(perplexity_option).toStdString().c_str());
-    }
-    if(parser.isSet(theta_option)){
-      theta = std::stod(parser.value(theta_option).toStdString().c_str());
-    }
-
-
-    float data_loading_time = 0;
-    float similarities_comp_time = 0;
-    float gradient_desc_comp_time = 0;
-    float data_saving_time = 0;
-
-    typedef float scalar_type;
+    parseCli(argc, argv);
 
     hdi::utils::CoutLog log;
     hdi::dr::HDJointProbabilityGenerator<scalar_type> prob_gen;
@@ -222,75 +178,101 @@ int main(int argc, char *argv[])
     hdi::data::PanelData<scalar_type> panel_data;
     std::vector<uint32_t> labels; 
 
-    // Set Barnes-Hut parameters
+    // Set tsne parameters
     tsne_params._seed = 1; // uhh, okay
     tsne_params._embedding_dimensionality = embedding_dimensions;
     tsne_params._perplexity = static_cast<double>(perplexity);
-    bhTSNE.setTheta(theta);
-
-    // Compute probability distribution or load from file if it is cached
-    // std::ifstream input_file(probDistFileName, std::ios::binary);
-    // if (input_file.is_open())
-    // {
-    //   hdi::utils::secureLog(&log, "Loading probability distribution from file...");
-    //   hdi::data::IO::loadSparseMatrix(distributions, input_file);
-    // }
-    // else
-    {
-      // Load the input data
-      hdi::utils::secureLog(&log, "Loading original data...");
-      loadData(panel_data, inputFileName, num_data_points, num_dimensions);
-
-      hdi::utils::secureLog(&log, "Computing probability distribution...");
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
-      prob_gen.setLogger(&log);
-      prob_gen_param._perplexity = perplexity;
-      prob_gen.computeProbabilityDistributions(panel_data.getData().data(), panel_data.numDimensions(), panel_data.numDataPoints(), distributions, prob_gen_param);
-
-      // std::ofstream output_file(probDistFileName, std::ios::binary);
-      // hdi::data::IO::saveSparseMatrix(distributions, output_file);
-    }
-
-    // Create offscreen buffer for OpenGL context
-    OffscreenBuffer offscreen;
-    offscreen.bindContext();
-
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
 
+    // Load the input data
+    {
+      hdi::utils::secureLog(&log, "Loading original data...");
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
+      loadData(panel_data, inputFileName, num_data_points, num_dimensions);
+    }
+
+    // Compute probability distribution or load from file if it is cached
+    std::string cacheFileName = inputFileName + "_cache_p" + std::to_string(perplexity);
+    std::ifstream cacheFile(cacheFileName, std::ios::binary);
+    if (cacheFile.is_open()) { 
+      // There IS a cache file already
+      hdi::utils::secureLog(&log, "Loading probability distribution from cache file...");
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+      hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
+    } else  { 
+      // No cache file, start from scratch
+      hdi::utils::secureLog(&log, "Computing probability distribution...");
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+
+      // Compute probability distribution
+      prob_gen.setLogger(&log);
+      prob_gen_param._perplexity = perplexity;
+      prob_gen.computeProbabilityDistributions(panel_data.getData().data(), panel_data.numDimensions(), panel_data.numDataPoints(), distributions, prob_gen_param);
+      
+      // Store probability distribution in cache file
+      std::ofstream outputFile(cacheFileName, std::ios::binary);
+      hdi::data::IO::saveSparseMatrix(distributions, outputFile);
+    }
+
+    // Init used T-SNE algorithm
     hdi::utils::secureLog(&log, "Initializing t-SNE...");
+    bhTSNE.setTheta(theta);
     bhTSNE.initialize(distributions, &embedding, tsne_params);
     
-    // Compute embedding
+    // Perform minimization
     {
       hdi::utils::secureLog(&log, "Computing gradient descent...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
-      for (int iter = 0; iter < iterations; ++iter) {
+      for (int i = 0; i < iterations; ++i) {
         bhTSNE.doAnIteration();
       }
     }
 
-    double KL = bhTSNE.computeKullbackLeiblerDivergence();
-    std::cout << "KL-Divergence: " << KL << std::endl;
-
-    //Output
+    // Output embedding file
     hdi::utils::secureLog(&log, "Writing embedding to file...");
     {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
-      {
-        std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
-        output_file.write(reinterpret_cast<const char*>(embedding.getContainer().data()), sizeof(scalar_type)*embedding.getContainer().size());
+      std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
+      output_file.write(reinterpret_cast<const char*>(embedding.getContainer().data()), sizeof(scalar_type)*embedding.getContainer().size());
+    }
+
+    // Compute KL-divergence if requested (takes a while in debug mode)
+    if (doKlDivergence) {
+      hdi::utils::secureLog(&log, "");
+      hdi::utils::secureLog(&log, "Computing KL-Divergence...");  
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
+      double KL = bhTSNE.computeKullbackLeiblerDivergence();
+      hdi::utils::secureLogValue(&log, "KL Divergence", KL);
+      hdi::utils::secureLog(&log, "");
+    } 
+    
+    // Compute mearest neighbour preservation if requested (takes a long while with these settings)
+    if (doNNPreservation) {
+      hdi::utils::secureLog(&log, "Computing NNP...");  
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
+      std::vector<scalar_type> precision;
+      std::vector<scalar_type> recall;
+      unsigned K = 30;
+      std::vector<unsigned> points(num_data_points);
+      std::iota(points.begin(), points.end(), 0);
+      hdi::dr::computePrecisionRecall(panel_data, embedding, points, precision, recall, K);
+      for (int i = 0; i < precision.size(); i++) {
+        std::cout << precision[i] << ", " << recall[i] << '\n';
       }
     }
 
-    offscreen.releaseContext();
-
-    hdi::utils::secureLogValue(&log, "Data loading (sec)", data_loading_time);
-    hdi::utils::secureLogValue(&log, "Similarities computation (sec)", similarities_comp_time);
-    hdi::utils::secureLogValue(&log, "Gradient descent (sec)", gradient_desc_comp_time);
-    hdi::utils::secureLogValue(&log, "Data saving (sec)", data_saving_time);
-
-    app.exec();
+    hdi::utils::secureLog(&log, "Timings");
+    hdi::utils::secureLogValue(&log, "  Data loading (s)", data_loading_time);
+    hdi::utils::secureLogValue(&log, "  Similarities (s)", similarities_comp_time);
+    hdi::utils::secureLogValue(&log, "  Gradient descent (s)", gradient_desc_comp_time);
+    if (doKlDivergence) {
+      hdi::utils::secureLogValue(&log, "  KL computation (s)", kl_divergence_comp_time);
+    }
+    if (doNNPreservation) {
+      hdi::utils::secureLogValue(&log, "  NNP computation (s)", nnp_comp_time);
+    }
+    hdi::utils::secureLogValue(&log, "  Data saving (s)", data_saving_time);
   }
   catch (std::logic_error& ex) { std::cout << "Logic error: " << ex.what() << std::endl; }
   catch (std::runtime_error& ex) { std::cout << "Runtime error: " << ex.what() << std::endl; }
