@@ -36,7 +36,7 @@ namespace hdi {
       private:
         bool _isInit;
         unsigned _iter;
-
+ 
         TsneParameters _params;
         BVHLayout _layout;
         BVHIntMemr _intMemr;
@@ -47,8 +47,9 @@ namespace hdi {
         enum TimerType {
           TIMR_MORTON,      // Morton code generation timer 
           TIMR_SORT,        // Radix sort timer
-          TIMR_LEAVES,      // Leaf node computation timer
-          TIMR_NODES,       // Non-leaf node computation timer
+          TIMR_SUBDIV,      // Tree subdivision timer
+          TIMR_DATA,        // Tree data computation timer
+          TIMR_CLEANUP,
 
           // Static enum length
           TimerTypeLength

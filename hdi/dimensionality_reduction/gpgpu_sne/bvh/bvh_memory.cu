@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_memory.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_utils.h"
 #include <cuda_gl_interop.h> // include last to prevent double OpenGL includes from GLFW/QT
 
 template <typename genAType, typename genBType>
@@ -87,9 +88,6 @@ namespace hdi {
       }
 
       void * InteropResource::ptr() {
-        if (!_isMapped) {
-          throw std::runtime_error("InteropResource::ptr() called while memory is not mapped for access");
-        }
         return _cuPtr;
       }
 
@@ -111,25 +109,28 @@ namespace hdi {
         size_t uintSize = sizeof(uint);
         
         // Specify memory area sizes
-        _memrSizes[to_underlying(MemrType::eNode)] = (layout.nNodes) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMinB)] = (layout.nNodes) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMaxB)] = (layout.nNodes) * float4Size;
-        _memrSizes[to_underlying(MemrType::eMass)] = (layout.nNodes) * uintSize;
+        _memrSizes[to_underlying(MemrType::eNode)] = layout.nNodes * float4Size;
+        _memrSizes[to_underlying(MemrType::eMinB)] = layout.nNodes * float4Size;
+        _memrSizes[to_underlying(MemrType::eDiam)] = layout.nNodes * float4Size;
+        _memrSizes[to_underlying(MemrType::ePos)] = layout.nPos * float4Size;
+        _memrSizes[to_underlying(MemrType::eIdx)] = layout.nNodes * uintSize;
         
         // Specify memory area offsets
         _memrOffsets[to_underlying(MemrType::eNode)] = 0;
         _memrOffsets[to_underlying(MemrType::eMinB)] = memrOffset(MemrType::eNode) + align(memrSize(MemrType::eNode), float4Size);
-        _memrOffsets[to_underlying(MemrType::eMaxB)] = memrOffset(MemrType::eMinB) + align(memrSize(MemrType::eMinB), float4Size);
-        _memrOffsets[to_underlying(MemrType::eMass)] = memrOffset(MemrType::eMaxB) + align(memrSize(MemrType::eMaxB), float4Size);
+        _memrOffsets[to_underlying(MemrType::eDiam)] = memrOffset(MemrType::eMinB) + align(memrSize(MemrType::eMinB), float4Size);
+        _memrOffsets[to_underlying(MemrType::ePos)] = memrOffset(MemrType::eDiam) + align(memrSize(MemrType::eDiam), float4Size);
+        _memrOffsets[to_underlying(MemrType::eIdx)] = memrOffset(MemrType::ePos) + align(memrSize(MemrType::ePos), float4Size);
         
         // Create buffer object to hold entire memory area
-        size_t size = memrOffset(MemrType::eMass) + align(memrSize(MemrType::eMass), float4Size);
+        size_t size = memrOffset(MemrType::eIdx) + align(memrSize(MemrType::eIdx), float4Size);
         glCreateBuffers(1, &_glHandle);
         glNamedBufferStorage(_glHandle, size, nullptr, GL_DYNAMIC_STORAGE_BIT);
 
         // Register buffer as CUDA-OpenGL interopability resources
         cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, cudaGraphicsMapFlagsNone);
-
+        
+        GL_ASSERT("BVHExtMemr::init()");
         _isInit = true;
       }
 
@@ -168,9 +169,6 @@ namespace hdi {
       }
 
       void* BVHExtMemr::ptr(MemrType type) {
-        if (!_isMapped) {
-          throw std::runtime_error("BVHExtMemr::memPtr() called while memory is not mapped for access");
-        }
         return (void *) ((char *) _cuPtr + memrOffset(type));
       }
 
@@ -192,14 +190,18 @@ namespace hdi {
         _memrSizes[to_ul(MemrType::eTemp)] = tempSize;
         _memrSizes[to_ul(MemrType::eMortonIn)] = sizeof(uint) * layout.nPos;
         _memrSizes[to_ul(MemrType::eMortonOut)] = sizeof(uint) * layout.nPos;
+        _memrSizes[to_ul(MemrType::eIdxIn)] = sizeof(uint) * layout.nPos;
+        _memrSizes[to_ul(MemrType::eIdxOut)] = sizeof(uint) * layout.nPos;
 
         // Specify memory area offsets
         _memrOffsets[to_ul(MemrType::eTemp)] = 0;
         _memrOffsets[to_ul(MemrType::eMortonIn)] = memrOffset(MemrType::eTemp) + align(memrSize(MemrType::eTemp), 16);
         _memrOffsets[to_ul(MemrType::eMortonOut)] = memrOffset(MemrType::eMortonIn) + align(memrSize(MemrType::eMortonIn), 16);
+        _memrOffsets[to_ul(MemrType::eIdxIn)] = memrOffset(MemrType::eMortonOut) + align(memrSize(MemrType::eMortonOut), 16);
+        _memrOffsets[to_ul(MemrType::eIdxOut)] = memrOffset(MemrType::eIdxIn) + align(memrSize(MemrType::eIdxIn), 16);
         
         // Allocate memory to cover all memory areas
-        size_t size = memrOffset(MemrType::eMortonOut) + align(memrSize(MemrType::eMortonOut), 16);
+        size_t size = memrOffset(MemrType::eIdxOut) + align(memrSize(MemrType::eIdxOut), 16);
         cudaMalloc(&_ptr, size);
 
         _isInit = true;

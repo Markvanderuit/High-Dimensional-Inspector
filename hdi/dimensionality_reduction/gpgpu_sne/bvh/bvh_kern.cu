@@ -65,167 +65,277 @@ namespace hdi {
         float4 minb, float4 invr, 
         float4 *pEmb, uint *pMorton)
       {
-        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (globalIdx >= layout.nPos) {
+        const uint i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= layout.nPos) {
           return;
         }
       
         // Normalize position to [0, 1]
-        const float4 pos = (pEmb[globalIdx] - minb) * invr;
+        const float4 pos = (pEmb[i] - minb) * invr;
 
         // Compute and store morton code
-        pMorton[globalIdx] = mortonCode(pos);
+        pMorton[i] = mortonCode(pos);
+      }
+
+      __global__
+      void kernConstrPos(
+        BVHLayout layout,
+        uint *idx, float4 *posIn, float4 *posOut)
+      {
+        const uint i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= layout.nPos) {
+          return;
+        }
+        
+        posOut[i] = posIn[idx[i]];
+      }
+
+      __device__
+      uint findSplit(uint *pMorton, uint level, uint levels, uint first, uint last)
+      {
+        uint firstCode = pMorton[first];
+        uint lastCode = pMorton[last];
+        uint commonPrefix = __clz(firstCode ^ lastCode);
+        
+        // Initial guess for split position
+        uint split = first;
+        uint step = last - first;
+
+        // Perform a binary search to find the split position
+        do {
+          step = (step + 1) >> 1; // Decrease step size
+          uint _split = split + step; // Possible new split position
+
+          if (_split < last) {
+            uint splitCode = pMorton[_split];
+            uint splitPrefix = __clz(firstCode ^ splitCode);
+
+            // Accept newly proposed split for this iteration
+            if (splitPrefix > commonPrefix) {
+              split = _split;
+            }
+          }
+        } while (step > 1);
+
+        // Split at half point if a really bad split is found
+        // if (levels - level < 5) {
+        //   float relation = static_cast<float>(last - split) / static_cast<float>(last - first);
+        //   if (last - first > 1 && relation < 0.8f || relation > 0.8f) {
+        //   // if (last - split > 2 && static_cast<float>(last - split) / static_cast<float>(last - first) <= 0.33) {
+        //     split = first + (last - first) / 2;
+        //   }
+        // }
+        
+        // if ((last - split < 2 || split - first < 2) && last - first > 0) {
+        // }
+
+        return split;
       }
       
-      __device__
-      inline
-      uint findMSB(uint bitset)
-      {
-        return 31 - __clz(bitset);
-      }
-
-      /* __global__
-      void _kernConstr(BVHLayout layout, uint *pMorton, uint level,
-        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB)
-      {
-        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (globalIdx >= layout.nPos) {
-          return;
-        }
-
-        if (globalIdx == 0) {
-          return;
-        }
-
-        uint prev = pMorton[globalIdx];
-        uint curr = pMorton[globalIdx];
-        // uint level = __clz(curr ^ prev) - 2;
-
-        uint begin = 0;
-        uint end = layout.nPos - 1;
-        uint first = pMorton[begin];
-        uint last = pMorton[end];
-
-        // Find first differing bit position from left
-        uint mask = (~0) >> (2 + level);
-        uint msb = findMSB((first & mask) ^ (last & mask));
-      } */
-
       __global__
-      void kernConstrLeaves(
-        BVHLayout layout, 
-        float4 *pNode, uint *pMass, 
-        float4 *pMinB, float4 *pMaxB) 
+      void kernConstrSubdiv(
+        BVHLayout layout,
+        uint level, uint levels, uint begin, uint end,
+        uint *pMorton, uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam)
       {
-        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (globalIdx >= layout.nLeaves) {
+        const uint i = begin + blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= end) {
           return;
         }
         
-        // Initial leaf values
-        float4 center = make_float4(0);
-        uint mass = 0u;
-
-        // Offset to leaf node positions
-        const uint posAddr = layout.nNodes - layout.nLeaves + globalIdx;
+        // Read in parent range into shared memory
+        __shared__ uint parentData[256];
+        if (threadIdx.x % 2 == 0) {
+          parentData[threadIdx.x] = pIdx[(i >> 1) - 1];
+        } else {
+          parentData[threadIdx.x] = static_cast<uint>(pNode[(i >> 1) - 1].w);
+        }
+        __syncthreads();
+        // uint *parentPtr = (threadIdx.x % 2 == 0) ? pIdx : pMass;
+        // parentData[threadIdx.x] = static_cast<uint>(parentPtr[(i >> 1) - 1]);
         
-        // Read sorted positions from pNode
-        if (globalIdx < layout.nPos) {
-          mass = 1u;
-          center = pNode[posAddr];
-          center.w = 0.f;
+        const uint t = threadIdx.x - (threadIdx.x % 2);
+        const uint parentIdx = parentData[t];
+        const uint parentMass = parentData[t + 1];
+        uint idx = 0u;
+        float4 node = make_float4(0);
+        
+        if (parentMass > 1) {
+          // Find split point and subdivide
+          uint rangeBegin = parentIdx;
+          uint rangeEnd = rangeBegin + parentMass - 1;
+          uint split = findSplit(pMorton, level, levels, rangeBegin, rangeEnd);
+          
+          if (threadIdx.x % 2 == 0) {
+            // Assign left tree values
+            idx = rangeBegin;
+            node.w = 1 + split - rangeBegin;
+          } else {
+            // Assign right tree values
+            idx = split + 1;
+            node.w = rangeEnd - split;
+          }
         }
 
-        // Store leaf values
-        pNode[posAddr] = center;
-        pMass[posAddr] = mass;
-        pMinB[posAddr] = center;
-        pMaxB[posAddr] = center;
-      }
+        // Compute leaf node data if necessary
+        if (node.w == 1 || (node.w > 0 && level == levels - 1)) {
+          float4 pos = pPos[idx];
+          float4 minb = pos;
+          float4 maxb = pos;
+          for (uint _idx = idx + 1; _idx < idx + static_cast<uint>(node.w); _idx++) {
+            float4 _pos = pPos[_idx];
+            minb = fminf(minb, _pos);
+            maxb = fmaxf(maxb, _pos);
+            pos += _pos;
+          }
+          pos /= static_cast<float>(node.w);
 
-      struct AONode {
+          node = make_float4(pos.x, pos.y, pos.z, node.w);
+          pMinB[i - 1] = minb;
+          pDiam[i - 1] = maxb - minb;
+        }
+
+        pIdx[i - 1] = idx;
+        pNode[i - 1] = node;
+      }
+      
+      struct ReducableNode {
         float4 node;
         float4 minb;
-        float4 maxb;
-        uint mass;
-      };
+        float4 diam;
 
-      struct AOReductor {
         __device__
-        AONode operator()(const AONode &l, const AONode &r) {
-          // Escape empty nodes
-          if (l.mass == 0) {
-            return r;
-          } else if (r.mass == 0) {
-            return l;
-          }
-          
-          // Reduce node from two non-empty nodes
-          AONode node;
-          node.mass = l.mass + r.mass;
-          node.node = (static_cast<float>(l.mass) * l.node 
-                    + static_cast<float>(r.mass) * r.node) 
-                    / static_cast<float>(node.mass);
-          node.minb = fminf(l.minb, r.minb);
-          node.maxb = fmaxf(l.maxb, r.maxb);
-          
-          // Compute node diameter as maxb - minb
-          float4 diamv = node.maxb - node.minb;
-          node.node.w = dot(diamv, diamv);
+        ReducableNode()
+        { }
 
-          return node;
+        __device__
+        ReducableNode(float4 node, float4 minb, float4 diam)
+        : node(node), minb(minb), diam(diam)
+        { }
+
+        __device__
+        ReducableNode(const ReducableNode &l, const ReducableNode &r)
+        : minb(fminf(l.minb, r.minb)),
+          diam(fmaxf(l.diam + l.minb, r.diam + r.minb) - minb)
+        { 
+          float mass = l.node.w + r.node.w;
+          node = (l.node.w * l.node + r.node.w * r.node) / mass;
+          node.w = mass;
         }
       };
 
-      template <uint KNode>
-      __global__
-      void kernConstrNodes(
-        BVHLayout layout,
-        uint level, uint lNodes, uint lOffset,
-        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB)
+      __device__
+      ReducableNode reduce(ReducableNode l, ReducableNode r)
       {
-        typedef cub::WarpReduce<AONode, KNode> WarpReduce;
-        
-        // Allocate WarpReduce shared memory for 1 warp
-        __shared__ typename WarpReduce::TempStorage temp_storage[8];
-
-        const uint globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (globalIdx >= lNodes) {
-          return;
+        if (r.node.w != 0u) {
+          return ReducableNode(l, r);
+        } else {
+          return l;
         }
+      } 
 
-        // Obtain input item per thread
-        const uint logk = static_cast<uint>(log2f(layout.kNode));
-        uint posIdx = lOffset + globalIdx;
-        AONode node = {
-          pNode[posIdx],
-          pMinB[posIdx],
-          pMaxB[posIdx],
-          pMass[posIdx]
-        };
-        
-        // Perform reduction
-        int warp_id = threadIdx.x / 32;
-        AONode aggregate = WarpReduce(temp_storage[warp_id]).Reduce(node, AOReductor());
-
-        // Store in lower level
-        posIdx = lOffset - (1u << (logk * (level - 1))) + globalIdx / KNode;
-        if (globalIdx % KNode == 0) {
-          pNode[posIdx] = aggregate.node;
-          pMinB[posIdx] = aggregate.minb;
-          pMaxB[posIdx] = aggregate.maxb;
-          pMass[posIdx] = aggregate.mass;
+      __device__
+      ReducableNode read(uint i, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      {
+        const float4 node = pNode[i];
+        if (node.w > 0.f) {
+          return ReducableNode(node, pMinB[i], pDiam[i]);
+        } else {
+          return ReducableNode(make_float4(0), make_float4(0), make_float4(0));
         }
       }
 
-      template __global__
-      void kernConstrNodes<2>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
-      template __global__
-      void kernConstrNodes<4>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
-      template __global__
-      void kernConstrNodes<8>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
-      template __global__
-      void kernConstrNodes<16>(BVHLayout, uint, uint, uint, float4*, uint*, float4*, float4*);
+      __device__
+      void write(uint i, ReducableNode &node, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      {
+        pNode[i] = node.node;
+        pMinB[i] = node.minb;
+        pDiam[i] = node.diam;
+      }
+
+      __global__
+      void kernConstrDataReduce(
+        BVHLayout layout,
+        uint level, uint levels, uint begin, uint end,
+        uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      {
+        __shared__ ReducableNode reductionNodes[32];
+        const uint halfBlockDim = blockDim.x / 2;
+
+        const uint t = threadIdx.x;
+        const uint halft = t / 2;
+        uint i = begin + (blockIdx.x * blockDim.x + threadIdx.x);
+        if (i >= end) {
+          return;
+        }
+        
+        ReducableNode node = read(i - 1, pNode, pMinB, pDiam);
+        i >>= 1;
+        
+        if (t % 2 == 1) {
+          reductionNodes[halft] = node;
+        }
+        __syncthreads();
+        if (t % 2 == 0) {
+          node = reduce(node, reductionNodes[halft]);
+          if (node.node.w == 0.f) {
+            reductionNodes[halft] = read(i - 1, pNode, pMinB, pDiam);
+          } else {
+            reductionNodes[halft] = node;
+            write(i - 1, node, pNode, pMinB, pDiam);
+          }
+        }
+        if (--level == 0) {
+          return;
+        }
+
+        uint mod = 4;
+
+        for (uint j = halfBlockDim / 2; j > 1; j /= 2) {
+          __syncthreads();
+          i >>= 1;
+          
+          if (t % mod == 0) {
+            node = reduce(reductionNodes[halft], reductionNodes[halft + (mod / 4)]);
+            if (node.node.w == 0.f) {
+              reductionNodes[halft] = read(i - 1, pNode, pMinB, pDiam);
+            } else {
+              reductionNodes[halft] = node;
+              write(i - 1, node, pNode, pMinB, pDiam);
+            }
+          }
+          
+          mod *= 2;
+          if (--level == 0) {
+            return;
+          }
+        }
+        
+        // Write out top layer
+        __syncthreads();
+        i >>= 1;
+        if (t == 0) {
+          node = reduce(reductionNodes[0], reductionNodes[halfBlockDim / 2]);
+          if (node.node.w > 0.f) {
+            write(i - 1, node, pNode, pMinB, pDiam);
+          }
+        }
+      }
+      
+      __global__
+      void kernConstrCleanup(
+        uint n, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      {
+        const uint i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= n) {
+          return;
+        }
+        
+        if (pNode[i].w == 0) {
+          pMinB[i] = make_float4(0);
+          pDiam[i] = make_float4(0);
+        }
+      }
     }
   }
 }

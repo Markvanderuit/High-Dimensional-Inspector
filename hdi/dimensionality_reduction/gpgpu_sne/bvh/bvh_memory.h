@@ -73,8 +73,9 @@ namespace hdi {
         enum class MemrType {
           eNode,  // 4 x float
           eMinB,  // 4 x float
-          eMaxB,  // 4 x float
-          eMass,  // 1 x uint
+          eDiam,  // 4 x float
+          ePos,   // 4 x float (sorted)
+          eIdx,   // 1 x uint
 
           size    // static size, eg to_underlying(MemrType::size)
         };
@@ -114,6 +115,8 @@ namespace hdi {
           eTemp,      // ..., work space for sort
           eMortonIn,  // 1 x uint, unsorted morton codes
           eMortonOut, // 1 x uint, sorted morton codes
+          eIdxIn,     // 1 x uint, unsorted position indices
+          eIdxOut,    // 1 x uint, sorted position indices
 
           size        // static size, eg to_underlying(MemrType::size)
         };

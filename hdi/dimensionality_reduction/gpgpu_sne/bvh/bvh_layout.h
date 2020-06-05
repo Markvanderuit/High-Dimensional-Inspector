@@ -58,7 +58,7 @@ namespace hdi {
         uint kNode;   // Fan-out of non-leaf nodes
         uint nPos;    // Nr of embedding points stored in tree
         uint nLvls;   // Nr of tree levels
-        uint nLeaves; // Nr of leaf nodes
+        // uint nLeaves; // Nr of leaf nodes
         uint nNodes;  // Nr of nodes total
 
         /**
@@ -66,16 +66,18 @@ namespace hdi {
          * and number of contained embedding points nPos.
          */
         BVHLayout(uint kNode, uint nPos)
-        : kNode(kNode), 
-          nPos(nPos),
-          nLeaves(nPos)
+        : kNode(kNode),
+          nPos(nPos)
+          // nLeaves(nPos)
         {
           const uint logk = static_cast<uint>(std::log2(kNode));
 
-          nLvls = static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
+          nLvls = 20;// static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
+          // std::cout << nLvls << std::endl;
+          // nLvls = static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
 
           // Raise to nearest convenient nr of leaves for this fanout
-          nLeaves = 1u << (logk * (nLvls - 1));
+          // nLeaves = nPos;// 1u << (logk * (nLvls - 1));
 
           // Compute nr of nodes iteratively (a bit more work because kNode >= 2)
           nNodes = 0u;
@@ -98,7 +100,7 @@ namespace hdi {
         ss << "  kNode    " << layout.kNode << '\n';
         ss << "  nPos     " << layout.nPos << '\n';
         ss << "  nLvls    " << layout.nLvls << '\n';
-        ss << "  nLeaves  " << layout.nLeaves << '\n';
+        // ss << "  nLeaves  " << layout.nLeaves << '\n';
         ss << "  nNodes   " << layout.nNodes << '\n';
         ss << "}";
         return ss.str();

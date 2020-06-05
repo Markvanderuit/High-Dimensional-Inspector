@@ -53,41 +53,28 @@ namespace hdi {
         float4 *pEmb, uint *pMorton);
 
       __global__
-      void _kernConstr(BVHLayout layout, uint *pMorton, uint level,
-        float4 *pPos, float4 *pNode, uint *pMass, uint *pIdx, float4 *pMinB, float4 *pMaxB);
-
-      /**
-       * CUDA kernel to construct BVH leaf nodes over sorted 3D embedding positions.
-       * 
-       * - layout BVH layout data structure
-       * - pPos   ptr to sorted embedding positional data, padded to float4 values.
-       * - pNode  ptr to memory in which node center of mass and diameter will be stored
-       * - pMass  ptr to memory in which node mass (nr of contained points) will be stored
-       * - pIdx   ptr to memory in which the index of a node's first contained point will be stored 
-       * - pMinB  ptr to memory in which node minimum bounds will be stored
-       * - pMaxb  ptr to memory in which node maximum bounds will be stored
-       */
-      __global__
-      void kernConstrLeaves(BVHLayout layout, 
-        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB);
-
-      /**
-       * CUDA kernel to reduce lend - lbegin + 1 levels of BVH nodes into higher-level nodes.
-       * 
-       * - layout BVH layout data structure
-       * - lbegin lowest level to reduce
-       * - lend   highest level to reduce
-       * - pNode  ptr to memory in which node center of mass and diameter will be stored
-       * - pMass  ptr to memory in which node mass (nr of contained points) will be stored
-       * - pMinB  ptr to memory in which node minimum bounds will be stored
-       * - pMaxb  ptr to memory in which node maximum bounds will be stored
-       */
-      template <uint KNode>
-      __global__
-      void kernConstrNodes(
+      void kernConstrPos(
         BVHLayout layout,
-        uint level, uint lNodes, uint lOffset,
-        float4 *pNode, uint *pMass, float4 *pMinB, float4 *pMaxB);
+        uint *idx, float4 *posIn, float4 *posOut);
+
+      /**
+       * CUDA kernel to perform subdivision of BVH nodes using sorted morton codes.
+       */
+      __global__
+      void kernConstrSubdiv(
+        BVHLayout layout,
+        uint level, uint levels, uint begin, uint end,
+        uint *pMorton, uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam);
+
+      __global__
+      void kernConstrDataReduce(
+        BVHLayout layout,
+        uint level, uint levels, uint begin, uint end,
+        uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam);
+
+      __global__
+      void kernConstrCleanup(
+        uint n, float4 *pNode, float4 *pMinB, float4 *pDiam);
     }
   }
 }
