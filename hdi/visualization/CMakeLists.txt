@@ -16,7 +16,7 @@ qt5_wrap_cpp(MocSources ${QOBJHeaderFiles})
 qt5_add_resources(Resources ${ResourceFiles})
 
 add_library(hdivisualization ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSources} ${Resources})
-target_link_libraries (hdivisualization Qt5::Widgets Qt5::OpenGL hdiutils)
+target_link_libraries (hdivisualization glad Qt5::Widgets Qt5::OpenGL hdiutils)
 
 ########### INSTALL ##############
 install (TARGETS hdivisualization DESTINATION bin)

@@ -15,8 +15,16 @@ endfunction()
 # Gather list of all .h files in "/"
 file(GLOB HeaderFiles *.h)
 file(GLOB SourceFiles *.cpp) 
-file(GLOB GpgpuHeaderFiles gpgpu_sne/*.h gpgpu_sne/bvh/*.h)
-file(GLOB GpgpuSourceFiles gpgpu_sne/*.cpp gpgpu_sne/bvh/*.cpp gpgpu_sne/*.cu gpgpu_sne/bvh/*.cu)
+file(GLOB GpgpuHeaderFiles 
+  gpgpu_sne/*.h 
+  gpgpu_sne/bvh/*.h
+  gpgpu_sne/utils/*.h)
+file(GLOB GpgpuSourceFiles 
+  gpgpu_sne/*.cpp 
+  gpgpu_sne/bvh/*.cpp 
+  gpgpu_sne/utils/*.cpp 
+  gpgpu_sne/*.cu 
+  gpgpu_sne/bvh/*.cu)
 
 add_library (hdidimensionalityreduction 
   ${HeaderFiles} 
@@ -26,7 +34,7 @@ add_library (hdidimensionalityreduction
 # target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_11)
 set_target_properties(hdidimensionalityreduction PROPERTIES CUDA_STANDARD 14)
 target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_14)
-target_link_libraries(hdidimensionalityreduction hdiutils hdidata cub cuda_helper flann::flann glm)
+target_link_libraries(hdidimensionalityreduction hdiutils hdidebug hdidata cub cuda_helper flann::flann glm)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction 

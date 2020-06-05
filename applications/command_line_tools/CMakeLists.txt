@@ -5,13 +5,14 @@ MACRO(ADD_PROJECT Name Sources MocSources)
   target_link_libraries (${Name} 
     hdidata
     hdiutils
+    hdidebug
     hdidimensionalityreduction
     hdivisualization
     flann::flann
     Qt5::Widgets
     Qt5::OpenGL
     OpenGL::GL
-    glfw
+    cxxopts
   )
   MESSAGE( STATUS "Project: " ${Name} )
   set_target_properties(${Name} PROPERTIES FOLDER "Applications/Command line tools")
@@ -24,6 +25,7 @@ MACRO(ADD_COMMANDLINE_PROJECT Name Sources)
   target_link_libraries (${Name} 
     hdidata
     hdiutils
+    hdidebug
     hdidimensionalityreduction
     flann::flann
   )
@@ -45,6 +47,7 @@ ADD_PROJECT(3d_embedding_viewer 3d_embedding_viewer.cpp "${Resources}")
 ADD_PROJECT(pex_viewer pex_viewer.cpp  "${Resources}")
 ADD_PROJECT(bhtsne_cmd bhtsne_cmd.cpp  "${Resources}")
 ADD_PROJECT(gpgpusne_cmd gpgpusne_cmd.cpp  "${Resources}")
+ADD_PROJECT(viewer viewer.cpp  "${Resources}")
 ADD_COMMANDLINE_PROJECT(tsne_cmd tsne_cmd.cpp)
 ADD_COMMANDLINE_PROJECT(atsne_cmd atsne_cmd.cpp)
 ADD_COMMANDLINE_PROJECT(tsne_distance_matrix_cmd tsne_distance_matrix_cmd.cpp)

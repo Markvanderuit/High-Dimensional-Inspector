@@ -7,7 +7,7 @@ file(GLOB HeaderFiles *.h)
 file(GLOB SourceFiles *.cpp)
 
 add_library (hdidata ${HeaderFiles} ${SourceFiles} )
-target_link_libraries (hdidata roaring)
+target_link_libraries (hdidata glad roaring)
 
 ########### INSTALL ##############
 install (TARGETS hdidata DESTINATION bin)
