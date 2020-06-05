@@ -88,8 +88,8 @@ namespace hdi {
 
     template <typename scalar_type>
     void computePrecisionRecall(const data::PanelData<scalar_type>& panel_data, const data::Embedding<scalar_type>& embedding, const std::vector<unsigned int>& pnts_to_evaluate, std::vector<scalar_type>& precision, std::vector<scalar_type>& recall, unsigned int K){
-      checkAndThrowLogic(pnts_to_evaluate.size()>0,"computePrecisionRecall: At least one point must be evaluated");
-      checkAndThrowLogic(K>1,"computePrecisionRecall: K must be higher than 1");
+      checkAndThrowLogic(pnts_to_evaluate.size() > 0,"computePrecisionRecall: At least one point must be evaluated");
+      checkAndThrowLogic(K > 1,"computePrecisionRecall: K must be higher than 1");
 
       //KD Tree with nanoflann for KNN in the embedding
       EmbeddingNanoFlannAdaptor<scalar_type> emb_adaptor(embedding);
@@ -103,68 +103,52 @@ namespace hdi {
       recall.resize(K,0);
 
       //temp
-      VpTree<DataPoint, euclidean_distance<float> >tree;
+      VpTree<DataPoint, euclidean_distance<float>> tree;
       std::vector<DataPoint> obj_X(panel_data.numDataPoints(), DataPoint(panel_data.numDimensions(), -1, panel_data.getData().data()));
       {
         int n = 0;
-        for(n = 0; n < panel_data.numDataPoints(); n++)
+        for (n = 0; n < panel_data.numDataPoints(); n++)
           obj_X[n] = DataPoint(panel_data.numDimensions(), n, panel_data.getData().data() + n * panel_data.numDimensions());
         tree.create(obj_X);
       }
-      
-#ifdef __USE_GCD__
-      std::cout << "GCD dispatch, evaluation 116.\n";
-      dispatch_queue_t criticalQueue = dispatch_queue_create("critical", NULL);
-      dispatch_apply(pnts_to_evaluate.size(), dispatch_get_global_queue(0, 0), ^(size_t i) {
-#else
-      #pragma omp parallel for
-      for(int i = 0; i < pnts_to_evaluate.size(); ++i){
-#endif //__USE_GCD__
-        unsigned int id = pnts_to_evaluate[i];
 
+      #pragma omp parallel for
+      for(int i = 0; i < pnts_to_evaluate.size(); ++i) {
+        unsigned int id = pnts_to_evaluate[i];
         std::vector<DataPoint> indices_hd;
         std::vector<float> distances_hd;
+        auto& obj = obj_X[id];
         tree.search(obj_X[id], K + 1, &indices_hd, &distances_hd);
 
         nanoflann::KNNResultSet<scalar_type>  emb_result_set(K+1);
-        std::vector<size_t>           indices_emb(K+1,0);
-        std::vector<scalar_type>        distances_emb(K+1,0);
+        std::vector<size_t> indices_emb(K+1,0);
+        std::vector<scalar_type> distances_emb(K+1,0);
         emb_result_set.init(indices_emb.data(),distances_emb.data());
         emb_index.findNeighbors(emb_result_set,&(embedding.getContainer()[id*embedding.numDimensions()]),nanoflann::SearchParams(10));
 
         std::unordered_set<unsigned int> hd_id_set;
-        for(int j = 0; j < K; ++j){
+        for(int j = 0; j < K; ++j) {
           hd_id_set.insert(indices_hd[1+j].index());
         }
 
-        for(int k = 1; k <= K; ++k){
+        for(int k = 1; k <= K; ++k) {
           unsigned int num_positive(0);
           for(int j = 0; j < k; ++j){
             if(hd_id_set.find(indices_emb[1+j]) != hd_id_set.end()){
               ++num_positive;
             }
           }
+          
           float precision_val = float(num_positive) / k;
           float recall_val = float(num_positive) / K;
 
-#ifdef __USE_GCD__
-          dispatch_sync(criticalQueue, ^{
-#else
-#pragma critical
-            {
-#endif //__USE_GCD__
+          #pragma omp critical
+          {
             precision[k-1] += precision_val;
             recall[k-1] += recall_val;
           }
-#ifdef __USE_GCD__
-          );
-#endif
         }
       }
-#ifdef __USE_GCD__
-      );
-#endif
-
       for(auto& v: precision){
         v /= pnts_to_evaluate.size();
       }
