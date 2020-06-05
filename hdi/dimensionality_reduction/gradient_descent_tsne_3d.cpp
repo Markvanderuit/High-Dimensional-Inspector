@@ -61,25 +61,39 @@ namespace hdi::dr {
     unsigned int n = probabilities.size();
     
     utils::secureLog(_logger, "Computing high-dimensional joint probability distribution...");
+    float t = 0.f;
 
-    // Properly size P
-    _P.clear();
-    _P.resize(n);
+    {
+      utils::ScopedTimer<float, hdi::utils::Seconds> timer(t);
+      
+      // Properly size P
+      _P.clear();
+      _P.resize(n);
 
-    // Fill P following formula
-    for (int j = 0; j < n; j++) {
-      for (const auto& elem : probabilities[j]) {
-        scalar_t v0 = elem.second, v1 = 0.0;
-        const auto iter = probabilities[elem.first].find(j);
-        if (iter != probabilities[elem.first].end()) {
-          v1 = iter->second;
+      #pragma omp parallel for
+      for (int i = 0; i < n; ++i) {
+        _P[i].memory().reserve(300);
+      }
+
+      // Fill P following formula
+      for (int j = 0; j < n; j++) {
+        const auto& _probabilities = probabilities[j];
+
+        for (const auto& elem : _probabilities) {
+          scalar_t v = 0.5 * elem.second;
+
+          const auto iter = probabilities[elem.first].find(j);
+          if (iter != probabilities[elem.first].end()) {
+            v += 0.5 * iter->second;
+          }
+          
+          // Set Pji and Pij to (Pi|j + Pj|i) / 2
+          _P[j][elem.first] = v;
+          _P[elem.first][j] = v;
         }
-
-        // Set Pji and Pij to (Pi|j + Pj|i) / 2
-        _P[j][elem.first] = static_cast<scalar_t>((v0 + v1) * 0.5); 
-        _P[elem.first][j] = static_cast<scalar_t>((v0 + v1) * 0.5); 
       }
     }
+    utils::secureLogValue(_logger, "Computation time", t);
 
     // Properly size embedding, add 1 dimension padding for vec4 on gpu
     _embedding->resize(_params._embedding_dimensionality, n, 0, 1);
