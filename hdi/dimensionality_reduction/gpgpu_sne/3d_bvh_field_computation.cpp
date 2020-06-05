@@ -54,6 +54,7 @@ namespace hdi::dr {
 
   void BVHFieldComputation::initialize(const TsneParameters& params, 
                                             GLuint position_buff, 
+                                            GLuint bounds_buff, 
                                             unsigned n) {
     TIMERS_CREATE()
     _params = params;
@@ -65,7 +66,7 @@ namespace hdi::dr {
       }
       _programs[PROGRAM_GRID].addShader(VERTEX, grid_vert_src);
       _programs[PROGRAM_GRID].addShader(FRAGMENT, grid_fragment_src);
-      _programs[PROGRAM_FIELD].addShader(COMPUTE, _field_bvh_src); 
+      _programs[PROGRAM_FIELD].addShader(COMPUTE, field_bvh_src); 
       _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
@@ -120,13 +121,15 @@ namespace hdi::dr {
     glGenVertexArrays(1, &_point_vao);
 
     _bvh.init(params, position_buff, n);
+    _renderer.init(_bvh, bounds_buff);
 
     _iteration = 0;
     _initialized = true;
   }
 
   void BVHFieldComputation::clean() {
-    TIMERS_DESTROY()
+    TIMERS_DESTROY();
+    _renderer.destr();
     _bvh.destr();
     glDeleteTextures(_textures.size(), _textures.data());
     glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
@@ -164,8 +167,13 @@ namespace hdi::dr {
     }
 
     // Compute BVH structure over embedding
-    _bvh.compute(bounds);
+    _bvh.compute(bounds, _iteration >= _params._iterations - 1);
 
+    {
+      const auto& memr = _bvh.memr();
+      // glCopyNamedBufferSubData(memr.bufferHandle(), position_buff, memr.memrOffset(bvh::BVHExtMemr::MemrType::ePos), 0, memr.memrSize(bvh::BVHExtMemr::MemrType::ePos));
+    }
+    
     // Compute grid texture
     {
       TIMER_TICK(TIMER_GRID)
@@ -204,6 +212,7 @@ namespace hdi::dr {
       glDisable(GL_COLOR_LOGIC_OP);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       program.release();
+      GL_ASSERT("3dBvhFieldComputation::grid");
       TIMER_TOCK(TIMER_GRID)
     }
 
@@ -213,86 +222,28 @@ namespace hdi::dr {
       auto &program = _programs[PROGRAM_FIELD];
       program.bind();
 
-      // Query bvh for layout specs and buffer handle
-      const auto layout = _bvh.layout();
-      const GLuint buff = _bvh.buffer();
-
-      // Compute appropriate buffer range sizes
-      GLsizeiptr float4Size = 4 * sizeof(float);
-      GLsizeiptr nodeSize = float4Size * (layout.nNodes + layout.nLeaves);
-      GLsizeiptr massSize = sizeof(unsigned) * (layout.nNodes + layout.nLeaves);
-      GLsizeiptr idxSize = sizeof(unsigned) * layout.nLeaves;
-      GLsizeiptr posSize = float4Size * layout.nPos;
-
-      // Compute appropriate buffer range offsets, accomodating 16 byte padding
-      GLintptr nodeOffset = 0;
-      GLintptr massOffset = nodeSize;
-      GLintptr idxOffset = massOffset + ceilDiv(massSize, float4Size) * float4Size;
-      GLintptr posOffset = idxOffset + ceilDiv(idxSize, float4Size) * float4Size;
-
-      // Bind buffer as ranges
-      glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buff, nodeOffset, nodeSize);
-      glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, buff, massOffset, massSize);
-      glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 2, buff, idxOffset, idxSize);
-      glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 3, buff, posOffset, posSize);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, bounds_buff);
+      // Query bvh for layout specs and memory structure
+      const auto& layout = _bvh.layout();
+      const auto& memr = _bvh.memr();
       
-      /* if (_iteration == 0) {
-        std::cout << "Pos" << std::endl;
-        {
-          std::vector<float> testBuffer(4 * layout.nNodes + layout.nLeaves);
-          glGetNamedBufferSubData(buff, nodeOffset, nodeSize, testBuffer.data());
-          for (int i = 0; i < layout.nNodes + layout.nLeaves; i++) {
-            std::cout << testBuffer[4 * i] << ", "
-                      << testBuffer[4 * i + 1] << ", "
-                      << testBuffer[4 * i + 2] << ", "
-                      << testBuffer[4 * i + 3] << '\n';
-          }
-        }
+      // Bind buffers
+      memr.bindBuffer(bvh::BVHExtMemr::MemrType::eNode, 0);
+      memr.bindBuffer(bvh::BVHExtMemr::MemrType::eIdx, 1);
+      memr.bindBuffer(bvh::BVHExtMemr::MemrType::ePos, 2);
+      memr.bindBuffer(bvh::BVHExtMemr::MemrType::eMinB, 3);
+      memr.bindBuffer(bvh::BVHExtMemr::MemrType::eDiam, 4);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bounds_buff);
 
-        std::cout << "Bounds" << std::endl;
-        {
-          std::vector<float> buffer(16);
-          glGetNamedBufferSubData(bounds_buff, 0, 16 * sizeof(float), buffer.data());
-          std::cout << "min " 
-                    << buffer[0] << ", " 
-                    << buffer[1] << ", "
-                    << buffer[2] << '\n';
-          std::cout << "max " 
-                    << buffer[4] << ", " 
-                    << buffer[5] << ", "
-                    << buffer[6] << '\n';
-        }
-
-        // std::vector<uint> testBuffer(layout.nNodes + layout.nLeaves);
-        // glGetNamedBufferSubData(buff, massOffset, massSize, testBuffer.data());
-        // for (auto& v : testBuffer) {
-        //   std::cout << v << '\n';
-        // }
-
-        // std::vector<uint> testBuffer(layout.nLeaves);
-        // glGetNamedBufferSubData(buff, idxOffset, idxSize, testBuffer.data());
-        // for (auto& v : testBuffer) {
-        //   std::cout << v << '\n';
-        // }
-
-        // exit(0);
-      } */
-
-      // Bind writable image for field texture
+      // Bind textures and images
       glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-
-      // Bind sampler grid texture
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
-      // glBindTextureUnit(0, _textures[TEXTURE_GRID]);
+      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
 
       // Set uniforms
       program.uniform1ui("nPos", layout.nPos);
       program.uniform1ui("kNode", layout.kNode);
       program.uniform1ui("nLvls", layout.nLvls);
       program.uniform1ui("gridDepth", std::min(128u, _d));
-      program.uniform1f("theta", 0.5f);
+      program.uniform1f("theta", 1.f);
       program.uniform3ui("textureSize", _w, _h, _d);
 
       // Dispatch compute shader
@@ -303,35 +254,6 @@ namespace hdi::dr {
       GL_ASSERT("3dBvhFieldComputation::field");
       TIMER_TOCK(TIMER_FIELD)
     }
-
-    // Compute fields 3D texture through O(px n) computation
-    /* {
-      TIMER_TICK(TIMER_FIELD)
-      auto &program = _programs[PROGRAM_FIELD];
-      program.bind();
-
-      // Attach grid texture for sampling
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
-
-      // Set uniforms in compute shader
-      program.uniform1ui("num_points", n);
-      program.uniform1ui("grid_depth", std::min(128u, _d));
-      program.uniform3ui("texture_size", _w, _h, _d);
-      program.uniform1i("grid_texture", 0);
-
-      // Bind textures and buffers
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-
-      // Perform computation
-      glDispatchCompute(_w, _h, 2);
-      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-      
-      program.release();
-      TIMER_TOCK(TIMER_FIELD)
-    } */
 
     // Query field texture for positional values
     {
@@ -361,26 +283,6 @@ namespace hdi::dr {
       GL_ASSERT("3dBvhFieldComputation::interp");
       TIMER_TOCK(TIMER_INTERP)
     }
-
-    // Test output textures every 100 iterations
-    #ifdef FIELD_IMAGE_OUTPUT
-    if (_iteration % FIELD_IMAGE_ITERS == 0) {
-      std::vector<float> buffer(4 * _w * _h * _d);
-      glGetTextureImage(_textures[TEXTURE_FIELD], 0, GL_RGBA, GL_FLOAT, 4 * sizeof(float) * buffer.size(), buffer.data());
-      std::vector<float> image(_w * _h);
-      int z = _d / 2;
-      for (int y = 0; y < _h; y++) {
-        for (int x = 0; x < _w; x++) {
-          int i = _w * _h * z
-                + _w * y
-                + x;
-          image[y * _w + x] = buffer[4 * i];
-        }
-      }
-      std::string filename = "./output/density_" + std::to_string(_iteration);
-      hdi::utils::valuesToImage(filename, image, _w, _h, 1);
-    }
-    #endif // FIELD_IMAGE_OUTPUT 
     
     // Update timers, log values on final iteration
     TIMERS_UPDATE()

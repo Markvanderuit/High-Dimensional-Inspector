@@ -35,11 +35,9 @@
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
+#include "hdi/debug/renderer/bvh.hpp" 
 #include "gpgpu_utils.h"
 #include "3d_utils.h"
-
-#define FIELD_IMAGE_OUTPUT // Output field images every x iterations
-#define FIELD_IMAGE_ITERS 10
 
 namespace hdi::dr {
   class BVHFieldComputation {
@@ -50,6 +48,7 @@ namespace hdi::dr {
     // Initialize gpu components for computation
     void initialize(const TsneParameters& params,
                     GLuint position_buff,
+                    GLuint bounds_buff,
                     unsigned n);
 
     // Remove gpu components
@@ -111,6 +110,7 @@ namespace hdi::dr {
     TsneParameters _params;
     utils::AbstractLog* _logger;
     bvh::BVH _bvh;
+    dbg::BvhRenderer _renderer;
 
     // Query timers matching to shaders
     TIMERS_DECLARE(

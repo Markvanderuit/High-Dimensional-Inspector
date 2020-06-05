@@ -38,7 +38,7 @@
 #include "3d_utils.h"
 
 // #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
-#define USE_BVH // Use BVH for px log n force computations
+// #define USE_BVH // Use BVH for px log n force computations
 
 #ifdef USE_BVH
 // #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/3d_bvh_compute.h" 
