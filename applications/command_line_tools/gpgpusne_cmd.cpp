@@ -40,9 +40,7 @@
 #include "hdi/data/embedding.h"
 #include "hdi/data/panel_data.h"
 #include "hdi/data/io.h"
-#include "hdi/dimensionality_reduction/abstract_gradient_descent_tsne.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne_2d.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne_3d.h"
+#include "hdi/dimensionality_reduction/gradient_descent_tsne.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
 #include <cxxopts/cxxopts.hpp>
@@ -234,18 +232,11 @@ int main(int argc, char *argv[]) {
     hdi::dbg::InputManager inputManager(window);
     hdi::dbg::RenderManager renderManager;
 
-    // Init used T-SNE algorithm
-    std::unique_ptr<hdi::dr::AbstractGradientDescentTSNE> tSNE;
-    if (tsne_params._embedding_dimensionality == 2) {
-      tSNE = std::make_unique<hdi::dr::GradientDescentTSNE2D>();
-    } else if (tsne_params._embedding_dimensionality == 3) {
-      tSNE = std::make_unique<hdi::dr::GradientDescentTSNE3D>();
-    } else {
-      throw std::logic_error("Number of embedding dimensions is not supported!");
-    }
-    tSNE->setLogger(&log);
-    tSNE->initialize(distributions, &embedding, tsne_params);
-
+    // Init T-SNE algorithm
+    hdi::dr::GradientDescentTSNE tSNE;
+    tSNE.setLogger(&log);
+    tSNE.init(distributions, &embedding, tsne_params);
+    
     // Perform minimization
     {
       hdi::utils::secureLog(&log, "Computing gradient descent...");  
@@ -255,7 +246,7 @@ int main(int argc, char *argv[]) {
         // rendering data, swapping buffers
         window.display();
         for (int i = 0; i < iterations; ++i) {
-          tSNE->iterate();
+          tSNE.iterate();
           window.processEvents();
           inputManager.processInputs();
           renderManager.render();
@@ -265,7 +256,7 @@ int main(int argc, char *argv[]) {
       } else {
         // No render loop, just chunk out minimization
         for (int i = 0; i < iterations; ++i) {
-          tSNE->iterate();
+          tSNE.iterate();
         }
       }
     }
@@ -284,7 +275,7 @@ int main(int argc, char *argv[]) {
       hdi::utils::secureLog(&log, "");
       hdi::utils::secureLog(&log, "Computing KL-Divergence...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
-      double KL = tSNE->computeKullbackLeiblerDivergence();
+      double KL = tSNE.computeKullbackLeiblerDivergence();
       hdi::utils::secureLogValue(&log, "KL Divergence", KL);
       hdi::utils::secureLog(&log, "");
     } 
@@ -327,6 +318,8 @@ int main(int argc, char *argv[]) {
         window.display();
       }
     }
+
+    tSNE.destr();
   } catch (std::exception& e) { 
     std::cerr << "Caught exception: " << e.what() << std::endl; 
     return EXIT_FAILURE;
