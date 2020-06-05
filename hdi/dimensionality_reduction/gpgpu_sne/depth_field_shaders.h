@@ -117,7 +117,7 @@ GLSL(grid_fragment_src, 430,
 
 // Compute shader for field computation
 GLSL(field_src, 430,
-  layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer PosInterface { vec3 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
     vec3 minBounds;

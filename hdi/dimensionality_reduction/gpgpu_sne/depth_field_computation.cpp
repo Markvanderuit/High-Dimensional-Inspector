@@ -338,7 +338,7 @@ namespace hdi::dr {
 
       // Cleanup
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      glDisable(GL_LOGIC_OP);
+      glDisable(GL_COLOR_LOGIC_OP);
       program.release();
       TIMER_TOCK(TIMER_GRID)
     }
