@@ -90,17 +90,23 @@ GLSL(sumq_src, 430,
 );
 
 GLSL(positive_forces_src, 430,
-  layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
-  layout(std430, binding = 1) buffer Neigh { uint Neighbours[]; };
-  layout(std430, binding = 2) buffer Prob { float Probabilities[]; };
-  layout(std430, binding = 3) buffer Ind { int Indices[]; };
-  layout(std430, binding = 4) buffer Posit { vec3 PositiveForces[]; };
+  struct IndexStruct {
+    int i;
+    int size;
+  };
 
+  layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+  layout(std430, binding = 0) restrict readonly buffer Pos{ vec3 Positions[]; };
+  layout(std430, binding = 1) restrict readonly buffer Neigh { uint Neighbours[]; };
+  layout(std430, binding = 2) restrict readonly buffer Prob { float Probabilities[]; };
+  layout(std430, binding = 3) restrict readonly buffer Ind { IndexStruct Indices[]; };
+  layout(std430, binding = 4) restrict writeonly buffer Posit { vec3 PositiveForces[]; };
+  layout(location = 0) uniform uint num_points;
+  layout(location = 1) uniform float inv_num_points;
+
+  // Constants and shared memory
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = groupSize / 2;
-  uniform uint num_points;
-  uniform float inv_num_points;
   shared vec3 reduction_array[halfGroupSize];
 
   void main () {
@@ -112,12 +118,11 @@ GLSL(positive_forces_src, 430,
 
     // Computing positive forces using nearest neighbors
     vec3 point_i = Positions[i];
-    int index = Indices[i * 2 + 0];
-    int size = Indices[i * 2 + 1];
+    IndexStruct index = Indices[i];
     vec3 positive_force = vec3(0);
-    for (uint j = lid; j < size; j += groupSize) {
+    for (uint j = lid; j < index.size; j += groupSize) {
       // Get other point coordinates
-      vec3 point_j = Positions[Neighbours[index + j]];
+      vec3 point_j = Positions[Neighbours[index.i + j]];
 
       // Calculate 3D distance between the two points
       vec3 dist = point_i - point_j;
@@ -126,7 +131,7 @@ GLSL(positive_forces_src, 430,
       float qij = 1.f + dot(dist, dist);
 
       // Calculate the attractive force
-      positive_force += Probabilities[index + j] * dist / qij;
+      positive_force += Probabilities[index.i + j] * dist / qij;
     }
     positive_force *= inv_num_points;
 
@@ -153,32 +158,34 @@ GLSL(positive_forces_src, 430,
 
 // Copied from compute_shaders.glsl, adapted for 3d
 GLSL(gradients_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer Posit { vec3 PositiveForces[]; };
-  layout(std430, binding = 1) buffer Fiel { vec4 Fields[]; };
-  layout(std430, binding = 2) buffer SumQInterface { 
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+  layout(std430, binding = 0) restrict readonly buffer Posit { vec3 PositiveForces[]; };
+  layout(std430, binding = 1) restrict readonly buffer Fiel { vec4 Fields[]; };
+  layout(std430, binding = 2) restrict readonly buffer SumQInterface { 
     float sumQ;
     float invSumQ;
   };
-  layout(std430, binding = 3) buffer Grad { vec3 Gradients[]; };
-
-  uniform uint num_points;
-  uniform float exaggeration;
+  layout(std430, binding = 3) restrict writeonly buffer Grad { vec3 Gradients[]; };
+  layout(location = 0) uniform uint num_points;
+  layout(location = 1) uniform float exaggeration;
 
   void main() {
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-          i < num_points;
-          i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      vec3 positive = PositiveForces[i];
-      vec3 negative = Fields[i].yzw * invSumQ;
-      Gradients[i] = 4.f * (exaggeration * positive - negative);
+    uint i = gl_WorkGroupID.x 
+           * gl_WorkGroupSize.x 
+           + gl_LocalInvocationID.x;
+    if (i >= num_points) {
+      return;
     }
+
+    vec3 positive = PositiveForces[i];
+    vec3 negative = Fields[i].yzw * invSumQ;
+    Gradients[i] = 4.f * (exaggeration * positive - negative);
   }
 );
 
 // Copied from compute_shaders.glsl, adapted for 3d
 GLSL(update_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer GradientLayout { vec3 Gradients[]; };
   layout(std430, binding = 2) buffer PrevGradientLayout { vec3 PrevGradients[]; };
@@ -207,25 +214,27 @@ GLSL(update_src, 430,
   }
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-         i < num_points;
-         i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      vec3 grad = Gradients[i];
-      vec3 pgrad = PrevGradients[i];
-      vec3 gain = Gain[i];
-
-      gain = mix(gain * 0.8, gain + 0.2, matches(grad, pgrad));
-      gain = max(gain, vec3(minGain));
-
-      vec3 etaGain = eta * gain;
-      grad = dir(grad) * abs(grad * etaGain) / etaGain;
-      pgrad = iter_mult * pgrad - etaGain * grad;
-
-      Gain[i] = gain;
-      PrevGradients[i] = pgrad;
-      Positions[i] += pgrad * mult;
+    uint i = gl_WorkGroupID.x 
+           * gl_WorkGroupSize.x 
+           + gl_LocalInvocationID.x;
+    if (i >= num_points) {
+      return;
     }
+
+    vec3 grad = Gradients[i];
+    vec3 pgrad = PrevGradients[i];
+    vec3 gain = Gain[i];
+
+    gain = mix(gain * 0.8, gain + 0.2, matches(grad, pgrad));
+    gain = max(gain, vec3(minGain));
+
+    vec3 etaGain = eta * gain;
+    grad = dir(grad) * abs(grad * etaGain) / etaGain;
+    pgrad = iter_mult * pgrad - etaGain * grad;
+
+    Gain[i] = gain;
+    PrevGradients[i] = pgrad;
+    Positions[i] += pgrad * mult;
   }
 );
 
@@ -316,7 +325,7 @@ GLSL(bounds_src, 430,
 
 // Copied from compute_shader.glsl, adapted for 3d
 GLSL(centering_src, 430,
-  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
   layout(std430, binding = 0) buffer Pos{ vec3 Positions[]; };
   layout(std430, binding = 1) buffer BoundsInterface { 
     vec3 minBounds;
@@ -330,11 +339,13 @@ GLSL(centering_src, 430,
   uniform float scaling;
 
   void main() {
-    // Grid stride loop, straight from CUDA, scales better for very large N
-    for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex.x;
-          i < num_points;
-          i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-      Positions[i] = scaling * (Positions[i] - center);
-    }    
+    uint i = gl_WorkGroupID.x 
+           * gl_WorkGroupSize.x 
+           + gl_LocalInvocationID.x;
+    if (i >= num_points) {
+      return;
+    }
+
+    Positions[i] = scaling * (Positions[i] - center);  
   }
 );

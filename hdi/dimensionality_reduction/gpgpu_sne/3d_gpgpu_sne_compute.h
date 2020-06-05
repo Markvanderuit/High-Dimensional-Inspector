@@ -34,18 +34,18 @@
 #include "3d_utils.h"
 #include "gpgpu_utils.h"
 #include "hdi/data/shader.h"
+#include "hdi/debug/renderer/embedding.hpp"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/utils/abstract_log.h"
 #include <cstdlib>
 
 // #define ASSERT_SUM_Q // Enable SumQ != 0 assertion
-#define ENABLE_SCREEN_DRAW // Enable drawing of field texture to screen
 #define USE_BVH // Field computation leverages BVH and BH-approximation
-// #define USE_DEPTH_FIELD    // Field computation leverages depth maps
+// #define USE_DEPTH_FIELD  // Field computation leverages depth maps
 
 #ifdef USE_BVH
 #include "3d_bvh_field_computation.h"
-#elif defined USE_DEPTH_FIELD
+#elif defined(USE_DEPTH_FIELD)
 #include "depth_field_computation.h"
 #else
 #include "3d_field_computation.h"
@@ -73,9 +73,6 @@ public:
   void setLogger(utils::AbstractLog *logger) {
     _logger = logger;
     _fieldComputation.setLogger(logger);
-#ifdef ENABLE_SCREEN_DRAW
-    _screenOutput.setLogger(logger);
-#endif
   }
 
 private:
@@ -128,20 +125,17 @@ private:
   Bounds3D _bounds;
   utils::AbstractLog *_logger;
 
-  // Field computation unit
 #ifdef USE_BVH
   BVHFieldComputation _fieldComputation;
-#elif defined USE_DEPTH_FIELD
+#elif defined(USE_DEPTH_FIELD)
   DepthFieldComputation _fieldComputation;
 #else
   BaselineFieldComputation _fieldComputation;
 #endif
 
   // Screen drawing unit
-#ifdef ENABLE_SCREEN_DRAW
-  Screen2dOutput _screenOutput;
-#endif
+  dbg::EmbeddingRenderer _embeddingRenderer;
 
-  TIMERS_DECLARE(TIMER_SUM_Q, TIMER_GRADIENTS, TIMER_UPDATE, TIMER_BOUNDS, TIMER_CENTERING)
+  TIMERS_DECLARE(TIMER_SUM_Q, TIMER_GRADIENTS, TIMER_UPDATE, TIMER_BOUNDS, TIMER_CENTERING);
 };
 } // namespace hdi::dr

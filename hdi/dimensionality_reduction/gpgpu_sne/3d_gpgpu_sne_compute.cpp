@@ -151,49 +151,45 @@ namespace hdi::dr {
       const LinearProbabilityMatrix LP = linearizeProbabilityMatrix(embedding, P);
       const std::vector<float> zeroes(4 * n, 0);
       const std::vector<float> ones(4 * n, 1);
-      glGenBuffers(_buffers.size(), _buffers.data());
 
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_DRAW);
+      // _bufferPool.add("position", n * sizeof(Point3D));
+      // _bufferPool.add("interp_fields", n * 4 * sizeof(float));
+      // _bufferPool.add("sum_q", 2 * sizeof(float));
+      // _bufferPool.add("sum_q_reduce_add", 128 * sizeof(float));
+      // _bufferPool.add("neighbour", LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data());
+      // _bufferPool.add("probabilities", LP.probabilities.size() * sizeof(float), LP.probabilities.data());
+      // _bufferPool.add("index", LP.indices.size() * sizeof(int), LP.indices.data());
+      // _bufferPool.add("positive_forces", n * sizeof(Point3D));
+      // _bufferPool.add("gradients", n * sizeof(Point3D));
+      // _bufferPool.add("prev_gradients", n * sizeof(Point3D), zeroes.data());
+      // _bufferPool.add("gain", n * sizeof(Point3D), ones.data());
+      // _bufferPool.add("bounds", 4 * sizeof(Point3D), ones.data());
+      // _bufferPool.add("bounds_reduce_add", 2 * 128 * sizeof(Point3D), ones.data());
 
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_INTERP_FIELDS]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * 4 * sizeof(float), nullptr, GL_STATIC_DRAW);
+      glCreateBuffers(_buffers.size(), _buffers.data());
 
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * sizeof(float), nullptr, GL_STREAM_READ);
-      
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_SUM_Q_REDUCE_ADD]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, 128 * sizeof(float), nullptr, GL_STREAM_DRAW);
-      
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_NEIGHBOUR]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data(), GL_STATIC_DRAW);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_PROBABILITIES]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, LP.probabilities.size() * sizeof(float), LP.probabilities.data(), GL_STATIC_DRAW);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_INDEX]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, LP.indices.size() * sizeof(int), LP.indices.data(), GL_STATIC_DRAW);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITIVE_FORCES]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_GRADIENTS]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), nullptr, GL_STREAM_READ);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_PREV_GRADIENTS]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), zeroes.data(), GL_STREAM_READ);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_GAIN]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, n * sizeof(Point3D), ones.data(), GL_STREAM_READ);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
-      
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS_REDUCE_ADD]);
-      glBufferData(GL_SHADER_STORAGE_BUFFER, 2 * 128 * sizeof(Point3D), ones.data(), GL_STREAM_READ);
+      glNamedBufferStorage(_buffers[BUFFER_POSITION], n * sizeof(Point3D), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_INTERP_FIELDS], n * 4 * sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_SUM_Q], 2 * sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_SUM_Q_REDUCE_ADD], 128 * sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_NEIGHBOUR], LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_PROBABILITIES], LP.probabilities.size() * sizeof(float), LP.probabilities.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_INDEX], LP.indices.size() * sizeof(int), LP.indices.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_POSITIVE_FORCES], n * sizeof(Point3D), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_GRADIENTS], n * sizeof(Point3D), nullptr, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_PREV_GRADIENTS], n * sizeof(Point3D), zeroes.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_GAIN], n * sizeof(Point3D), ones.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_BOUNDS], 4 * sizeof(Point3D), ones.data(), GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers[BUFFER_BOUNDS_REDUCE_ADD], 2 * 128 * sizeof(Point3D), ones.data(), GL_DYNAMIC_STORAGE_BIT);
     }
 
+#ifdef USE_BVH
+    _fieldComputation.initialize(_params, _buffers[BUFFER_POSITION], _buffers[BUFFER_BOUNDS], n);
+#else
     _fieldComputation.initialize(_params, _buffers[BUFFER_POSITION], n);
+#endif
+
+    _embeddingRenderer.init(n, _buffers[BUFFER_POSITION], _buffers[BUFFER_BOUNDS]);
 
     GL_ASSERT("Initialized buffers");
     _initialized = true;
@@ -202,6 +198,7 @@ namespace hdi::dr {
   void Gpgpu3dSneCompute::clean() {
     if (_initialized) {
       TIMERS_DESTROY()
+      _embeddingRenderer.destr();
       for (auto& program : _programs) {
         program.destroy();
       }
@@ -219,16 +216,14 @@ namespace hdi::dr {
 
     // Copy embedding positional data over to device
     if (iteration == 0) {
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
-      glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
+      glNamedBufferSubData(_buffers[BUFFER_POSITION], 0, n * sizeof(Point3D), embedding->getContainer().data());
     }
 
     // Compute bounds of the embedding and add 10% border around it
     computeBounds(n, 0.1f);
 
     // Capture padded bounds from gpu
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_BOUNDS]);
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 2 * sizeof(Point3D), &_bounds);
+    glGetNamedBufferSubData(_buffers[BUFFER_BOUNDS], 0, 2 * sizeof(Point3D), &_bounds);
 
     // Determine fields texture dimension (this has a rather significant impact in 3d)
     Point3D range = _bounds.range();
@@ -285,9 +280,8 @@ namespace hdi::dr {
     // Update host embedding data
     if (iteration >= _params._iterations - 1) {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, _buffers[BUFFER_POSITION]);
-      glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, n * sizeof(Point3D), embedding->getContainer().data());
-      
+      glGetNamedBufferSubData(_buffers[BUFFER_POSITION], 0, n * sizeof(Point3D), embedding->getContainer().data());
+
       // Output timer averages
       TIMER_LOG(_logger, TIMER_SUM_Q, "Sum Q")
       TIMER_LOG(_logger, TIMER_GRADIENTS, "Grads")
@@ -383,7 +377,7 @@ namespace hdi::dr {
 
       // Run shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      glDispatchCompute(128, 1, 1);
+      glDispatchCompute(ceilDiv(n, 256u), 1, 1);
 
       program.release();
     }
@@ -416,7 +410,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute(128, 1, 1);
+    glDispatchCompute(ceilDiv(n, 256u), 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_UPDATE)
@@ -444,7 +438,7 @@ namespace hdi::dr {
 
     // Run shader
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glDispatchCompute(128, 1, 1);
+    glDispatchCompute(ceilDiv(n, 256u), 1, 1);
 
     program.release();
     TIMER_TOCK(TIMER_CENTERING)

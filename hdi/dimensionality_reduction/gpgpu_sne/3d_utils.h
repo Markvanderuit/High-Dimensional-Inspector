@@ -42,7 +42,7 @@ namespace hdi {
     struct Bounds3D {
       Point3D min, max;
 
-      Point3D range() {
+      Point3D range() const {
         return Point3D {
           max.x - min.x,
           max.y - min.y,
@@ -50,7 +50,7 @@ namespace hdi {
         };
       }
 
-      Point3D center() {
+      Point3D center() const {
         return Point3D {
           0.5f * (min.x + max.x),
           0.5f * (min.y + max.y),
