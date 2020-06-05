@@ -32,11 +32,11 @@
 
 #include <iostream>
 #include <vector>
+#include <glad/glad.h>
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
 #include "hdi/data/shader.h"
 #include "hdi/utils/scoped_timers.h"
-#include "hdi/utils/glad.h"
 
 // Toggle to globally enable/disable GL_ASSERT()
 #define UTILS_GL_ASSERTS

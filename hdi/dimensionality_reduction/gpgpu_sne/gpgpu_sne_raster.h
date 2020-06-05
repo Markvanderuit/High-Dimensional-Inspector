@@ -32,12 +32,7 @@
 
 #pragma once
 
-#ifdef __APPLE__
-    #include <OpenGL/gl3.h>
-#else // __APPLE__
-    #include "hdi/utils/glad.h"
-#endif // __APPLE__
-
+#include <glad/glad.h>
 #include "hdi/data/shader.h"
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
