@@ -57,7 +57,7 @@ GLSL(stencil_fragment_src, 430,
   layout (location = 0) out uint color;
 
   void main() {
-    color = 1u;;
+    color = 1u;
   }
 );
 

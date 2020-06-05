@@ -155,7 +155,7 @@ namespace hdi::dr {
       glBindVertexArray(_point_vao);
       glBindBuffer(GL_ARRAY_BUFFER, position_buff);
       glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-      glEnableVertexAttribArray(0);
+      glEnableVertexAttribArray(0); 
       glPointSize(pointSize);
       glDrawArrays(GL_POINTS, 0, n);
 

@@ -200,7 +200,7 @@ namespace hdi::dr {
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_NORMALIZED]);
 
       // Set viewport
-      glViewport(0, 0, 980, 980);
+      glViewport(0, 0, 1920, 1920);
 
       // Set framebuffer
       GLuint fbo = 0; // use default framebuffer

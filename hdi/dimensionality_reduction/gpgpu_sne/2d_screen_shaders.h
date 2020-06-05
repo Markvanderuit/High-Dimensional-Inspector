@@ -125,18 +125,18 @@ GLSL(screen_vert_src, 430, layout(location = 0) in vec2 vertexPosition;
      });
 
 GLSL(screen_frag_src, 430, layout(location = 0) in vec2 texelPosition;
-    //  layout(location = 0) out vec3 color;
-    //  layout(location = 0) uniform sampler2D textureSampler;
+     layout(location = 0) out vec3 color;
+     layout(location = 0) uniform sampler2D textureSampler;
 
-     layout(location = 0) out vec4 color;
-     layout(location = 0) uniform usampler2D textureSampler;
+    //  layout(location = 0) out vec4 color;
+    //  layout(location = 0) uniform usampler2D textureSampler;
 
      void main() {
        // Visualize voxel grid using bitCount() / 32.f
-       uvec4 v = texture(textureSampler, texelPosition);
-       ivec4 density = bitCount(v);
-       color = 1 - vec4(density) / 32.f;
+      //  uvec4 v = texture(textureSampler, texelPosition);
+      //  ivec4 density = bitCount(v);
+      //  color = 1 - vec4(density) / 32.f;
 
        // Visualise density/gradient field
-      //  color = texture(textureSampler, texelPosition).xyz;
+       color = texture(textureSampler, texelPosition).xyz;
      });
