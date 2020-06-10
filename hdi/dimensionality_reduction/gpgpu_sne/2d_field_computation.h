@@ -30,43 +30,48 @@
 
 #pragma once
 
+#define USE_BVH // Use BVH for px log n field computations
+
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "gpgpu_utils.h"
-#include "2d_utils.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
+#ifdef USE_BVH
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
+// #include "hdi/debug/renderer/bvh.hpp" 
+#endif
 
 namespace hdi::dr {
   class Baseline2dFieldComputation {
+    typedef Bounds<2> Bounds;
+    typedef glm::vec<2, float, glm::aligned_highp> vec;
+    typedef glm::vec<2, uint, glm::aligned_highp> uvec;
+
   public:
     Baseline2dFieldComputation();
     ~Baseline2dFieldComputation();
 
-    // Initialize gpu components for computation
-    void initialize(const TsneParameters& params,
+    void init(const TsneParameters& params,
+                    GLuint position_buff,
+                    GLuint bounds_buff,
                     unsigned n);
-
-    // Remove gpu components
-    void clean();
-
-    // Compute field and depth textures
-    void compute(unsigned w, unsigned h,
-                 float function_support, unsigned iteration, unsigned n,
+    void destr();
+    void compute(uvec dims, float function_support, unsigned iteration, unsigned n,
                  GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
-                 Bounds2D bounds);
+                 Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-    }
-
-    GLuint texture() const {
-      return _textures[TEXTURE_FIELD];
+#ifdef USE_BVH
+      _bvh.setLogger(logger);
+#endif
     }
 
   private:
-    bool _initialized;
-    unsigned _w, _h;
+    bool _isInit;
+    uvec _dims;
 
     enum TextureType {
       // Enum values matching to textures in _textures array
@@ -79,34 +84,32 @@ namespace hdi::dr {
 
     enum ProgramType {
       // Enum values matching to shader programs in _programs array
-      PROGRAM_STENCIL,
-      PROGRAM_FIELD,
-      PROGRAM_INTERP,
+      PROG_STENCIL,
+      PROG_FIELD,
+      PROG_INTERP,
 
       // Static enum length
       ProgramTypeLength
     };
 
-    enum FramebufferType {
-      // Enum values matching to framebuffers programs in _framebuffers array
-      FBO_STENCIL,
-
-      // Static enum length
-      FramebufferTypeLength
-    };
-
-    GLuint _point_vao;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
-    std::array<GLuint, FramebufferTypeLength> _framebuffers;
     std::array<GLuint, TextureTypeLength> _textures;
+    GLuint _vrao_point;
+    GLuint _frbo_stencil;
     TsneParameters _params;
     utils::AbstractLog* _logger;
+#ifdef USE_BVH
+    bvh::BVH<2> _bvh;
+    // dbg::BvhRenderer _renderer;
+    bool _rebuildBvhOnIter;
+    double _lastRebuildBvhTime;
+#endif
 
     // Query timers matching to each shader
-    TIMERS_DECLARE(
-      TIMER_STENCIL, 
-      TIMER_FIELD, 
-      TIMER_INTERP
-    )
+    DECL_TIMERS(
+      TIMR_STENCIL, 
+      TIMR_FIELD, 
+      TIMR_INTERP
+    );
   };
 }

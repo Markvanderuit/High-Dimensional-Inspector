@@ -33,29 +33,39 @@
 #include <algorithm>
 #include "2d_field_computation.h"
 #include "2d_field_shaders.h"
-#include "hdi/visualization/opengl_helpers.h"
-#include "hdi/utils/visual_utils.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/utils/log_helper_functions.h"
+
+template <typename genType> 
+inline
+genType ceilDiv(genType n, genType div) {
+  return (n + div - 1) / div;
+}
 
 // Magic numbers
 constexpr float pointSize = 3.f;
 
 namespace hdi::dr {
   Baseline2dFieldComputation::Baseline2dFieldComputation()
-  : _initialized(false), _w(0), _h(0) {
-    // ...
+  : _isInit(false), _dims(0), _logger(nullptr) {
+#ifdef USE_BVH
+    _rebuildBvhOnIter = true;
+    _lastRebuildBvhTime = 0.0;
+#endif
   }
 
   Baseline2dFieldComputation::~Baseline2dFieldComputation() {
-    if (_initialized) {
-      clean();
+    if (_isInit) {
+      destr();
     }
   }
 
   // Initialize gpu components for computation
-  void Baseline2dFieldComputation::initialize(const TsneParameters& params,
+  void Baseline2dFieldComputation::init(const TsneParameters& params, 
+                                              GLuint position_buff,
+                                              GLuint bounds_buff, 
                                               unsigned n) {
-    TIMERS_CREATE()
+    INIT_TIMERS()
     _params = params;
 
     // Build shader programs
@@ -63,10 +73,14 @@ namespace hdi::dr {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROGRAM_STENCIL].addShader(VERTEX, stencil_vert_src);
-      _programs[PROGRAM_STENCIL].addShader(FRAGMENT, stencil_fragment_src);
-      _programs[PROGRAM_FIELD].addShader(COMPUTE, field_src); 
-      _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
+      _programs[PROG_STENCIL].addShader(VERTEX, stencil_vert_src);
+      _programs[PROG_STENCIL].addShader(FRAGMENT, stencil_fragment_src);
+#ifdef USE_BVH
+      _programs[PROG_FIELD].addShader(COMPUTE, field_bvh_src); 
+#else
+      _programs[PROG_FIELD].addShader(COMPUTE, field_src); 
+#endif
+      _programs[PROG_INTERP].addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
       }
@@ -76,7 +90,6 @@ namespace hdi::dr {
     }
     
     glGenTextures(_textures.size(), _textures.data());
-    glGenFramebuffers(_framebuffers.size(), _framebuffers.data());
     
     // Generate stencil texture
     glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
@@ -93,143 +106,196 @@ namespace hdi::dr {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     
     // Generate framebuffer for grid computation
-    glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_STENCIL]);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_STENCIL], 0);
-    glDrawBuffer(GL_COLOR_ATTACHMENT0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glCreateFramebuffers(1, &_frbo_stencil);
+    glNamedFramebufferTexture(_frbo_stencil, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_STENCIL], 0);
+    glNamedFramebufferDrawBuffer(_frbo_stencil, GL_COLOR_ATTACHMENT0);
 
-    glGenVertexArrays(1, &_point_vao);
-    _initialized = true;
+    // Generate vrao for point drawing
+    glCreateVertexArrays(1, &_vrao_point);
+    glVertexArrayVertexBuffer(_vrao_point, 0, position_buff, 0, 2 * sizeof(float));
+    glEnableVertexArrayAttrib(_vrao_point, 0);
+    glVertexArrayAttribFormat(_vrao_point, 0, 2, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vrao_point, 0, 0);
+
+#ifdef USE_BVH
+    _bvh.init(params, position_buff, bounds_buff, n);
+    // _renderer.init(_bvh, bounds_buff);
+#endif
+
+    _isInit = true;
   }
 
   // Remove gpu components
-  void Baseline2dFieldComputation::clean() {
-    TIMERS_DESTROY()
+  void Baseline2dFieldComputation::destr() {
+    DSTR_TIMERS()
+#ifdef USE_BVH
+    // _renderer.destr();
+    _bvh.destr();
+#endif
     glDeleteTextures(_textures.size(), _textures.data());
-    glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
-    glDeleteVertexArrays(1, &_point_vao);
+    glDeleteFramebuffers(1, &_frbo_stencil);
+    glDeleteVertexArrays(1, &_vrao_point);
     for (auto& program : _programs) {
       program.destroy();
     }
-    _programs.fill(ShaderProgram());
-    _initialized = false;
+    _isInit = false;
   }
 
   // Compute field and depth textures
-  void Baseline2dFieldComputation::compute(unsigned w, unsigned h,
-                float function_support, unsigned iteration, unsigned n,
-                GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
-                Bounds2D bounds) {
-    Point2D minBounds = bounds.min;
-    Point2D range = bounds.range();
+  void Baseline2dFieldComputation::compute(uvec dims, float function_support, unsigned iteration, unsigned n,
+                                           GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
+                                           Bounds bounds) {
+    vec minBounds = bounds.min;
+    vec range = bounds.range();
 
     // Rescale textures if necessary
-    if (_w != w || _h != h) {
-      _w = w;
-      _h = h;
+    if (_dims != dims) {
+      _dims = dims;
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, _w, _h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, _dims.x, _dims.y, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr);
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_FIELD]);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, _w, _h, 0, GL_RGBA, GL_FLOAT, nullptr);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, _dims.x, _dims.y, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
+
+#ifdef USE_BVH
+    // Compute BVH structure over embedding
+    _bvh.compute(_rebuildBvhOnIter, iteration);
+#endif
 
     // Compute stencil texture
     {
-      TIMER_TICK(TIMER_STENCIL)
-      auto& program = _programs[PROGRAM_STENCIL];
+      TICK_TIMER(TIMR_STENCIL)
+
+      auto& program = _programs[PROG_STENCIL];
       program.bind();
 
-      // Bind bounds buffer
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
+      // Specify and clear framebuffer
+      glBindFramebuffer(GL_FRAMEBUFFER, _frbo_stencil);
+      constexpr std::array<float, 4> clearColor = { 0.f, 0.f, 0.f, 0.f };
+      constexpr float clearDepth = 1.f;
+      glClearNamedFramebufferfv(_frbo_stencil, GL_COLOR, 0, clearColor.data());
+      glClearNamedFramebufferfv(_frbo_stencil, GL_DEPTH, 0, &clearDepth);
 
-      // Prepare for drawing
-      glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_STENCIL]);
-      glViewport(0, 0, _w, _h);
-      glClearColor(0.f, 0.f, 0.f, 0.f);
-      glClearDepthf(1.f);
-      glClear(GL_COLOR_BUFFER_BIT);
+      // Specify viewport and point size, bind bounds buffer
+      glViewport(0, 0, _dims.x, _dims.y);
+      glPointSize(pointSize);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
       
       // Draw a point at each embedding position
-      glBindVertexArray(_point_vao);
-      glBindBuffer(GL_ARRAY_BUFFER, position_buff);
-      glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-      glEnableVertexAttribArray(0); 
-      glPointSize(pointSize);
+      glBindVertexArray(_vrao_point);
       glDrawArrays(GL_POINTS, 0, n);
 
       // Cleanup
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      program.release();
-      TIMER_TOCK(TIMER_STENCIL)
+      
+      TOCK_TIMER(TIMR_STENCIL)
     }
 
     // Compute fields texture
     {
-      TIMER_TICK(TIMER_FIELD)
-      auto& program = _programs[PROGRAM_FIELD];
+      TICK_TIMER(TIMR_FIELD)
+
+      auto& program = _programs[PROG_FIELD];
       program.bind();
 
-      // Attach stencil texture for sampling
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
+#ifdef USE_BVH
+      // Query bvh for layout specs and memory structure
+      const auto& layout = _bvh.layout();
+      const auto& memr = _bvh.memr();
 
-      // Set uniforms in compute shader
+      // Bind buffers
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eNode, 0);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eIdx, 1);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::ePos, 2);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eMinB, 3);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eDiam, 4);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bounds_buff);
+      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, position_buff);
+      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, interp_buff);
+
+      // Bind textures and images
+      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures[TEXTURE_STENCIL]);
+
+      // Set uniforms
+      program.uniform1ui("nPos", layout.nPos);
+      program.uniform1ui("kNode", layout.kNode);
+      program.uniform1ui("nLvls", layout.nLvls);
+      program.uniform1f("theta", .5f);
+      program.uniform2ui("textureSize", _dims.x, _dims.y);
+
+      // Dispatch compute shader
+      // glDispatchCompute(ceilDiv(layout.nPos, 256u), 1, 1);
+      glDispatchCompute(ceilDiv(_dims.x, 16u), ceilDiv(_dims.y, 16u), 1);
+      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
+#else
       program.uniform1ui("num_points", n);
-      program.uniform2ui("texture_size", _w, _h);
+      program.uniform2ui("texture_size", _dims.x, _dims.y);
       program.uniform1i("stencil_texture", 0);
 
       // Bind textures and buffers
+      glBindTextureUnit(0, _textures[TEXTURE_STENCIL]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
       glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-      // Perform computation
-      glDispatchCompute(_w, _h, 1);
+      // Dispatch compute shader
+      glDispatchCompute(_dims.x, _dims.y, 1);
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+#endif
 
-      program.release();
-      TIMER_TOCK(TIMER_FIELD)
+      TOCK_TIMER(TIMR_FIELD)
     }
 
     // Query field texture for positional values
     {
-      TIMER_TICK(TIMER_INTERP)
-      auto& program = _programs[PROGRAM_INTERP];
+      TICK_TIMER(TIMR_INTERP)
+
+      auto& program = _programs[PROG_INTERP];
       program.bind();
+      program.uniform1ui("num_points", n);
+      program.uniform2ui("texture_size", _dims.x, _dims.y);
+      program.uniform1i("fields_texture", 0);
 
-      // Bind the textures for this shader
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_FIELD]);
-
-      // Bind buffers for this shader
+      // Bind textures and buffers
+      glBindTextureUnit(0, _textures[TEXTURE_FIELD]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, interp_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bounds_buff);
-
-      // Bind uniforms for this shader
-      program.uniform1ui("num_points", n);
-      program.uniform2ui("texture_size", _w, _h);
-      program.uniform1i("fields_texture", 0);
 
       // Dispatch compute shader
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       glDispatchCompute((n / 128) + 1, 1, 1);
 
-      // Cleanup
-      program.release();
-      TIMER_TOCK(TIMER_INTERP)
+      TOCK_TIMER(TIMR_INTERP)
     }
     
     // Update timers, log values on final iteration
-    TIMERS_UPDATE()
-    if (TIMERS_LOG_ENABLE && iteration == _params._iterations - 1) {
+    POLL_TIMERS()
+    if (iteration == _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
-      TIMER_LOG(_logger, TIMER_STENCIL, "  Stencil")
-      TIMER_LOG(_logger, TIMER_FIELD, "  Field")
-      TIMER_LOG(_logger, TIMER_INTERP, "  Interp")
-      utils::secureLog(_logger, "");
+      LOG_TIMER(_logger, TIMR_STENCIL, "  Stencil")
+      LOG_TIMER(_logger, TIMR_FIELD, "  Field")
+      LOG_TIMER(_logger, TIMR_INTERP, "  Interp")
     }
+
+// #ifdef USE_BVH
+//     // Rebuild BVH once field computation time diverges from the last one by a certain degree
+//     if (_rebuildBvhOnIter) {
+//       _lastRebuildBvhTime = glTimers[TIMR_FIELD].lastMicros();
+//       if (iteration >= _params._remove_exaggeration_iter) {
+//         _rebuildBvhOnIter = false;
+//         std::cout << iteration << std::endl;
+//       }
+//     } else if (_lastRebuildBvhTime > 0.0) {
+//       double currentRebuildTime = glTimers[TIMR_FIELD].lastMicros();
+//       if (std::abs(currentRebuildTime - _lastRebuildBvhTime) / _lastRebuildBvhTime > 0.0075) {
+//         _rebuildBvhOnIter = true;
+//       }
+//     }
+// #endif
   }
 }

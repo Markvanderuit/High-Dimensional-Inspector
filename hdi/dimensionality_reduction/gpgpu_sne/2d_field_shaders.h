@@ -33,10 +33,9 @@
   static const char * name = \
   "#version " #version "\n" #shader
 
-// Vertex shader for stencil computation
-GLSL(stencil_vert_src, 430,
+GLSL(stencil_vert_src, 450,
   layout(location = 0) in vec2 point;
-  layout(std430, binding = 0) buffer BoundsInterface { 
+  layout(std430, binding = 0) restrict readonly buffer Bounds { 
     vec2 minBounds;
     vec2 maxBounds;
     vec2 range;
@@ -52,30 +51,27 @@ GLSL(stencil_vert_src, 430,
   }
 );
 
-// Fragment shader for stencil computation
-GLSL(stencil_fragment_src, 430,
-  layout (location = 0) out uint color;
+GLSL(stencil_fragment_src, 450,
+  layout(location = 0) out uint color;
 
   void main() {
     color = 1u;
   }
 );
 
-// Compute shader for field computation
-GLSL(field_src, 430,
+GLSL(field_src, 450,
   layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer PosInterface { vec2 Positions[]; };
-  layout(std430, binding = 1) buffer BoundsInterface { 
+  layout(binding = 0, std430) restrict readonly buffer Pos { vec2 Positions[]; };
+  layout(binding = 1, std430) restrict readonly buffer Bounds { 
     vec2 minBounds;
     vec2 maxBounds;
     vec2 range;
     vec2 invRange;
   };
-  layout(rgba32f, binding = 0) writeonly uniform image2D fields_texture;
-  
-  uniform uint num_points;
-  uniform uvec2 texture_size;
-  uniform usampler2D stencil_texture;
+  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fields_texture;
+  layout(location = 0) uniform uint num_points;
+  layout(location = 1) uniform uvec2 texture_size;
+  layout(location = 2) uniform usampler2D stencil_texture;
 
   // Reduction components
   const uint groupSize = gl_WorkGroupSize.x;
@@ -132,21 +128,163 @@ GLSL(field_src, 430,
   }
 );
 
-// Compute shader for point sampling from field
-GLSL(interp_src, 430,
+GLSL(field_bvh_src, 450,
+  struct Bounds {
+    vec2 min;
+    vec2 max;
+    vec2 range;
+    vec2 invRange;
+  };
+
+  layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+  layout(binding = 0, std430) restrict readonly buffer NodeBuffer { vec4 nodeBuffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer IdxBuffer { uint idxBuffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer PosBuffer { vec2 posBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer MinbBuffer { vec2 minbBuffer[]; };
+  layout(binding = 4, std430) restrict readonly buffer DiamBuffer { vec2 diamBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
+  layout(binding = 0) uniform usampler2D stencilSampler;
+
+  layout(location = 0) uniform uint nPos;     // nr of points
+  layout(location = 1) uniform uint kNode;    // Node fanout
+  layout(location = 2) uniform uint nLvls;    // Nr of tree levels
+  layout(location = 3) uniform float theta;   // Approximation param
+  layout(location = 4) uniform uvec2 textureSize;
+
+  // Constants
+  const uint logk = uint(log2(kNode));
+  const uint bitmask = ~((~0u) << logk);
+  const float theta2 = theta * theta;
+
+  // Traversal local memory
+  // We start a level lower, as the root node will never approximate
+  uint lvl = 1u;
+  uint loc = 1u;
+  uint stack = 1u | (bitmask << (logk * lvl));
+
+  void descend() {
+    // Move down tree
+    lvl++;
+    loc = loc * kNode + 1u;
+
+    // Push unvisited locations on stack
+    stack |= (bitmask << (logk * lvl));
+  }
+
+  void ascend() {
+    // Find distance to next level on stack
+    uint nextLvl = findMSB(stack) / logk;
+    uint dist = lvl - nextLvl;
+
+    // Move dist up to where next available stack position is
+    // and one to the right
+    if (dist == 0) {
+      loc++;
+    } else {
+      loc >>= logk * dist;
+    }
+    lvl = nextLvl;
+
+    // Pop visited location from stack
+    uint shift = logk * lvl;
+    uint b = (stack >> shift) - 1;
+    stack &= ~(bitmask << shift);
+    stack |= b << shift;
+  }
+
+  bool approx(vec2 domainPos, inout vec3 fieldValue) {
+    // Query values from current node
+    vec4 node = nodeBuffer[loc];
+    vec2 diam = diamBuffer[loc];
+    
+    // Squared distance to pos
+    vec2 t = domainPos - node.xy;
+    float t2 = dot(t, t);
+
+    // Compute squared diameter
+    vec2 b = abs(normalize(t)) * vec2(-1, 1);
+    vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
+    
+    if (dot(c, c) / t2 < theta2 || node.w < 2.f) {
+      // If BH-approximation passes, compute approximated value
+      float tStud = 1.f / (1.f + t2);
+
+      // Field layout is: S, V.x, V.y, V.z
+      fieldValue += node.w * vec3(tStud, t * (tStud * tStud));
+
+      return true;
+    } else if (lvl == nLvls - 1) {
+      // If a leaf node is reached that is not approximate enough
+      // we iterate over all contained points (there goes thread divergence)
+      uint begin = idxBuffer[loc];
+      for (uint i = begin; i < begin + uint(node.w); ++i) {
+        t = domainPos - posBuffer[i];
+        float tStud = 1.f / (1.f +  dot(t, t));
+
+        // Field layout is: S, V.x, V.y, V.z
+        fieldValue += vec3(tStud, t * (tStud * tStud));
+       }
+      return true;
+    }
+    return false;
+  }
+
+  vec3 traverse(vec2 domainPos) {
+    vec3 fieldValue = vec3(0);
+
+    do {
+      if (approx(domainPos, fieldValue)) {
+        ascend();
+      } else {
+        descend();
+      }
+    } while (lvl > 0u);
+
+    return fieldValue;
+  }
+
+  void main() {
+    // Invocation ID
+    const uvec2 globalIdx = gl_WorkGroupID.xy
+                          * gl_WorkGroupSize.xy
+                          + gl_LocalInvocationID.xy;
+                   
+    // Check that invocation is inside field texture
+    if (min(globalIdx, textureSize - 1) != globalIdx) {
+      return;
+    }
+
+    // Skip pixel if stencil is empty
+    if (texelFetch(stencilSampler, ivec2(globalIdx), 0).x == 0u) {
+      imageStore(fieldImage, ivec2(globalIdx), vec4(0));
+      return;
+    } 
+
+    // Compute pixel position in [0, 1], then map to domain bounds
+    vec2 domainPos = (vec2(globalIdx) + 0.5) / vec2(textureSize);
+    domainPos = domainPos * bounds.range + bounds.min;
+
+     // Traverse tree and store result
+    vec3 v = traverse(domainPos);
+    imageStore(fieldImage, ivec2(globalIdx), vec4(v, 0));
+  }
+);
+
+GLSL(interp_src, 450,
   layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
-  layout(std430, binding = 0) buffer Pos{ vec2 Positions[]; };
-  layout(std430, binding = 1) buffer Val { vec3 Values[]; };
-  layout(std430, binding = 2) buffer BoundsInterface { 
+  layout(binding = 0, std430) restrict readonly buffer Pos { vec2 Positions[]; };
+  layout(binding = 1, std430) restrict writeonly buffer Val { vec3 Values[]; };
+  layout(binding = 2, std430) restrict readonly buffer Bounds { 
     vec2 minBounds;
     vec2 maxBounds;
     vec2 range;
     vec2 invRange;
   };
-
-  uniform uint num_points;
-  uniform uvec2 texture_size;
-  uniform sampler2D fields_texture;
+  layout(location = 0) uniform uint num_points;
+  layout(location = 1) uniform uvec2 texture_size;
+  layout(location = 2) uniform sampler2D fields_texture;
 
   void main() {
     uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
@@ -159,5 +297,146 @@ GLSL(interp_src, 430,
 
     // Sample texture at mapped position
     Values[i] = texture(fields_texture, position).xyz;
+  }
+);
+
+GLSL(point_bvh_src, 450,
+  struct Bounds {
+    vec2 min;
+    vec2 max;
+    vec2 range;
+    vec2 invRange;
+  };
+
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+  layout(binding = 0, std430) restrict readonly buffer NodeBuffer { vec4 nodeBuffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer IdxBuffer { uint idxBuffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer PosBuffer { vec2 posBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer MinbBuffer { vec2 minbBuffer[]; };
+  layout(binding = 4, std430) restrict readonly buffer DiamBuffer { vec2 diamBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  layout(binding = 6, std430) restrict readonly buffer PosBuffer2 { vec2 posBufferUnsorted[]; };
+  layout(binding = 7, std430) restrict writeonly buffer Val { vec3 Values[]; };
+  layout(binding = 0) uniform usampler2D stencilSampler;
+
+  layout(location = 0) uniform uint nPos;     // nr of points
+  layout(location = 1) uniform uint kNode;    // Node fanout
+  layout(location = 2) uniform uint nLvls;    // Nr of tree levels
+  layout(location = 3) uniform float theta;   // Approximation param
+  layout(location = 4) uniform uvec2 textureSize;
+
+  // Constants
+  const uint logk = uint(log2(kNode));
+  const uint bitmask = ~((~0u) << logk);
+  const float theta2 = theta * theta;
+
+  // Traversal local memory
+  // We start a level lower, as the root node will never approximate
+  uint lvl = 1u;
+  uint loc = 1u;
+  uint stack = 1u | (bitmask << (logk * lvl));
+
+  void descend() {
+    // Move down tree
+    lvl++;
+    loc = loc * kNode + 1u;
+
+    // Push unvisited locations on stack
+    stack |= (bitmask << (logk * lvl));
+  }
+
+  void ascend() {
+    // Find distance to next level on stack
+    uint nextLvl = findMSB(stack) / logk;
+    uint dist = lvl - nextLvl;
+
+    // Move dist up to where next available stack position is
+    // and one to the right
+    if (dist == 0) {
+      loc++;
+    } else {
+      loc >>= logk * dist;
+    }
+    lvl = nextLvl;
+
+    // Pop visited location from stack
+    uint shift = logk * lvl;
+    uint b = (stack >> shift) - 1;
+    stack &= ~(bitmask << shift);
+    stack |= b << shift;
+  }
+
+  bool approx(vec2 domainPos, inout vec3 fieldValue) {
+    // Query values from current node
+    vec4 node = nodeBuffer[loc];
+    vec2 diam = diamBuffer[loc];
+    
+    // Squared distance to pos
+    vec2 t = domainPos - node.xy;
+    float t2 = dot(t, t);
+
+    // Compute squared diameter
+    vec2 b = abs(normalize(t)) * vec2(-1, 1);
+    vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
+    
+    if (dot(c, c) / t2 < theta2 || node.w < 2.f) {
+      // If BH-approximation passes, compute approximated value
+      float tStud = 1.f / (1.f + t2);
+
+      // Field layout is: S, V.x, V.y, V.z
+      fieldValue += node.w * vec3(tStud, t * (tStud * tStud));
+
+      return true;
+    } else if (lvl == nLvls - 1) {
+      // If a leaf node is reached that is not approximate enough
+      // we iterate over all contained points (there goes thread divergence)
+      uint begin = idxBuffer[loc];
+      for (uint i = begin; i < begin + uint(node.w); ++i) {
+        t = domainPos - posBuffer[i];
+        float tStud = 1.f / (1.f +  dot(t, t));
+
+        // Field layout is: S, V.x, V.y, V.z
+        fieldValue += vec3(tStud, t * (tStud * tStud));
+       }
+      return true;
+    }
+    return false;
+  }
+
+  vec3 traverse(vec2 domainPos) {
+    vec3 fieldValue = vec3(0);
+
+    do {
+      if (approx(domainPos, fieldValue)) {
+        ascend();
+      } else {
+        descend();
+      }
+    } while (lvl > 0u);
+
+    return fieldValue;
+  }
+
+  void main() {
+    // Invocation ID
+    const uint globalIdx = gl_WorkGroupID.x
+                        * gl_WorkGroupSize.x
+                        + gl_LocalInvocationID.x;
+    if (min(globalIdx, nPos - 1) != globalIdx) {
+      return;
+    }
+
+    vec2 domainPos = posBufferUnsorted[globalIdx];
+    vec3 v = traverse(domainPos);
+    Values[globalIdx] = v;
+
+    // // Compute pixel position in [0, 1], then map to domain bounds
+    // vec2 domainPos = (vec2(globalIdx) + 0.5) / vec2(textureSize);
+    // domainPos = domainPos * bounds.range + bounds.min;
+
+    //  // Traverse tree and store result
+    // vec3 v = traverse(domainPos);
+    // imageStore(fieldImage, ivec2(globalIdx), vec4(v, 0));
   }
 );
