@@ -2,6 +2,7 @@
 
 #include <set>
 #include <string>
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
 
 namespace hdi::dbg {

@@ -1,5 +1,6 @@
-#include "hdi/debug/renderer/bvh.hpp"
+#include <iostream>
 #include <imgui.h>
+#include "hdi/debug/renderer/bvh.hpp"
 
 #define GLSL(name, version, shader) \
   static const char * name = \
@@ -246,7 +247,7 @@ namespace hdi::dbg {
     }
   }
 
-  void BvhRenderer::init(const dr::bvh::BVH &bvh, GLuint boundsBuffer)
+  void BvhRenderer::init(const dr::bvh::BVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
 
@@ -293,8 +294,8 @@ namespace hdi::dbg {
     glNamedBufferStorage(_buffers[BUFF_FOCUS_LINES], sizeof(glm::vec4) * 2 * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
     // Specify vertex array object for instanced draw
-    size_t minboffset = memr.memrOffset(dr::bvh::BVHExtMemr::MemrType::eMinB);
-    size_t diamOffset = memr.memrOffset(dr::bvh::BVHExtMemr::MemrType::eDiam);
+    size_t minboffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::eMinB);
+    size_t diamOffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::eDiam);
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 0, _buffers[BUFF_CUBE_VERT], 0, sizeof(glm::vec4));
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 1, buffer, minboffset, sizeof(glm::vec4));
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 2, buffer, diamOffset, sizeof(glm::vec4));
@@ -318,7 +319,7 @@ namespace hdi::dbg {
     glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 3, 3);
 
     // Specify vertex array object for embedding positions
-    size_t embOffset = memr.memrOffset(dr::bvh::BVHExtMemr::MemrType::ePos);// (layout.nNodes) * sizeof(glm::vec4);
+    size_t embOffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::ePos);// (layout.nNodes) * sizeof(glm::vec4);
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_POINTS], 0, buffer, embOffset, sizeof(glm::vec4));
     glEnableVertexArrayAttrib(_vertexArrays[VRAO_POINTS], 0);
     glVertexArrayAttribFormat(_vertexArrays[VRAO_POINTS], 0, 3, GL_FLOAT, GL_FALSE, 0);
@@ -333,8 +334,6 @@ namespace hdi::dbg {
     glEnableVertexArrayAttrib(_vertexArrays[VRAO_FOCUS_LINES], 0);
     glVertexArrayAttribFormat(_vertexArrays[VRAO_FOCUS_LINES], 0, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(_vertexArrays[VRAO_FOCUS_LINES], 0, 0);
-
-    GL_ASSERT("INIT STUFF");
 
     _nCube = layout.nNodes;
     _nPos = layout.nPos;
@@ -401,8 +400,8 @@ namespace hdi::dbg {
       program.uniform1f("theta", _flagTheta);
 
       // Bind buffers
-      memr.bindBuffer(dr::bvh::BVHExtMemr::MemrType::eNode, 0);
-      memr.bindBuffer(dr::bvh::BVHExtMemr::MemrType::eDiam, 1);
+      memr.bindBuffer(dr::bvh::BVHExtMemr<3>::MemrType::eNode, 0);
+      memr.bindBuffer(dr::bvh::BVHExtMemr<3>::MemrType::eDiam, 1);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _boundsBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFF_FOCUS_POS]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFF_FLAGS]);

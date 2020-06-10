@@ -1,5 +1,6 @@
 #pragma once
 
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"

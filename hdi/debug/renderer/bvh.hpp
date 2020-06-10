@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"
@@ -12,7 +13,7 @@ namespace hdi::dbg {
     BvhRenderer();
     ~BvhRenderer();
 
-    void init(const dr::bvh::BVH &bvh, GLuint boundsBuffer);
+    void init(const dr::bvh::BVH<3> &bvh, GLuint boundsBuffer);
     void destr();
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
@@ -60,7 +61,7 @@ namespace hdi::dbg {
     std::array<ShaderProgram, ProgramTypeLength> _programs;
 
     // This is gonna bite me
-    const hdi::dr::bvh::BVH *_bvh;
+    const hdi::dr::bvh::BVH<3> *_bvh;
 
     // ImGui default settings
     bool _drawCube = false;

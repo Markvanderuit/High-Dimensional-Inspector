@@ -1,6 +1,7 @@
 #pragma once
 
-#include "glm/glm.hpp"
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+#include <glm/glm.hpp>
 #include "hdi/debug/utils/input.hpp"
 
 namespace hdi::dbg {

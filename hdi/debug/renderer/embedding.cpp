@@ -1,6 +1,5 @@
 #include "hdi/debug/renderer/embedding.hpp"
 #include "hdi/debug/utils/window.hpp"
-#include <glm/glm.hpp>
 #include <imgui.h>
 #include <iostream>
 
