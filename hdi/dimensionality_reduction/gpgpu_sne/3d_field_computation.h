@@ -30,63 +30,55 @@
 
 #pragma once
 
+#define USE_BVH // Use BVH for px log n field computations
+
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "gpgpu_utils.h"
-#include "3d_utils.h"
-
-// #define FIELD_IMAGE_OUTPUT // Output field images every 100 iterations
-// #define USE_BVH // Use BVH for px log n force computations
-
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #ifdef USE_BVH
-// #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/3d_bvh_compute.h" 
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
+#include "hdi/debug/renderer/bvh.hpp" 
 #endif
 
 namespace hdi::dr {
-  class BaselineFieldComputation {
+  class Baseline3dFieldComputation {
+    typedef Bounds<3> Bounds;
+    typedef glm::vec<3, float, glm::aligned_highp> vec;
+    typedef glm::vec<3, uint, glm::aligned_highp> uvec;
+
   public:
-    BaselineFieldComputation();
-    ~BaselineFieldComputation();
-
-    // Initialize gpu components for computation
-    void initialize(const TsneParameters& params,
+    Baseline3dFieldComputation();
+    ~Baseline3dFieldComputation();
+    
+    void init(const TsneParameters& params,
                     GLuint position_buff,
+                    GLuint bounds_buff,
                     unsigned n);
-
-    // Remove gpu components
-    void clean();
-
-    // Compute field and depth textures
-    void compute(unsigned w, unsigned h, unsigned d,
-                 float function_support, unsigned n,
+    void destr();
+    void compute(uvec dims, float function_support, unsigned n,
                  GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
-                 Bounds3D bounds);
+                 Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
 #ifdef USE_BVH
       _bvh.setLogger(logger);
-      // _bvhCompute.setLogger(logger);
 #endif
     }
 
-    GLuint texture() const {
-      return _textures[TEXTURE_GRID];
-    }
-
   private:
-    bool _initialized;
+    bool _isInit;
     int _iteration;
-    unsigned _w, _h, _d;
+    uvec _dims;
 
     enum TextureType {
       // Enum values matching to textures in _textures array
       TEXTURE_CELLMAP,
       TEXTURE_GRID,
-      TEXTURE_FIELD_3D,
+      TEXTURE_FIELD,
 
       // Static enum length
       TextureTypeLength 
@@ -94,40 +86,33 @@ namespace hdi::dr {
 
     enum ProgramType {
       // Enum values matching to shader programs in _programs array
-      PROGRAM_GRID,
-      PROGRAM_FIELD_3D,
-      PROGRAM_INTERP,
+      PROG_GRID,
+      PROG_FIELD,
+      PROG_INTERP,
 
       // Static enum length
       ProgramTypeLength
     };
 
-    enum FramebufferType {
-      // Enum values matching to framebuffers programs in _framebuffers array
-      FBO_GRID,
-
-      // Static enum length
-      FramebufferTypeLength
-    };
-
-    GLuint _point_vao;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
-    std::array<GLuint, FramebufferTypeLength> _framebuffers;
     std::array<GLuint, TextureTypeLength> _textures;
     std::array<uint32_t, 4 * 128> _cellData;
+    GLuint _vrao_point;
+    GLuint _frbo_grid;
     TsneParameters _params;
     utils::AbstractLog* _logger;
-
 #ifdef USE_BVH
-    bvh::BVH _bvh;
-    // bvh::BVH3DCompute _bvhCompute;
+    bvh::BVH<3> _bvh;
+    dbg::BvhRenderer _renderer;
+    bool _rebuildBvhOnIter;
+    double _lastRebuildBvhTime;
 #endif
     
     // Query timers matching to each shader
-    TIMERS_DECLARE(
-      TIMER_GRID, 
-      TIMER_FIELD_3D, 
-      TIMER_INTERP
+    DECL_TIMERS(
+      TIMR_GRID, 
+      TIMR_FIELD, 
+      TIMR_INTERP
     )
   };
 }

@@ -31,31 +31,39 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <algorithm>
-#include "3d_field_computation.h"
-#include "3d_field_shaders.h"
-#include "hdi/visualization/opengl_helpers.h"
-#include "hdi/utils/visual_utils.h"
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_shaders.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_computation.h"
 
-// Magic numbers
+template <typename genType> 
+inline
+genType ceilDiv(genType n, genType div) {
+  return (n + div - 1) / div;
+}
+
 constexpr float pointSize = 2.f;
 
 namespace hdi::dr {
-  BaselineFieldComputation::BaselineFieldComputation()
-  : _initialized(false), _iteration(0), _w(0), _h(0), _d(0), _logger(nullptr) {
-    // ...
+  Baseline3dFieldComputation::Baseline3dFieldComputation()
+  : _isInit(false), _iteration(0), _dims(0), _logger(nullptr) {
+#ifdef USE_BVH
+    _rebuildBvhOnIter = true;
+    _lastRebuildBvhTime = 0.0;
+#endif
   }
 
-  BaselineFieldComputation::~BaselineFieldComputation() {
-    if (_initialized) {
-      clean();
+  Baseline3dFieldComputation::~Baseline3dFieldComputation() {
+    if (_isInit) {
+      destr();
     }
   }
 
-  void BaselineFieldComputation::initialize(const TsneParameters& params, 
-                                            GLuint position_buff, 
-                                            unsigned n) {
-    TIMERS_CREATE()
+  void Baseline3dFieldComputation::init(const TsneParameters& params, 
+                                              GLuint position_buff,
+                                              GLuint bounds_buff, 
+                                              unsigned n) {
+    INIT_TIMERS()
     _params = params;
 
     // Build shader programs
@@ -63,15 +71,14 @@ namespace hdi::dr {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROGRAM_GRID].addShader(VERTEX, grid_vert_src);
-      _programs[PROGRAM_GRID].addShader(FRAGMENT, grid_fragment_src);
-      
-// #ifdef USE_BVH
-//       _programs[PROGRAM_FIELD_3D].addShader(COMPUTE, field_bvh_src); 
-// #else
-      _programs[PROGRAM_FIELD_3D].addShader(COMPUTE, field_src); 
-// #endif
-      _programs[PROGRAM_INTERP].addShader(COMPUTE, interp_src);
+      _programs[PROG_GRID].addShader(VERTEX, grid_vert_src);
+      _programs[PROG_GRID].addShader(FRAGMENT, grid_fragment_src);
+#ifdef USE_BVH
+      _programs[PROG_FIELD].addShader(COMPUTE, field_bvh_src); 
+#else
+      _programs[PROG_FIELD].addShader(COMPUTE, field_src); 
+#endif
+      _programs[PROG_INTERP].addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
       }
@@ -93,7 +100,6 @@ namespace hdi::dr {
     }
 
     glGenTextures(_textures.size(), _textures.data());
-    glGenFramebuffers(_framebuffers.size(), _framebuffers.data());
 
     // Generate voxel grid cell texture
     glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
@@ -109,7 +115,7 @@ namespace hdi::dr {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     // Generate 3d fields texture
-    glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD_3D]);
+    glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD]);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
@@ -117,217 +123,210 @@ namespace hdi::dr {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     
     // Generate framebuffer for grid computation
-    glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_GRID]);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_GRID], 0);
-    glDrawBuffer(GL_COLOR_ATTACHMENT0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    glGenVertexArrays(1, &_point_vao);
+    glCreateFramebuffers(1, &_frbo_grid);
+    glNamedFramebufferTexture(_frbo_grid, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_GRID], 0);
+    glNamedFramebufferDrawBuffer(_frbo_grid, GL_COLOR_ATTACHMENT0);
+    
+    // Generate vrao for point drawing
+    glCreateVertexArrays(1, &_vrao_point);
+    glVertexArrayVertexBuffer(_vrao_point, 0, position_buff, 0, 4 * sizeof(float));
+    glEnableVertexArrayAttrib(_vrao_point, 0);
+    glVertexArrayAttribFormat(_vrao_point, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vrao_point, 0, 0);
 
 #ifdef USE_BVH
-    _bvh.init(params, position_buff, n);
-    // _bvhCompute.initialize(params, position_buff, n);
+    _bvh.init(params, position_buff, bounds_buff, n);
+    _renderer.init(_bvh, bounds_buff);
 #endif
 
     _iteration = 0;
-    _initialized = true;
+    _isInit = true;
   }
 
-  void BaselineFieldComputation::clean() {
-    TIMERS_DESTROY()
+  void Baseline3dFieldComputation::destr() {
+    DSTR_TIMERS()
 #ifdef USE_BVH
+    _renderer.destr();
     _bvh.destr();
-    // _bvhCompute.clean();
 #endif
     glDeleteTextures(_textures.size(), _textures.data());
-    glDeleteFramebuffers(_framebuffers.size(), _framebuffers.data());
-    glDeleteVertexArrays(1, &_point_vao);
+    glDeleteFramebuffers(1, &_frbo_grid);
+    glDeleteVertexArrays(1, &_vrao_point);
     for (auto& program : _programs) {
       program.destroy();
     }
     _iteration = 0;
-    _initialized = false;
+    _isInit = false;
   }
 
-  void BaselineFieldComputation::compute(unsigned w, unsigned h, unsigned d,
-                float function_support, unsigned n,
-                GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
-                Bounds3D bounds) {
-    Point3D minBounds = bounds.min;
-    Point3D range = bounds.range();
+  void Baseline3dFieldComputation::compute(uvec dims, float function_support, unsigned n,
+                                           GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
+                                           Bounds bounds) {
+    vec minBounds = bounds.min;
+    vec range = bounds.range();
 
     // Rescale textures if necessary
-    if (_w != w || _h != h || _d != d) {
-      _w = w;
-      _h = h;
-      _d = d;
+    if (_dims != dims) {
+      _dims = dims;
 
       // Update cell data for voxel grid computation only to d = 128
       glActiveTexture(GL_TEXTURE0);
-      if (_d <= 128u) {
+      if (_dims.z <= 128u) {
         glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
-        glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA32UI, _d, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, _cellData.data());
+        glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA32UI, _dims.z, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, _cellData.data());
       }
       glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32UI, _w, _h, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, nullptr);
-      glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD_3D]);
-      glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _w, _h, _d, 0, GL_RGBA, GL_FLOAT, nullptr);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32UI, _dims.x, _dims.y, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, nullptr);
+      glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD]);
+      glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _dims.x, _dims.y, _dims.z, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
 #ifdef USE_BVH
-    _bvh.compute(bounds);
-    // _bvhCompute.compute(w, h, d, n, position_buff, bounds_buff, bounds);
+    // Compute BVH structure over embedding
+    _bvh.compute(_rebuildBvhOnIter, _iteration);
 #endif
 
     // Compute grid texture
     {
-      TIMER_TICK(TIMER_GRID)
-      auto& program = _programs[PROGRAM_GRID];
-      program.bind();
+      TICK_TIMER(TIMR_GRID)
       
-      // Bind uniforms to program
+      auto& program = _programs[PROG_GRID];
+      program.bind();
       program.uniform1i("cellMap", 0);
       program.uniform1f("zPadding", 0.025f);
 
-      // Bind the textures for this program
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
-
-      // Bind bounds buffer
+      // Bind textures and buffers
+      glBindTextureUnit(0, _textures[TEXTURE_CELLMAP]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
       
-      // Prepare for drawing
-      glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[FBO_GRID]);
-      glViewport(0, 0, _w, _h);
-      glClearColor(0.f, 0.f, 0.f, 0.f);
-      glClearDepthf(1.f);
-      glClear(GL_COLOR_BUFFER_BIT);
+      // Specify and clear framebuffer
+      glBindFramebuffer(GL_FRAMEBUFFER, _frbo_grid);
+      constexpr std::array<float, 4> clearColor = { 0.f, 0.f, 0.f, 0.f };
+      constexpr float clearDepth = 1.f;
+      glClearNamedFramebufferfv(_frbo_grid, GL_COLOR, 0, clearColor.data());
+      glClearNamedFramebufferfv(_frbo_grid, GL_DEPTH, 0, &clearDepth);
+
+      // Specify logic test, viewport and point size
+      glViewport(0, 0, _dims.x, _dims.y);
       glEnable(GL_COLOR_LOGIC_OP);
       glLogicOp(GL_OR);
+      glPointSize(pointSize);
       
       // Draw a point at each embedding position
-      glBindVertexArray(_point_vao);
-      glBindBuffer(GL_ARRAY_BUFFER, position_buff);
-      glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
-      glEnableVertexAttribArray(0);
-      glPointSize(pointSize);
+      glBindVertexArray(_vrao_point);
       glDrawArrays(GL_POINTS, 0, n);
 
       // Cleanup
       glDisable(GL_COLOR_LOGIC_OP);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      program.release();
-      TIMER_TOCK(TIMER_GRID)
+      
+      TOCK_TIMER(TIMR_GRID)
     }
 
-/* #ifdef USE_BVH
-    // Compute fields 3D texture through O(px log n) approximation
-    {
-      TIMER_TICK(TIMER_FIELD_3D)
-      auto &program = _programs[PROGRAM_FIELD_3D];
-      program.bind();
-
-      // Bind 2D grid texture to texture unit 0
-      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
-
-      // Bind buffers to SSBO binding points 0, 1, 2
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _bvhCompute.buffer());
-
-      // Bind 3D field texture to image unit 0
-      glBindImageTexture(0, _textures[TEXTURE_FIELD_3D], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-
-      // Set uniforms
-      program.uniform1ui("nPoints", n);
-      program.uniform1f("theta", 1.25f);
-      program.uniform3ui("textureSize", _w, _h, _d);
-      program.uniform1i("gridSampler", 0);
-      program.uniform1ui("gridDepth", std::min(128u, _d));
-
-      // Dispatch compute shader
-      glDispatchCompute(ceilDiv(_w, 4u), ceilDiv(_h, 4u), ceilDiv(_d, 4u));
-      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-
-      program.release();
-      GL_ASSERT("BaselineFieldComputation::compute::field_bvh_src")
-      TIMER_TOCK(TIMER_FIELD_3D)
-    }
-#else */
     // Compute fields 3D texture through O(px n) reduction
     {
-      TIMER_TICK(TIMER_FIELD_3D)
-      auto &program = _programs[PROGRAM_FIELD_3D];
+      TICK_TIMER(TIMR_FIELD)
+
+      auto &program = _programs[PROG_FIELD];
       program.bind();
 
-      // Attach grid texture for sampling
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
+#ifdef USE_BVH
+      // Query bvh for layout specs and memory structure
+      const auto& layout = _bvh.layout();
+      const auto& memr = _bvh.memr();
 
-      // Set uniforms in compute shader
-      program.uniform1ui("num_points", n);
-      program.uniform1ui("grid_depth", std::min(128u, _d));
-      program.uniform3ui("texture_size", _w, _h, _d);
-      program.uniform1i("grid_texture", 0);
+      // Bind buffers
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eNode, 0);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eIdx, 1);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::ePos, 2);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eMinB, 3);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eDiam, 4);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bounds_buff);
 
-      // Bind textures and buffers
+      // Bind textures and images
+      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
+
+      // Set uniforms
+      program.uniform1ui("nPos", layout.nPos);
+      program.uniform1ui("kNode", layout.kNode);
+      program.uniform1ui("nLvls", layout.nLvls);
+      program.uniform1ui("gridDepth", std::min(128u, _dims.z));
+      program.uniform1f("theta", 1.f);
+      program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
+
+      // Dispatch compute shader
+      glDispatchCompute(ceilDiv(_dims.x, 4u), ceilDiv(_dims.y, 4u), ceilDiv(_dims.z, 4u));
+      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
+#else
+      // Bind textures, images and buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindImageTexture(0, _textures[TEXTURE_FIELD_3D], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
+      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-      // Perform computation
-      glDispatchCompute(_w, _h, 2);
+      // Set uniforms
+      program.uniform1ui("num_points", n);
+      program.uniform1ui("grid_depth", std::min(128u, _dims.z));
+      program.uniform3ui("texture_size", _dims.x, _dims.y, _dims.z);
+      program.uniform1i("grid_texture", 0);
+
+      // Dispatch compute shader
+      glDispatchCompute(_dims.x, _dims.y, 2);
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+#endif
       
-      program.release();
-      TIMER_TOCK(TIMER_FIELD_3D)
+      TOCK_TIMER(TIMR_FIELD)
     }
-  // #endif
 
     // Query field texture for positional values
     {
-      TIMER_TICK(TIMER_INTERP)
-      auto &program = _programs[PROGRAM_INTERP];
+      TICK_TIMER(TIMR_INTERP)
+
+      auto &program = _programs[PROG_INTERP];
       program.bind();
+      program.uniform1ui("nPoints", n);
+      program.uniform3ui("fieldSize", _dims.x, _dims.y, _dims.z);
+      program.uniform1i("fieldSampler", 0);
 
-      // Bind the textures for this shader
-      glBindTextureUnit(0, _textures[TEXTURE_FIELD_3D]);
-
-      // Bind buffers for this shader
+      // Bind textures and buffers for this shader
+      glBindTextureUnit(0, _textures[TEXTURE_FIELD]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, interp_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bounds_buff);
-
-      // Bind uniforms for this shader
-      program.uniform1ui("nPoints", n);
-      program.uniform3ui("fieldSize", _w, _h, _d);
-      program.uniform1i("fieldSampler", 0);
 
       // Dispatch compute shader
       glDispatchCompute(ceilDiv(n, 128u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      // Cleanup
-      program.release();
-      TIMER_TOCK(TIMER_INTERP)
+      TOCK_TIMER(TIMR_INTERP)
     }
-
-    // Test output textures every 100 iterations
-    #ifdef FIELD_IMAGE_OUTPUT
-    // if (_iteration % 10 == 0) {
-        // ...
-    // }
-    #endif // FIELD_IMAGE_OUTPUT 
     
     // Update timers, log values on final iteration
-    TIMERS_UPDATE()
+    POLL_TIMERS()
     if (_iteration >= _params._iterations - 1) {
-      utils::secureLog(_logger, "Field computation");
-      TIMER_LOG(_logger, TIMER_GRID, "  Grid")
-      TIMER_LOG(_logger, TIMER_FIELD_3D, "  Field")
-      TIMER_LOG(_logger, TIMER_INTERP, "  Interp")
-      utils::secureLog(_logger, "");
+      utils::secureLog(_logger, "\nField computation");
+      LOG_TIMER(_logger, TIMR_GRID, "  Grid")
+      LOG_TIMER(_logger, TIMR_FIELD, "  Field")
+      LOG_TIMER(_logger, TIMR_INTERP, "  Interp")
     }
+// #ifdef USE_BVH
+    // Rebuild BVH once field computation time diverges from the last one by a certain degree
+    // if (_rebuildBvhOnIter) {
+    //   _lastRebuildBvhTime = glTimers[TIMR_FIELD].lastMicros();
+    //   if (_iteration >= _params._remove_exaggeration_iter) {
+    //     _rebuildBvhOnIter = false;
+    //     // std::cout << _iteration << std::endl;
+    //   }
+    // } else if (_lastRebuildBvhTime > 0.0) {
+    //   double currentRebuildTime = glTimers[TIMR_FIELD].lastMicros();
+    //   if (std::abs(currentRebuildTime - _lastRebuildBvhTime) / _lastRebuildBvhTime > 0.01) {
+    //     _rebuildBvhOnIter = true;
+    //   }
+    // }
+// #endif
+
     _iteration++;
   }
 }
