@@ -38,8 +38,7 @@
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/2d_gpgpu_sne_compute.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/3d_gpgpu_sne_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
 
 namespace hdi::dr {
   class GradientDescentTSNE {
@@ -84,8 +83,8 @@ namespace hdi::dr {
     SparseMatrix _P; 
     utils::AbstractLog* _logger;
 
-    // Underlying compute classes
-    Gpgpu2dSneCompute _gpgpu_2d_sne_compute;
-    Gpgpu3dSneCompute _gpgpu_3d_sne_compute;
+    // Underlying compute classes for 2 and 3 dimensions
+    GpgpuSneCompute<2> _gpgpu_2d_sne_compute;
+    GpgpuSneCompute<3> _gpgpu_3d_sne_compute;
   };
 }
