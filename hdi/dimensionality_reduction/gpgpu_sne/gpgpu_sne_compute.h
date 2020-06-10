@@ -1,120 +1,121 @@
 /*
-*
-* Copyright (c) 2014, Nicola Pezzotti (Delft University of Technology)
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-* 1. Redistributions of source code must retain the above copyright
-*    notice, this list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright
-*    notice, this list of conditions and the following disclaimer in the
-*    documentation and/or other materials provided with the distribution.
-* 3. All advertising materials mentioning features or use of this software
-*    must display the following acknowledgement:
-*    This product includes software developed by the Delft University of Technology.
-* 4. Neither the name of the Delft University of Technology nor the names of
-*    its contributors may be used to endorse or promote products derived from
-*    this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY NICOLA PEZZOTTI ''AS IS'' AND ANY EXPRESS
-* OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
-* OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
-* EVENT SHALL NICOLA PEZZOTTI BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-* SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-* PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-* BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-* CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
-* IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
-* OF SUCH DAMAGE.
-*
-*/
-#ifndef __APPLE__
+ * Copyright (c) 2014, Nicola Pezzotti (Delft University of Technology)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *  notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *  notice, this list of conditions and the following disclaimer in the
+ *  documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *  must display the following acknowledgement:
+ *  This product includes software developed by the Delft University of Technology.
+ * 4. Neither the name of the Delft University of Technology nor the names of
+ *  its contributors may be used to endorse or promote products derived from
+ *  this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY NICOLA PEZZOTTI ''AS IS'' AND ANY EXPRESS
+ * OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ * EVENT SHALL NICOLA PEZZOTTI BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ */
 
 #pragma once
 
-#include <glad/glad.h>
-#include "hdi/data/shader.h"
-#include "hdi/data/embedding.h"
-#include "hdi/data/map_mem_eff.h"
-#include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "field_computation.h"
-#include "2d_utils.h"
 #include <array>
-#include <cstdint>
+#include <cstdlib>
+#include "hdi/utils/abstract_log.h"
+#include "hdi/data/shader.h"
+#include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/2d_field_computation.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_computation.h"
+#include "hdi/debug/renderer/embedding.hpp"
 
 namespace hdi::dr {
-  struct LinearProbabilityMatrix;
-
-  //! Computation class for texture-based t-SNE using compute shaders
-  /*!
-  Computation class for texture-based t-SNE using compute shaders
-  \author Julian Thijssen
-  */
+  template <unsigned D>
   class GpgpuSneCompute {
-  public:
-    typedef hdi::data::Embedding<float> embedding_type;
-    typedef std::vector<hdi::data::MapMemEff<uint32_t, float>> sparse_scalar_matrix_type;
+    typedef glm::vec<D, float, glm::aligned_highp> vec;
+    typedef glm::vec<D, uint, glm::aligned_highp> uvec;
+    typedef Bounds<D> Bounds;
 
   public:
     GpgpuSneCompute();
+    ~GpgpuSneCompute();
 
-    void initialize(const embedding_type* embedding, TsneParameters params, const sparse_scalar_matrix_type& P);
-    void clean();
+    void init(const Embedding *embedding,
+              const TsneParameters &params,
+              const SparseMatrix &P);
+    void destr();
+    void compute(Embedding* embeddingPtr,
+                 float exaggeration,
+                 unsigned iteration,
+                 float mult);
 
-    void compute(embedding_type* embedding, float exaggeration, float iteration, float mult);
-
-    void setScalingFactor(float factor) { _resolutionScaling = factor; }
-
-    Bounds2D bounds() const { return _bounds; }
-
-  private:
-    void initializeOpenGL(const unsigned int num_points, const LinearProbabilityMatrix& linear_P);
-
-    Bounds2D computeEmbeddingBounds(const embedding_type* embedding, float padding = 0);
-
-    void startTimer();
-    void stopTimer();
-    double getElapsed();
-    void computeEmbeddingBounds1(unsigned int num_points, const float* points, float padding = 0, bool square = false);
-    void interpolateFields(float* sum_Q);
-    void computeGradients(unsigned int num_points, float sum_Q, double exaggeration);
-    void updatePoints(unsigned int num_points, float* points, embedding_type* embedding, float iteration, float mult);
-    void updateEmbedding(unsigned int num_points, float exaggeration, float iteration, float mult);
+    void setLogger(utils::AbstractLog *logger) {
+      _logger = logger;
+      _2dFieldComputation.setLogger(logger);
+      _3dFieldComputation.setLogger(logger);
+    }
 
   private:
-    const unsigned int FIXED_FIELDS_SIZE = 40;
-    const unsigned int MINIMUM_FIELDS_SIZE = 5;
-    const float PIXEL_RATIO = 2;
+    enum BufferType {
+      // Enums matching to storage buffers in _buffers array
+      BUFF_POSITION,
+      BUFF_INTERP_FIELDS,
+      BUFF_SUM_Q,
+      BUFF_SUM_Q_REDUCE_ADD,
+      BUFF_NEIGHBOUR,
+      BUFF_PROBABILITIES,
+      BUFF_INDEX,
+      BUFF_POSITIVE_FORCES,
+      BUFF_GRADIENTS,
+      BUFF_PREV_GRADIENTS,
+      BUFF_GAIN,
+      BUFF_BOUNDS_REDUCE_ADD,
+      BUFF_BOUNDS,
 
-    bool _initialized;
-    bool _adaptive_resolution;
+      // Static enum length
+      BufferTypeLength
+    };
 
-    float _resolutionScaling;
+    enum ProgramType {
+      // Enums matching to shader programs in _programs array
+      PROG_SUM_Q,
+      PROG_POSITIVE_FORCES,
+      PROG_GRADIENTS,
+      PROG_UPDATE,
+      PROG_BOUNDS,
+      PROG_CENTER,
 
-    // Shaders
-    ShaderProgram _interp_program;
-    ShaderProgram _forces_program;
-    ShaderProgram _update_program;
-    ShaderProgram _bounds_program;
-    ShaderProgram _center_and_scale_program;
+      // Static enum length
+      ProgramTypeLength
+    };
 
-    // SSBOs
-    std::array<GLuint, 10> _compute_buffers;
+    DECL_TIMERS(
+      TIMR_BOUNDS,
+      TIMR_SUM_Q,
+      TIMR_GRADIENTS,
+      TIMR_UPDATE,
+      TIMR_CENTER
+    );
 
-    GLuint _timerQuery[2];
-
-    ComputeFieldComputation fieldComputation;
-
-    // Embedding bounds
-    Bounds2D _bounds;
-
-    // T-SNE parameters
+    bool _isInit;
+    Bounds _bounds;
     TsneParameters _params;
-
-    // Probability distribution function support 
-    float _function_support;
+    utils::AbstractLog *_logger;
+    Baseline2dFieldComputation _2dFieldComputation;
+    Baseline3dFieldComputation _3dFieldComputation;
+    dbg::EmbeddingRenderer _embeddingRenderer;
+    std::array<GLuint, BufferTypeLength> _buffers;
+    std::array<ShaderProgram, ProgramTypeLength> _programs;
   };
 }
-
-#endif // __APPLE__
