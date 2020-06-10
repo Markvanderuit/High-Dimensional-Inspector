@@ -30,51 +30,61 @@
 
 #pragma once
 
+#include <type_traits>
 #include <cuda_runtime.h>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
 
 namespace hdi {
   namespace dr {
     namespace bvh {
-      /**
-       * CUDA kernel to transform 3D embedding positions into 30 bit morton codes.
-       * The positions will be normalized before this transformation happens.
-       * 
-       * - layout   BVH layout data structure
-       * - minb     float4 minimum embedding bounds
-       * - invr     float4 inverse of embedding range, ie 1 / (maxb - minb)
-       * - pEmb     ptr to unsorted embedding positional data, padded to float4 values.
-       * - pMorton  ptr to memory in which morton codes will be stored
-       */
+      template <unsigned D>
+      using vec = std::conditional<D == 2, float2, float4>::type;
+      
+      template <unsigned D>
+      struct BVHBounds {
+        vec<D> min;
+        vec<D> max;
+        vec<D> range;
+        vec<D> invrange;
+      };
+
+      template <unsigned D>
       __global__
       void kernConstrMorton(
-        BVHLayout layout, 
-        float4 minb, float4 invr, 
-        float4 *pEmb, uint *pMorton);
+        BVHLayout layout,  
+        BVHBounds<D> *pBounds, vec<D> *pEmb, uint *pMorton);
 
+      template <unsigned D>
       __global__
       void kernConstrPos(
         BVHLayout layout,
-        uint *idx, float4 *posIn, float4 *posOut);
+        uint *idx, vec<D> *posIn, vec<D> *posOut);
 
-      /**
-       * CUDA kernel to perform subdivision of BVH nodes using sorted morton codes.
-       */
+      template <unsigned D>
       __global__
       void kernConstrSubdiv(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pMorton, uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam);
+        uint *pMorton, uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
 
+      template <unsigned D>
       __global__
-      void kernConstrDataReduce(
+      void kernConstrLeaf(
+        BVHLayout layout,
+        uint begin, uint end,
+        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
+
+      template <unsigned D>
+      __global__
+      void kernConstrBbox(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam);
+        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
 
+      template <unsigned D>
       __global__
       void kernConstrCleanup(
-        uint n, float4 *pNode, float4 *pMinB, float4 *pDiam);
+        uint n, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
     }
   }
 }

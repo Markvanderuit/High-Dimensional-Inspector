@@ -58,7 +58,6 @@ namespace hdi {
         uint kNode;   // Fan-out of non-leaf nodes
         uint nPos;    // Nr of embedding points stored in tree
         uint nLvls;   // Nr of tree levels
-        // uint nLeaves; // Nr of leaf nodes
         uint nNodes;  // Nr of nodes total
 
         /**
@@ -72,12 +71,7 @@ namespace hdi {
         {
           const uint logk = static_cast<uint>(std::log2(kNode));
 
-          nLvls = 20;// static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
-          // std::cout << nLvls << std::endl;
-          // nLvls = static_cast<uint>(std::ceil(std::log2(nLeaves) / logk)) + 1;
-
-          // Raise to nearest convenient nr of leaves for this fanout
-          // nLeaves = nPos;// 1u << (logk * (nLvls - 1));
+          nLvls = 20; // m = 10
 
           // Compute nr of nodes iteratively (a bit more work because kNode >= 2)
           nNodes = 0u;

@@ -32,13 +32,8 @@
 
 #include <array>
 #include <type_traits>
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_utils.h"
+#include <glad/glad.h>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
-
-template <typename E>
-constexpr typename std::underlying_type<E>::type to_underlying(E e) noexcept {
-  return static_cast<typename std::underlying_type<E>::type>(e);
-}
 
 template <typename E>
 constexpr typename std::underlying_type<E>::type to_ul(E e) noexcept {
@@ -68,16 +63,17 @@ namespace hdi {
         void * _cuPtr;
       };
 
+      template <unsigned D>
       class BVHExtMemr {
       public:
         enum class MemrType {
-          eNode,  // 4 x float
-          eMinB,  // 4 x float
-          eDiam,  // 4 x float
-          ePos,   // 4 x float (sorted)
+          eNode,  // 4 x float, always aligned to 16 bytes, stores center of mass, mass
+          eMinB,  // 2/4 x float
+          eDiam,  // 2/4 x float
+          ePos,   // 2/4 x float, contains sorted positions
           eIdx,   // 1 x uint
 
-          size    // static size, eg to_underlying(MemrType::size)
+          size    // static size, eg to_ul(MemrType::size)
         };
 
         BVHExtMemr();
@@ -105,8 +101,8 @@ namespace hdi {
         GLuint _glHandle;
         struct cudaGraphicsResource *_cuHandle;
         void * _cuPtr;
-        std::array<size_t, to_underlying(MemrType::size)> _memrSizes;
-        std::array<size_t, to_underlying(MemrType::size)> _memrOffsets;
+        std::array<size_t, to_ul(MemrType::size)> _memrSizes;
+        std::array<size_t, to_ul(MemrType::size)> _memrOffsets;
       };
 
       class BVHIntMemr {
@@ -118,7 +114,7 @@ namespace hdi {
           eIdxIn,     // 1 x uint, unsorted position indices
           eIdxOut,    // 1 x uint, sorted position indices
 
-          size        // static size, eg to_underlying(MemrType::size)
+          size        // static size, eg to_ul(MemrType::size)
         };
 
         BVHIntMemr();
@@ -134,8 +130,8 @@ namespace hdi {
       private:
         bool _isInit;
         void *_ptr;
-        std::array<size_t, to_underlying(MemrType::size)> _memrSizes;
-        std::array<size_t, to_underlying(MemrType::size)> _memrOffsets;
+        std::array<size_t, to_ul(MemrType::size)> _memrSizes;
+        std::array<size_t, to_ul(MemrType::size)> _memrOffsets;
       };
     }
   }

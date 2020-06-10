@@ -30,8 +30,9 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <glad/glad.h>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_memory.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_utils.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include <cuda_gl_interop.h> // include last to prevent double OpenGL includes from GLFW/QT
 
 template <typename genAType, typename genBType>
@@ -44,6 +45,14 @@ template <typename genAType, typename genBType>
 inline
 genAType align(genAType n, genBType as) {
   return ceilDiv(n, as) * as;
+}
+
+constexpr unsigned aligned_size(unsigned d) {
+  if (d == 2) {
+    return sizeof(float2);
+  } else {
+    return sizeof(float4);
+  }
 }
 
 namespace hdi {
@@ -95,82 +104,94 @@ namespace hdi {
         BVHExtMemr functions
       */
 
-      BVHExtMemr::BVHExtMemr()
+      template <unsigned D>
+      BVHExtMemr<D>::BVHExtMemr()
       : _isInit(false), _isMapped(false) { }
       
-      BVHExtMemr::~BVHExtMemr() {
+      template <unsigned D>
+      BVHExtMemr<D>::~BVHExtMemr() {
         if (_isInit) {
           destr();
         }
       }
 
-      void BVHExtMemr::init(const BVHLayout &layout) {
-        size_t float4Size = sizeof(float4);
-        size_t uintSize = sizeof(uint);
-        
+      template <unsigned D>
+      void BVHExtMemr<D>::init(const BVHLayout &layout) {
         // Specify memory area sizes
-        _memrSizes[to_underlying(MemrType::eNode)] = layout.nNodes * float4Size;
-        _memrSizes[to_underlying(MemrType::eMinB)] = layout.nNodes * float4Size;
-        _memrSizes[to_underlying(MemrType::eDiam)] = layout.nNodes * float4Size;
-        _memrSizes[to_underlying(MemrType::ePos)] = layout.nPos * float4Size;
-        _memrSizes[to_underlying(MemrType::eIdx)] = layout.nNodes * uintSize;
+        _memrSizes[to_ul(MemrType::eNode)] = layout.nNodes * sizeof(float4);
+        _memrSizes[to_ul(MemrType::eMinB)] = layout.nNodes * aligned_size(D);
+        _memrSizes[to_ul(MemrType::eDiam)] = layout.nNodes * aligned_size(D);
+        _memrSizes[to_ul(MemrType::ePos)] = layout.nPos * aligned_size(D);
+        _memrSizes[to_ul(MemrType::eIdx)] = layout.nNodes * sizeof(uint);
         
-        // Specify memory area offsets
-        _memrOffsets[to_underlying(MemrType::eNode)] = 0;
-        _memrOffsets[to_underlying(MemrType::eMinB)] = memrOffset(MemrType::eNode) + align(memrSize(MemrType::eNode), float4Size);
-        _memrOffsets[to_underlying(MemrType::eDiam)] = memrOffset(MemrType::eMinB) + align(memrSize(MemrType::eMinB), float4Size);
-        _memrOffsets[to_underlying(MemrType::ePos)] = memrOffset(MemrType::eDiam) + align(memrSize(MemrType::eDiam), float4Size);
-        _memrOffsets[to_underlying(MemrType::eIdx)] = memrOffset(MemrType::ePos) + align(memrSize(MemrType::ePos), float4Size);
+        // Specify memory area offsets aligned to 16 byte endings
+        _memrOffsets[to_ul(MemrType::eNode)] = 0;
+        _memrOffsets[to_ul(MemrType::eMinB)] = memrOffset(MemrType::eNode) + align(memrSize(MemrType::eNode), sizeof(float4));
+        _memrOffsets[to_ul(MemrType::eDiam)] = memrOffset(MemrType::eMinB) + align(memrSize(MemrType::eMinB), sizeof(float4));
+        _memrOffsets[to_ul(MemrType::ePos)] = memrOffset(MemrType::eDiam) + align(memrSize(MemrType::eDiam), sizeof(float4));
+        _memrOffsets[to_ul(MemrType::eIdx)] = memrOffset(MemrType::ePos) + align(memrSize(MemrType::ePos), sizeof(float4));
         
         // Create buffer object to hold entire memory area
-        size_t size = memrOffset(MemrType::eIdx) + align(memrSize(MemrType::eIdx), float4Size);
+        size_t size = memrOffset(MemrType::eIdx) + memrSize(MemrType::eIdx);//align(memrSize(MemrType::eIdx), aligned_size(D));
         glCreateBuffers(1, &_glHandle);
         glNamedBufferStorage(_glHandle, size, nullptr, GL_DYNAMIC_STORAGE_BIT);
 
         // Register buffer as CUDA-OpenGL interopability resources
         cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, cudaGraphicsMapFlagsNone);
         
-        GL_ASSERT("BVHExtMemr::init()");
+        ASSERT_GL("BVHExtMemr::init()");
         _isInit = true;
       }
 
-      void BVHExtMemr::destr() {
+      template <unsigned D>
+      void BVHExtMemr<D>::destr() {
         cudaGraphicsUnregisterResource(_cuHandle);
         glDeleteBuffers(1, &_glHandle);
 
         _isInit = false;
       }
       
-      size_t BVHExtMemr::memrOffset(MemrType type) const {
-        return _memrOffsets[to_underlying(type)];
+      template <unsigned D>
+      size_t BVHExtMemr<D>::memrOffset(MemrType type) const {
+        return _memrOffsets[to_ul(type)];
       }
 
-      size_t BVHExtMemr::memrSize(MemrType type) const {
-        return _memrSizes[to_underlying(type)];
+      template <unsigned D>
+      size_t BVHExtMemr<D>::memrSize(MemrType type) const {
+        return _memrSizes[to_ul(type)];
       }
       
-      GLuint BVHExtMemr::bufferHandle() const {
+      template <unsigned D>
+      GLuint BVHExtMemr<D>::bufferHandle() const {
         return _glHandle;
       }
 
-      void BVHExtMemr::bindBuffer(MemrType type, GLuint index) const {
+      template <unsigned D>
+      void BVHExtMemr<D>::bindBuffer(MemrType type, GLuint index) const {
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, index, _glHandle, memrOffset(type), memrSize(type)); 
       }
       
-      void BVHExtMemr::map() {
+      template <unsigned D>
+      void BVHExtMemr<D>::map() {
         cudaGraphicsMapResources(1, &_cuHandle);
         cudaGraphicsResourceGetMappedPointer(&_cuPtr, nullptr, _cuHandle);
         _isMapped = true;
       }
       
-      void BVHExtMemr::unmap() {
+      template <unsigned D>
+      void BVHExtMemr<D>::unmap() {
         cudaGraphicsUnmapResources(1, &_cuHandle);
         _isMapped = false;
       }
 
-      void* BVHExtMemr::ptr(MemrType type) {
+      template <unsigned D>
+      void* BVHExtMemr<D>::ptr(MemrType type) {
         return (void *) ((char *) _cuPtr + memrOffset(type));
       }
+      
+      // Explicit template instantiations
+      template class BVHExtMemr<2>;
+      template class BVHExtMemr<3>;
 
       /*
         BVHIntMemr functions

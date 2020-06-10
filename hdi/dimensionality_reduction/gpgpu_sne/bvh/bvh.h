@@ -3,8 +3,6 @@
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_utils.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/3d_utils.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_memory.h"
@@ -12,16 +10,20 @@
 namespace hdi {
   namespace dr {  
     namespace bvh {
+      template <unsigned D>
       class BVH {
       public:
         BVH();
         ~BVH();
 
-        void init(const TsneParameters &params, GLuint posBuffer, unsigned nPos);
+        void init(const TsneParameters &params,
+                  GLuint posBuffer,
+                  GLuint boundsBuffer,
+                  unsigned nPos);
         void destr();
-        void compute(const Bounds3D &bounds, bool logTimers = false);
+        void compute(bool rebuild, unsigned iteration);
 
-        const BVHExtMemr& memr() const {
+        const BVHExtMemr<D>& memr() const {
           return _extMemr;
         }
 
@@ -35,13 +37,13 @@ namespace hdi {
 
       private:
         bool _isInit;
-        unsigned _iter;
  
         TsneParameters _params;
         BVHLayout _layout;
         BVHIntMemr _intMemr;
-        BVHExtMemr _extMemr;
+        BVHExtMemr<D> _extMemr;
         InteropResource _extPos;
+        InteropResource _extBounds;
         
         // Timer handles for kernel runtime performance measurements
         enum TimerType {

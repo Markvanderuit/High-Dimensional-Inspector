@@ -38,9 +38,9 @@
 namespace hdi {
   namespace dr {
     namespace bvh {
+      // 2 0-bit interleaving for 10-bit expansion
       __device__
-      // inline
-      uint expandBits(uint i)
+      uint expandBits10(uint i)
       {
         i = (i * 0x00010001u) & 0xFF0000FFu;
         i = (i * 0x00000101u) & 0x0F00F00Fu;
@@ -48,22 +48,52 @@ namespace hdi {
         i = (i * 0x00000005u) & 0x49249249u;
         return i;
       }
-      
+
+      // 1 0-bit interleaving for 15-bit expansion
       __device__
-      // inline
-      uint mortonCode(float4 f)
+      uint expandBits15(uint i) 
+      {
+        i = (i | (i << 8u)) & 0x00FF00FFu;
+        i = (i | (i << 4u)) & 0x0F0F0F0Fu;
+        i = (i | (i << 2u)) & 0x33333333u;
+        i = (i | (i << 1u)) & 0x55555555u;
+        return i;
+      }
+
+      template <unsigned D>
+      __device__
+      uint mortonCode(vec<D> f);
+
+      template <>
+      __device__
+      uint mortonCode<2>(vec<2> f)
+      {
+        f = clamp(f * 32768.f, 0.f, 32767.f);
+
+        const uint x = expandBits15(static_cast<uint>(f.x));
+        const uint y = expandBits15(static_cast<uint>(f.y));
+
+        return x | (y << 1);
+      }
+
+      template <>
+      __device__
+      uint mortonCode<3>(vec<3> f)
       {
         f = clamp(f * 1024.f, 0.f, 1023.f);
-        uint x = expandBits(static_cast<uint>(f.x));
-        uint y = expandBits(static_cast<uint>(f.y));
-        uint z = expandBits(static_cast<uint>(f.z));
+        
+        const uint x = expandBits10(static_cast<uint>(f.x));
+        const uint y = expandBits10(static_cast<uint>(f.y));
+        const uint z = expandBits10(static_cast<uint>(f.z));
+
         return x * 4u + y * 2u + z;
       }
 
+      template <unsigned D>
       __global__
-      void kernConstrMorton(BVHLayout layout, 
-        float4 minb, float4 invr, 
-        float4 *pEmb, uint *pMorton)
+      void kernConstrMorton(
+        BVHLayout layout, 
+        BVHBounds<D> *pBounds, vec<D> *pEmb, uint *pMorton)
       {
         const uint i = blockIdx.x * blockDim.x + threadIdx.x;
         if (i >= layout.nPos) {
@@ -71,16 +101,23 @@ namespace hdi {
         }
       
         // Normalize position to [0, 1]
-        const float4 pos = (pEmb[i] - minb) * invr;
+        const vec<D> pos = (pEmb[i] - pBounds->min) * pBounds->invrange;
 
         // Compute and store morton code
-        pMorton[i] = mortonCode(pos);
+        pMorton[i] = mortonCode<D>(pos);
       }
 
+      // Explicit template instantiations
+      template __global__
+      void kernConstrMorton<2>(BVHLayout, BVHBounds<2> *, vec<2> *, uint *);
+      template __global__
+      void kernConstrMorton<3>(BVHLayout, BVHBounds<3> *, vec<3> *, uint *);
+
+      template <unsigned D>
       __global__
       void kernConstrPos(
         BVHLayout layout,
-        uint *idx, float4 *posIn, float4 *posOut)
+        uint *idx, vec<D> *posIn, vec<D> *posOut)
       {
         const uint i = blockIdx.x * blockDim.x + threadIdx.x;
         if (i >= layout.nPos) {
@@ -89,6 +126,12 @@ namespace hdi {
         
         posOut[i] = posIn[idx[i]];
       }
+
+      // Explicit template instantiations
+      template __global__
+      void kernConstrPos<2>(BVHLayout, uint*, vec<2>*, vec<2>*);
+      template __global__
+      void kernConstrPos<3>(BVHLayout, uint*, vec<3>*, vec<3>*);
 
       __device__
       uint findSplit(uint *pMorton, uint level, uint levels, uint first, uint last)
@@ -120,7 +163,7 @@ namespace hdi {
         // Split at half point if a really bad split is found
         // if (levels - level < 5) {
         //   float relation = static_cast<float>(last - split) / static_cast<float>(last - first);
-        //   if (last - first > 1 && relation < 0.8f || relation > 0.8f) {
+        //   if (last - first > 1 && relation < 0.33f || relation > 0.66f) {
         //   // if (last - split > 2 && static_cast<float>(last - split) / static_cast<float>(last - first) <= 0.33) {
         //     split = first + (last - first) / 2;
         //   }
@@ -132,11 +175,12 @@ namespace hdi {
         return split;
       }
       
+      template <unsigned D>
       __global__
       void kernConstrSubdiv(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pMorton, uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam)
+        uint *pMorton, uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam)
       {
         const uint i = begin + blockIdx.x * blockDim.x + threadIdx.x;
         if (i >= end) {
@@ -151,8 +195,6 @@ namespace hdi {
           parentData[threadIdx.x] = static_cast<uint>(pNode[(i >> 1) - 1].w);
         }
         __syncthreads();
-        // uint *parentPtr = (threadIdx.x % 2 == 0) ? pIdx : pMass;
-        // parentData[threadIdx.x] = static_cast<uint>(parentPtr[(i >> 1) - 1]);
         
         const uint t = threadIdx.x - (threadIdx.x % 2);
         const uint parentIdx = parentData[t];
@@ -175,41 +217,134 @@ namespace hdi {
             idx = split + 1;
             node.w = rangeEnd - split;
           }
+        } else {
+          idx = 0;
+          node.w = 0;
         }
 
-        // Compute leaf node data if necessary
+        /* // Compute leaf node data if necessary
         if (node.w == 1 || (node.w > 0 && level == levels - 1)) {
-          float4 pos = pPos[idx];
-          float4 minb = pos;
-          float4 maxb = pos;
+          vec<D> pos = pPos[idx];
+          vec<D> minb = pos;
+          vec<D> maxb = pos;
           for (uint _idx = idx + 1; _idx < idx + static_cast<uint>(node.w); _idx++) {
-            float4 _pos = pPos[_idx];
+            vec<D> _pos = pPos[_idx];
             minb = fminf(minb, _pos);
             maxb = fmaxf(maxb, _pos);
             pos += _pos;
           }
           pos /= static_cast<float>(node.w);
-
-          node = make_float4(pos.x, pos.y, pos.z, node.w);
+          
+          if constexpr (D == 2) {
+            node = make_float4(pos.x, pos.y, 0.f, node.w);
+          } else if constexpr (D == 3) {
+            node = make_float4(pos.x, pos.y, pos.z, node.w);
+          }
           pMinB[i - 1] = minb;
           pDiam[i - 1] = maxb - minb;
-        }
+        } */
 
         pIdx[i - 1] = idx;
         pNode[i - 1] = node;
       }
       
+      // Explicit template instantiations
+      template  __global__
+      void kernConstrSubdiv<2>(
+        BVHLayout, uint, uint, uint, uint, uint*, uint*, vec<2>*, float4*, vec<2>*, vec<2>*);
+      template  __global__
+      void kernConstrSubdiv<3>(
+        BVHLayout, uint, uint, uint, uint, uint*, uint*, vec<3>*, float4*, vec<3>*, vec<3>*);
+      
+      template <unsigned D>
+      __global__
+      void kernConstrLeaf(
+        BVHLayout layout,
+        uint begin, uint end,
+        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam)
+      {
+        const uint i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= end) {
+          return;
+        }
+
+        float4 node = pNode[i];
+        
+        // Skip empty nodes
+        if (node.w == 0) {
+          return;
+        }
+        
+        // Skip non-leaf nodes
+        if (node.w > 1 && i < begin) {
+          return;
+        }
+        
+        uint idx = pIdx[i];
+        vec<D> pos = pPos[idx];
+        vec<D> minb = pos;
+        vec<D> maxb = pos;
+
+        for (uint _idx = idx + 1; _idx < idx + static_cast<uint>(node.w); _idx++) {
+          vec<D> _pos = pPos[_idx];
+          minb = fminf(minb, _pos);
+          maxb = fmaxf(maxb, _pos);
+          pos += _pos;
+        }
+        pos /= static_cast<float>(node.w);
+        if constexpr (D == 2) {
+          node = make_float4(pos.x, pos.y, 0.f, node.w);
+        } else if constexpr (D == 3) {
+          node = make_float4(pos.x, pos.y, pos.z, node.w);
+        }
+
+        pMinB[i] = minb;
+        pDiam[i] = maxb - minb;
+        pNode[i] = node;
+
+        // // QCompute leaf node data if necessary
+        // if (node.w == 1 || (node.w > 0 && level == levels - 1)) {
+        //   vec<D> pos = pPos[idx];
+        //   vec<D> minb = pos;
+        //   vec<D> maxb = pos;
+        //   for (uint _idx = idx + 1; _idx < idx + static_cast<uint>(node.w); _idx++) {
+        //     vec<D> _pos = pPos[_idx];
+        //     minb = fminf(minb, _pos);
+        //     maxb = fmaxf(maxb, _pos);
+        //     pos += _pos;
+        //   }
+        //   pos /= static_cast<float>(node.w);
+          
+        //   if constexpr (D == 2) {
+        //     node = make_float4(pos.x, pos.y, 0.f, node.w);
+        //   } else if constexpr (D == 3) {
+        //     node = make_float4(pos.x, pos.y, pos.z, node.w);
+        //   }
+        //   pMinB[i - 1] = minb;
+        //   pDiam[i - 1] = maxb - minb;
+        // }
+      }
+
+      // Explicit template instantiations
+      template __global__
+      void kernConstrLeaf<2>(
+        BVHLayout, uint, uint, uint*, vec<2>*, float4*, vec<2>*, vec<2>*);
+      template __global__
+      void kernConstrLeaf<3>(
+        BVHLayout, uint, uint, uint*, vec<3>*, float4*, vec<3>*, vec<3>*);
+
+      template <unsigned D>
       struct ReducableNode {
         float4 node;
-        float4 minb;
-        float4 diam;
+        vec<D> minb;
+        vec<D> diam;
 
         __device__
         ReducableNode()
         { }
 
         __device__
-        ReducableNode(float4 node, float4 minb, float4 diam)
+        ReducableNode(float4 node, vec<D> minb, vec<D> diam)
         : node(node), minb(minb), diam(diam)
         { }
 
@@ -224,42 +359,52 @@ namespace hdi {
         }
       };
 
+      template <unsigned D>
       __device__
-      ReducableNode reduce(ReducableNode l, ReducableNode r)
+      ReducableNode<D> reduce(ReducableNode<D> l, ReducableNode<D> r)
       {
         if (r.node.w != 0u) {
-          return ReducableNode(l, r);
+          return ReducableNode<D>(l, r);
         } else {
           return l;
         }
       } 
-
+      
+      template <unsigned D>
       __device__
-      ReducableNode read(uint i, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      ReducableNode<D> read(uint i, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam)
       {
         const float4 node = pNode[i];
         if (node.w > 0.f) {
-          return ReducableNode(node, pMinB[i], pDiam[i]);
+          return ReducableNode<D>(node, pMinB[i], pDiam[i]);
         } else {
-          return ReducableNode(make_float4(0), make_float4(0), make_float4(0));
+          if constexpr (D == 2) {
+            return ReducableNode<D>(make_float4(0), make_float2(0), make_float2(0));
+          } else if constexpr (D == 3) {
+            return ReducableNode<D>(make_float4(0), make_float4(0), make_float4(0));
+          }
+
+          return ReducableNode<D>();
         }
       }
 
+      template <unsigned D>
       __device__
-      void write(uint i, ReducableNode &node, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      void write(uint i, ReducableNode<D> &node, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam)
       {
         pNode[i] = node.node;
         pMinB[i] = node.minb;
         pDiam[i] = node.diam;
       }
 
+      template <unsigned D>
       __global__
-      void kernConstrDataReduce(
+      void kernConstrBbox(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pIdx, float4 *pPos, float4 *pNode, float4 *pMinB, float4 *pDiam)
+        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam)
       {
-        __shared__ ReducableNode reductionNodes[32];
+        __shared__ ReducableNode<D> reductionNodes[32];
         const uint halfBlockDim = blockDim.x / 2;
 
         const uint t = threadIdx.x;
@@ -269,7 +414,7 @@ namespace hdi {
           return;
         }
         
-        ReducableNode node = read(i - 1, pNode, pMinB, pDiam);
+        ReducableNode<D> node = read<D>(i - 1, pNode, pMinB, pDiam);
         i >>= 1;
         
         if (t % 2 == 1) {
@@ -277,12 +422,12 @@ namespace hdi {
         }
         __syncthreads();
         if (t % 2 == 0) {
-          node = reduce(node, reductionNodes[halft]);
+          node = reduce<D>(node, reductionNodes[halft]);
           if (node.node.w == 0.f) {
-            reductionNodes[halft] = read(i - 1, pNode, pMinB, pDiam);
+            reductionNodes[halft] = read<D>(i - 1, pNode, pMinB, pDiam);
           } else {
             reductionNodes[halft] = node;
-            write(i - 1, node, pNode, pMinB, pDiam);
+            write<D>(i - 1, node, pNode, pMinB, pDiam);
           }
         }
         if (--level == 0) {
@@ -296,12 +441,12 @@ namespace hdi {
           i >>= 1;
           
           if (t % mod == 0) {
-            node = reduce(reductionNodes[halft], reductionNodes[halft + (mod / 4)]);
+            node = reduce<D>(reductionNodes[halft], reductionNodes[halft + (mod / 4)]);
             if (node.node.w == 0.f) {
-              reductionNodes[halft] = read(i - 1, pNode, pMinB, pDiam);
+              reductionNodes[halft] = read<D>(i - 1, pNode, pMinB, pDiam);
             } else {
               reductionNodes[halft] = node;
-              write(i - 1, node, pNode, pMinB, pDiam);
+              write<D>(i - 1, node, pNode, pMinB, pDiam);
             }
           }
           
@@ -315,22 +460,45 @@ namespace hdi {
         __syncthreads();
         i >>= 1;
         if (t == 0) {
-          node = reduce(reductionNodes[0], reductionNodes[halfBlockDim / 2]);
+          node = reduce<D>(reductionNodes[0], reductionNodes[halfBlockDim / 2]);
           if (node.node.w > 0.f) {
-            write(i - 1, node, pNode, pMinB, pDiam);
+            write<D>(i - 1, node, pNode, pMinB, pDiam);
           }
         }
       }
-      
+
+      // Explicit template instantiations
+      template __global__
+      void kernConstrBbox<2>(
+        BVHLayout, uint, uint, uint, uint, uint*, vec<2>*, float4*, vec<2>*, vec<2>*);
+      template __global__
+      void kernConstrBbox<3>(
+        BVHLayout, uint, uint, uint, uint, uint*, vec<3>*, float4*, vec<3>*, vec<3>*);
+
+      template <>
       __global__
-      void kernConstrCleanup(
-        uint n, float4 *pNode, float4 *pMinB, float4 *pDiam)
+      void kernConstrCleanup<2>(
+        uint n, float4 *pNode, vec<2> *pMinB, vec<2> *pDiam)
       {
         const uint i = blockIdx.x * blockDim.x + threadIdx.x;
         if (i >= n) {
           return;
         }
-        
+        if (pNode[i].w == 0) {
+          pMinB[i] = make_float2(0);
+          pDiam[i] = make_float2(0);
+        }
+      }
+
+      template <>
+      __global__
+      void kernConstrCleanup<3>(
+        uint n, float4 *pNode, vec<3> *pMinB, vec<3> *pDiam)
+      {
+        const uint i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= n) {
+          return;
+        }
         if (pNode[i].w == 0) {
           pMinB[i] = make_float4(0);
           pDiam[i] = make_float4(0);
