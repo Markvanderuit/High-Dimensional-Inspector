@@ -11,6 +11,7 @@
 #include <type_traits>
 #include <vector>
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_kern.h"
 #include <cuda_gl_interop.h> // include last because of OpenGL header
@@ -23,23 +24,6 @@ inline
 genType ceilDiv(genType n, genType div) {
   return (n + div - 1) / div;
 }
-
-inline 
-void gpuAssertDetail(cudaError_t code, const char *file, int line, bool abort=true) {
-  if (code != cudaSuccess) {
-    std::stringstream ss;
-    ss << "CUDA error\n"
-    << "  code     " << code << '\n'
-    << "  message  " << cudaGetErrorString(code) << '\n'
-    << "  file     " << file << '\n'
-    << "  line     " << line;
-    if (abort) {
-      exit(code);
-    }
-  }
-}
-
-#define gpuAssert(ans) { gpuAssertDetail((ans), __FILE__, __LINE__); }
 
 namespace hdi {
   namespace dr {  
@@ -84,12 +68,12 @@ namespace hdi {
         // Set root node range, as this (REALLY) shouldn't change
         _extMemr.map();
         {
-          uint rootIdx = 0;
           float4 rootNode = make_float4(0.f, 0.f, 0.f, static_cast<float>(_layout.nPos));
-          cudaMemcpy(_extMemr.ptr(BVHExtMemr<D>::MemrType::eIdx),
-            &rootIdx, sizeof(uint), cudaMemcpyHostToDevice);
+          float4 rootDiam = make_float4(0.f, 0.f, 0.f, 0.f);
           cudaMemcpy(_extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
             &rootNode, sizeof(float4), cudaMemcpyHostToDevice);
+          cudaMemcpy(_extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam),
+            &rootDiam, sizeof(float4), cudaMemcpyHostToDevice);
         }
         _extMemr.unmap();
 
@@ -150,6 +134,7 @@ namespace hdi {
             (int) _layout.nPos, 
             lsb, msb
           );
+          // Construct sorted position list from unsorted positions and sorted indices
           kernConstrPos<D><<<ceilDiv(_layout.nPos, 256u), 256u>>>(
             _layout,
             (uint *) _intMemr.ptr(BVHIntMemr::MemrType::eIdxOut),
@@ -169,11 +154,10 @@ namespace hdi {
               _layout,
               l, _layout.nLvls, begin, end,
               (uint *) _intMemr.ptr(BVHIntMemr::MemrType::eMortonOut),
-              (uint *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eIdx),
               (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::ePos),
               (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
               (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eMinB),
-              (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
+              (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
             );
           }
         }
@@ -181,19 +165,19 @@ namespace hdi {
         
         // Compute additional tree data bottom-up
         _timers[TIMR_DATA].tick();
-        {
-          const uint begin = 1 << (_layout.nLvls - 1);
-          const uint end = 2 * begin;
-          kernConstrLeaf<D><<<ceilDiv(_layout.nNodes, 256u), 256u>>>(
-            _layout,
-            begin, end,
-            (uint *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eIdx),
-            (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::ePos),
-            (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
-            (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eMinB),
-            (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
-          );
-        }
+        // {
+        //   const uint begin = 1 << (_layout.nLvls - 1);
+        //   const uint end = 2 * begin;
+        //   kernConstrLeaf<D><<<ceilDiv(_layout.nNodes, 256u), 256u>>>(
+        //     _layout,
+        //     begin, end,
+        //     (uint *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eIdx),
+        //     (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::ePos),
+        //     (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
+        //     (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eMinB),
+        //     (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
+        //   );
+        // }
 
         for (int l = _layout.nLvls - 1; l > 0; l -= 6) {
           const uint begin = 1 << l;
@@ -201,11 +185,10 @@ namespace hdi {
           kernConstrBbox<D><<<ceilDiv(end - begin, 64u), 64u>>>(
             _layout, 
             l, _layout.nLvls, begin, end,
-            (uint *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eIdx),
             (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::ePos),
             (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
             (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eMinB),
-            (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
+            (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
           );
         }
         _timers[TIMR_DATA].tock();
@@ -215,7 +198,7 @@ namespace hdi {
           _layout.nNodes,
           (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
           (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eMinB),
-          (vec *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
+          (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
         ); */
         _timers[TIMR_CLEANUP].tock();
         
@@ -230,11 +213,11 @@ namespace hdi {
 
         if (iteration >= static_cast<unsigned>(_params._iterations) - 1) {
           utils::secureLog(_logger, "\nBVH construction");
-          _timers[TIMR_MORTON].log(_logger, "  Morton");
-          _timers[TIMR_SORT].log(_logger, "  Sorting");
-          _timers[TIMR_SUBDIV].log(_logger, "  Subdiv");
-          _timers[TIMR_DATA].log(_logger, "  Bboxes");
-          _timers[TIMR_CLEANUP].log(_logger, "  Cleanup");
+          LOG_TIMER(_logger, _timers[TIMR_MORTON], "  Morton");
+          LOG_TIMER(_logger, _timers[TIMR_SORT], "  Sorting");
+          LOG_TIMER(_logger, _timers[TIMR_SUBDIV], "  Subdiv");
+          LOG_TIMER(_logger, _timers[TIMR_DATA], "  Bboxes");
+          LOG_TIMER(_logger, _timers[TIMR_CLEANUP], "  Cleanup");
         }
       }
       

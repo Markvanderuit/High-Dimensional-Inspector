@@ -3,9 +3,9 @@
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_memory.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/timer.h"
 
 namespace hdi {
   namespace dr {  
@@ -33,19 +33,11 @@ namespace hdi {
 
         void setLogger(utils::AbstractLog* logger) {
           _logger = logger; 
+          _intMemr.setLogger(logger);
+          _extMemr.setLogger(logger);
         }
 
       private:
-        bool _isInit;
- 
-        TsneParameters _params;
-        BVHLayout _layout;
-        BVHIntMemr _intMemr;
-        BVHExtMemr<D> _extMemr;
-        InteropResource _extPos;
-        InteropResource _extBounds;
-        
-        // Timer handles for kernel runtime performance measurements
         enum TimerType {
           TIMR_MORTON,      // Morton code generation timer 
           TIMR_SORT,        // Radix sort timer
@@ -56,6 +48,15 @@ namespace hdi {
           // Static enum length
           TimerTypeLength
         };
+
+        bool _isInit;
+ 
+        TsneParameters _params;
+        BVHLayout _layout;
+        BVHIntMemr _intMemr;
+        BVHExtMemr<D> _extMemr;
+        InteropResource _extPos;
+        InteropResource _extBounds;
         utils::AbstractLog* _logger;
         std::array<CuTimer, TimerTypeLength> _timers;  // Timers for kernel perf.
       };
