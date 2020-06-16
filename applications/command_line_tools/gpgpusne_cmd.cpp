@@ -43,6 +43,7 @@
 #include "hdi/dimensionality_reduction/gradient_descent_tsne.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/kl_divergence_compute.h"
 #include <cxxopts/cxxopts.hpp>
 #include <cstdlib>
 #include <iostream>
@@ -190,22 +191,29 @@ int main(int argc, char *argv[]) {
     }
 
     // Compute probability distribution or load from file if it is cached
-    std::string cacheFileName = inputFileName + "_cache_p" + std::to_string(perplexity);
+    std::string cacheFileName = inputFileName 
+      + "_cache"
+      + "_n=" + std::to_string(num_data_points)
+      + "_p=" + std::to_string(perplexity);
     std::ifstream cacheFile(cacheFileName, std::ios::binary);
     if (cacheFile.is_open()) { 
       // There IS a cache file already
-      hdi::utils::secureLog(&log, "Loading probability distribution from cache file...");
+      hdi::utils::secureLog(&log, "Loading joint probability distribution from cache file...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
       hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
-    } else  { 
+    } else { 
       // No cache file, start from scratch
-      hdi::utils::secureLog(&log, "Computing probability distribution...");
+      hdi::utils::secureLog(&log, "Computing joint probability distribution...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
 
-      // Compute probability distribution
+      // Compute joint probability distribution
       prob_gen.setLogger(&log);
       prob_gen_param._perplexity = perplexity;
-      prob_gen.computeProbabilityDistributions(panel_data.getData().data(), panel_data.numDimensions(), panel_data.numDataPoints(), distributions, prob_gen_param);
+      prob_gen.computeJointProbabilityDistribution(panel_data.getData().data(),
+                                                   panel_data.numDimensions(),
+                                                   panel_data.numDataPoints(),
+                                                   distributions,
+                                                   prob_gen_param);
       
       // Store probability distribution in cache file
       std::ofstream outputFile(cacheFileName, std::ios::binary);
@@ -230,15 +238,13 @@ int main(int argc, char *argv[]) {
     }
     window.enableVsync(false);
     hdi::dbg::InputManager inputManager(window);
-    hdi::dbg::RenderManager renderManager;
+    hdi::dbg::RenderManager renderManager(embedding_dimensions);
 
-    // Init T-SNE algorithm
+    // Init T-SNE algorithm and perform minimization
     hdi::dr::GradientDescentTSNE tSNE;
-    tSNE.setLogger(&log);
-    tSNE.init(distributions, &embedding, tsne_params);
-    
-    // Perform minimization
     {
+      tSNE.setLogger(&log);
+      tSNE.init(distributions, &embedding, tsne_params);
       hdi::utils::secureLog(&log, "Computing gradient descent...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
       if (doVisualisation) {
@@ -253,30 +259,27 @@ int main(int argc, char *argv[]) {
           inputManager.render();
           window.display();
         }
+        // Do not destroy tSNE object, needed for further visualization 
       } else {
         // No render loop, just chunk out minimization
         for (int i = 0; i < iterations; ++i) {
           tSNE.iterate();
         }
+        tSNE.destr();
       }
-    }
-
-    // Output embedding file
-    hdi::utils::secureLog(&log, "Writing embedding to file...");
-    {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
-      std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
-      embedding.removePadding();
-      output_file.write(reinterpret_cast<const char*>(embedding.getContainer().data()), sizeof(scalar_type)*embedding.getContainer().size());
     }
     
     // Compute KL-divergence if requested (takes a while in debug mode)
     if (doKlDivergence) {
-      hdi::utils::secureLog(&log, "");
       hdi::utils::secureLog(&log, "Computing KL-Divergence...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
-      double KL = tSNE.computeKullbackLeiblerDivergence();
-      hdi::utils::secureLogValue(&log, "KL Divergence", KL);
+      float KL = 0.f;
+      if (embedding_dimensions == 2) {
+        KL = hdi::dr::KlDivergenceCompute<2>().compute(&embedding, tsne_params, distributions);
+      } else if (embedding_dimensions == 3) {
+        KL = hdi::dr::KlDivergenceCompute<3>().compute(&embedding, tsne_params, distributions);
+      }
+      hdi::utils::secureLogValue(&log, "  KL Divergence", KL);
       hdi::utils::secureLog(&log, "");
     } 
     
@@ -293,6 +296,15 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
+    }
+
+    // Output embedding file
+    hdi::utils::secureLog(&log, "Writing embedding to file...");
+    {
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
+      std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
+      embedding.removePadding();
+      output_file.write(reinterpret_cast<const char*>(embedding.getContainer().data()), sizeof(scalar_type)*embedding.getContainer().size());
     }
 
     hdi::utils::secureLog(&log, "Timings");
@@ -317,9 +329,9 @@ int main(int argc, char *argv[]) {
         inputManager.render();
         window.display();
       }
+      tSNE.destr();
     }
 
-    tSNE.destr();
   } catch (std::exception& e) { 
     std::cerr << "Caught exception: " << e.what() << std::endl; 
     return EXIT_FAILURE;
