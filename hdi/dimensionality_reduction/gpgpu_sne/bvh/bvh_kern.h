@@ -65,26 +65,26 @@ namespace hdi {
       void kernConstrSubdiv(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pMorton, uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
+        uint *pMorton, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, float4 *pDiam);
 
-      template <unsigned D>
-      __global__
-      void kernConstrLeaf(
-        BVHLayout layout,
-        uint begin, uint end,
-        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
+      // template <unsigned D>
+      // __global__
+      // void kernConstrLeaf(
+      //   BVHLayout layout,
+      //   uint begin, uint end,
+      //   uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, float4 *pDiam);
 
       template <unsigned D>
       __global__
       void kernConstrBbox(
         BVHLayout layout,
         uint level, uint levels, uint begin, uint end,
-        uint *pIdx, vec<D> *pPos, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
+        vec<D> *pPos, float4 *pNode, vec<D> *pMinB, float4 *pDiam);
 
       template <unsigned D>
       __global__
       void kernConstrCleanup(
-        uint n, float4 *pNode, vec<D> *pMinB, vec<D> *pDiam);
+        uint n, float4 *pNode, vec<D> *pMinB, float4 *pDiam);
     }
   }
 }
