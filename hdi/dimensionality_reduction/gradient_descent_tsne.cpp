@@ -61,31 +61,7 @@ namespace hdi::dr {
     _embeddingPtr = embeddingPtr;
     _params = params;
     _iteration = 0;
-    
-    // Initialize the high-dimensional probability distribution
-    utils::secureLog(_logger, "Computing high-dimensional joint probability distribution...");
-    {
-      const unsigned n = P.size();
-      _P.clear();
-      _P.resize(n);
-
-      for (int j = 0; j < n; j++) {
-        const auto& p = P[j];
-
-        for (const auto& elem : p) {
-          float v = 0.5 * elem.second;
-
-          const auto iter = P[elem.first].find(j);
-          if (iter != P[elem.first].end()) {
-            v += 0.5 * iter->second;
-          }
-
-          // Set Pji and Pij to (Pi|j + Pj|i) / 2
-          _P[j][elem.first] = v; 
-          _P[elem.first][j] = v; 
-        }
-      }
-    }
+    _P = P;
 
     // Initialize the embedding to random positions
     utils::secureLog(_logger, "Initializing embedding...");
@@ -202,6 +178,10 @@ namespace hdi::dr {
       sum_Q += _sum_Q;
     }
 
+    double ln_Q = std::log(sum_Q);
+    
+    // std::cerr << "sum_q, cpu:  " << sum_Q << std::endl;
+
     double kl = 0.0;
     #pragma omp parallel for reduction(+: kl)
     for (int i = 0; i < n; ++i) {
@@ -217,13 +197,16 @@ namespace hdi::dr {
             _embeddingPtr->getContainer().begin() + (i + 1)*_params._embedding_dimensionality
             )
         );
-        const double v = 1. / (1. + euclidean_dist_sq);
-        double p = pij.second / (2 * n);
-        double klc = p * std::log(p / (v / sum_Q));
-        _kl += klc;
+        const double q_ij = 1. / (1. + euclidean_dist_sq);
+        const double p_ij = pij.second / (2.0 * n);
+
+        if (p_ij != 0.0) {
+          _kl += p_ij * (std::log(p_ij) - (std::log(q_ij) - ln_Q));
+        }
       }
       kl += _kl;
     }
+
     return kl;
   }
 

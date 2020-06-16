@@ -64,7 +64,6 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-
       _gpgpu_2d_sne_compute.setLogger(logger);
       _gpgpu_3d_sne_compute.setLogger(logger);
     }
