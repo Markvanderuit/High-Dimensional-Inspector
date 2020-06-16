@@ -33,12 +33,9 @@
 #include <array>
 #include <type_traits>
 #include <glad/glad.h>
+#include "hdi/utils/abstract_log.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_layout.h"
-
-template <typename E>
-constexpr typename std::underlying_type<E>::type to_ul(E e) noexcept {
-  return static_cast<typename std::underlying_type<E>::type>(e);
-}
 
 namespace hdi {
   namespace dr {  
@@ -67,13 +64,12 @@ namespace hdi {
       class BVHExtMemr {
       public:
         enum class MemrType {
-          eNode,  // 4 x float, always aligned to 16 bytes, stores center of mass, mass
-          eMinB,  // 2/4 x float
-          eDiam,  // 2/4 x float
-          ePos,   // 2/4 x float, contains sorted positions
-          eIdx,   // 1 x uint
+          eNode,  // nNodes x 4   x float, stores center of mass and nr of positions
+          eDiam,  // nNodes x 4   x float, stores diameter of bbox and first index of position
+          eMinB,  // nNodes x 2/4 x float
+          ePos,   // nPos   x 2/4 x float, contains sorted positions
 
-          size    // static size, eg to_ul(MemrType::size)
+          Length
         };
 
         BVHExtMemr();
@@ -95,26 +91,31 @@ namespace hdi {
         size_t memrOffset(MemrType area) const;
         void *ptr(MemrType area);
 
+        void setLogger(utils::AbstractLog* logger) {
+          _logger = logger; 
+        }
+
       private:
         bool _isInit;
         bool _isMapped;
         GLuint _glHandle;
         struct cudaGraphicsResource *_cuHandle;
         void * _cuPtr;
-        std::array<size_t, to_ul(MemrType::size)> _memrSizes;
-        std::array<size_t, to_ul(MemrType::size)> _memrOffsets;
+        EnumArray<MemrType, size_t> _memrSizes;
+        EnumArray<MemrType, size_t> _memrOffsets;
+        utils::AbstractLog* _logger;
       };
 
       class BVHIntMemr {
       public:
         enum class MemrType {
-          eTemp,      // ..., work space for sort
-          eMortonIn,  // 1 x uint, unsorted morton codes
-          eMortonOut, // 1 x uint, sorted morton codes
-          eIdxIn,     // 1 x uint, unsorted position indices
-          eIdxOut,    // 1 x uint, sorted position indices
+          eTemp,      // ..., small work space for sort
+          eMortonIn,  // nPos x 1 x uint, unsorted morton codes
+          eMortonOut, // nPos x 1 x uint, sorted morton codes
+          eIdxIn,     // nPos x 1 x uint, unsorted position indices
+          eIdxOut,    // nPos x 1 x uint, sorted position indices
 
-          size        // static size, eg to_ul(MemrType::size)
+          Length
         };
 
         BVHIntMemr();
@@ -126,12 +127,17 @@ namespace hdi {
         size_t memrSize(MemrType type);
         size_t memrOffset(MemrType type);
         void *ptr(MemrType type);
+
+        void setLogger(utils::AbstractLog* logger) {
+          _logger = logger; 
+        }
       
       private:
         bool _isInit;
         void *_ptr;
-        std::array<size_t, to_ul(MemrType::size)> _memrSizes;
-        std::array<size_t, to_ul(MemrType::size)> _memrOffsets;
+        EnumArray<MemrType, size_t> _memrSizes;
+        EnumArray<MemrType, size_t> _memrOffsets;
+        utils::AbstractLog* _logger;
       };
     }
   }
