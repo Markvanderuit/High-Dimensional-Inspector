@@ -171,11 +171,9 @@ GLSL(field_bvh_src, 450,
   layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
   
   layout(binding = 0, std430) restrict readonly buffer NodeBuffer { vec4 nodeBuffer[]; };
-  layout(binding = 1, std430) restrict readonly buffer IdxBuffer { uint idxBuffer[]; };
-  layout(binding = 2, std430) restrict readonly buffer PosBuffer { vec3 posBuffer[]; };
-  layout(binding = 3, std430) restrict readonly buffer MinbBuffer { vec3 minbBuffer[]; };
-  layout(binding = 4, std430) restrict readonly buffer DiamBuffer { vec3 diamBuffer[]; };
-  layout(binding = 5, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  layout(binding = 1, std430) restrict readonly buffer PosBuffer { vec3 posBuffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer DiamBuffer { vec4 diamBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
   layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
   layout(binding = 0) uniform usampler2D gridSampler;
 
@@ -228,31 +226,35 @@ GLSL(field_bvh_src, 450,
   }
 
   bool approx(vec3 domainPos, inout vec4 fieldValue) {
-    // Query values from current node
-    vec4 node = nodeBuffer[loc];
-    vec3 diam = diamBuffer[loc];
-    
+    // Fetch packed node data
+    const vec4 vNode = nodeBuffer[loc];
+    const vec4 vDiam = diamBuffer[loc];
+
+    // Unpack node data
+    const vec3 center = vNode.xyz;
+    const uint mass = uint(vNode.w);
+    const vec3 diam = vDiam.xyz;
+    const uint begin = uint(vDiam.w);
+
     // Squared distance to pos
-    vec3 t = domainPos - node.xyz;
+    vec3 t = domainPos - center;
     float t2 = dot(t, t);
 
     // Compute squared diameter
     vec3 b = abs(normalize(t)) * vec3(-1, -1, 1);
     vec3 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
     
-    if (dot(c, c) / t2 < theta2 || node.w < 2.f) {
+    if (dot(c, c) / t2 < theta2) {
       // If BH-approximation passes, compute approximated value
       float tStud = 1.f / (1.f + t2);
 
       // Field layout is: S, V.x, V.y, V.z
-      fieldValue += node.w * vec4(tStud, t * (tStud * tStud));
+      fieldValue += mass * vec4(tStud, t * (tStud * tStud));
 
       return true;
-    } else if (lvl == nLvls - 1) {
-      // If a leaf node is reached that is not approximate enough
-      // we iterate over all contained points (there goes thread divergence)
-      uint begin = idxBuffer[loc];
-      for (uint i = begin; i < begin + uint(node.w); ++i) {
+    } else if (mass <= 8 || lvl == nLvls - 1) {
+      // Iterate over all leaf points (there goes thread divergence)
+      for (uint i = begin; i < begin + mass; ++i) {
         t = domainPos - posBuffer[i];
         float tStud = 1.f / (1.f +  dot(t, t));
 

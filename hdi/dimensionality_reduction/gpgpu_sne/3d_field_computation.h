@@ -30,12 +30,13 @@
 
 #pragma once
 
-#define USE_BVH // Use BVH for px log n field computations
+// #define USE_BVH // Use BVH for px log n field computations
 
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #ifdef USE_BVH
@@ -74,28 +75,24 @@ namespace hdi::dr {
     int _iteration;
     uvec _dims;
 
-    enum TextureType {
-      // Enum values matching to textures in _textures array
-      TEXTURE_CELLMAP,
-      TEXTURE_GRID,
-      TEXTURE_FIELD,
+    enum class TextureType {
+      eCellmap,
+      eGrid,
+      eField,
 
-      // Static enum length
-      TextureTypeLength 
+      Length 
     };
 
-    enum ProgramType {
-      // Enum values matching to shader programs in _programs array
-      PROG_GRID,
-      PROG_FIELD,
-      PROG_INTERP,
+    enum class ProgramType {
+      eGrid,
+      eField,
+      eInterp,
 
-      // Static enum length
-      ProgramTypeLength
+      Length
     };
 
-    std::array<ShaderProgram, ProgramTypeLength> _programs;
-    std::array<GLuint, TextureTypeLength> _textures;
+    EnumArray<TextureType, GLuint> _textures;
+    EnumArray<ProgramType, ShaderProgram> _programs;
     std::array<uint32_t, 4 * 128> _cellData;
     GLuint _vrao_point;
     GLuint _frbo_grid;

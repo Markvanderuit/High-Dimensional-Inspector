@@ -71,14 +71,14 @@ namespace hdi::dr {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROG_GRID].addShader(VERTEX, grid_vert_src);
-      _programs[PROG_GRID].addShader(FRAGMENT, grid_fragment_src);
+      _programs(ProgramType::eGrid).addShader(VERTEX, grid_vert_src);
+      _programs(ProgramType::eGrid).addShader(FRAGMENT, grid_fragment_src);
 #ifdef USE_BVH
-      _programs[PROG_FIELD].addShader(COMPUTE, field_bvh_src); 
+      _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
 #else
-      _programs[PROG_FIELD].addShader(COMPUTE, field_src); 
+      _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
 #endif
-      _programs[PROG_INTERP].addShader(COMPUTE, interp_src);
+      _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
       }
@@ -99,32 +99,30 @@ namespace hdi::dr {
       }
     }
 
-    glGenTextures(_textures.size(), _textures.data());
-
     // Generate voxel grid cell texture
-    glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glCreateTextures(GL_TEXTURE_1D, 1, &_textures(TextureType::eCellmap));
+    glTextureParameteri(_textures(TextureType::eCellmap), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eCellmap), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eCellmap), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 
     // Generate voxel grid texture
-    glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eGrid));
+    glTextureParameteri(_textures(TextureType::eGrid), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eGrid), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eGrid), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eGrid), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     // Generate 3d fields texture
-    glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD]);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glCreateTextures(GL_TEXTURE_3D, 1, &_textures(TextureType::eField));
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     
     // Generate framebuffer for grid computation
     glCreateFramebuffers(1, &_frbo_grid);
-    glNamedFramebufferTexture(_frbo_grid, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_GRID], 0);
+    glNamedFramebufferTexture(_frbo_grid, GL_COLOR_ATTACHMENT0, _textures(TextureType::eGrid), 0);
     glNamedFramebufferDrawBuffer(_frbo_grid, GL_COLOR_ATTACHMENT0);
     
     // Generate vrao for point drawing
@@ -141,6 +139,7 @@ namespace hdi::dr {
 
     _iteration = 0;
     _isInit = true;
+    std::cerr << "Baseline3dFieldComputation::init()" << std::endl;
   }
 
   void Baseline3dFieldComputation::destr() {
@@ -172,12 +171,12 @@ namespace hdi::dr {
       // Update cell data for voxel grid computation only to d = 128
       glActiveTexture(GL_TEXTURE0);
       if (_dims.z <= 128u) {
-        glBindTexture(GL_TEXTURE_1D, _textures[TEXTURE_CELLMAP]);
+        glBindTexture(GL_TEXTURE_1D, _textures(TextureType::eCellmap));
         glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA32UI, _dims.z, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, _cellData.data());
       }
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_GRID]);
+      glBindTexture(GL_TEXTURE_2D, _textures(TextureType::eGrid));
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32UI, _dims.x, _dims.y, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, nullptr);
-      glBindTexture(GL_TEXTURE_3D, _textures[TEXTURE_FIELD]);
+      glBindTexture(GL_TEXTURE_3D, _textures(TextureType::eField));
       glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _dims.x, _dims.y, _dims.z, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
@@ -190,13 +189,13 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_GRID)
       
-      auto& program = _programs[PROG_GRID];
+      auto& program = _programs(ProgramType::eGrid);
       program.bind();
       program.uniform1i("cellMap", 0);
       program.uniform1f("zPadding", 0.025f);
 
       // Bind textures and buffers
-      glBindTextureUnit(0, _textures[TEXTURE_CELLMAP]);
+      glBindTextureUnit(0, _textures(TextureType::eCellmap));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, bounds_buff);
       
       // Specify and clear framebuffer
@@ -227,7 +226,7 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_FIELD)
 
-      auto &program = _programs[PROG_FIELD];
+      auto &program = _programs(ProgramType::eField);
       program.bind();
 
 #ifdef USE_BVH
@@ -237,22 +236,20 @@ namespace hdi::dr {
 
       // Bind buffers
       memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eNode, 0);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eIdx, 1);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::ePos, 2);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eMinB, 3);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eDiam, 4);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bounds_buff);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::ePos, 1);
+      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eDiam, 2);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bounds_buff);
 
       // Bind textures and images
-      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
+      glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures(TextureType::eGrid));
 
       // Set uniforms
       program.uniform1ui("nPos", layout.nPos);
       program.uniform1ui("kNode", layout.kNode);
       program.uniform1ui("nLvls", layout.nLvls);
       program.uniform1ui("gridDepth", std::min(128u, _dims.z));
-      program.uniform1f("theta", 1.f);
+      program.uniform1f("theta", .5f);
       program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
 
       // Dispatch compute shader
@@ -263,8 +260,8 @@ namespace hdi::dr {
       // Bind textures, images and buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindTextureUnit(0, _textures[TEXTURE_GRID]);
-      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures(TextureType::eGrid));
+      glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
       // Set uniforms
       program.uniform1ui("num_points", n);
@@ -284,14 +281,14 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_INTERP)
 
-      auto &program = _programs[PROG_INTERP];
+      auto &program = _programs(ProgramType::eInterp);
       program.bind();
       program.uniform1ui("nPoints", n);
       program.uniform3ui("fieldSize", _dims.x, _dims.y, _dims.z);
       program.uniform1i("fieldSampler", 0);
 
       // Bind textures and buffers for this shader
-      glBindTextureUnit(0, _textures[TEXTURE_FIELD]);
+      glBindTextureUnit(0, _textures(TextureType::eField));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, interp_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bounds_buff);

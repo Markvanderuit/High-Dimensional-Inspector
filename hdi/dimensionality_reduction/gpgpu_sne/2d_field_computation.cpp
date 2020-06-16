@@ -73,14 +73,14 @@ namespace hdi::dr {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROG_STENCIL].addShader(VERTEX, stencil_vert_src);
-      _programs[PROG_STENCIL].addShader(FRAGMENT, stencil_fragment_src);
+      _programs(ProgramType::eStencil).addShader(VERTEX, stencil_vert_src);
+      _programs(ProgramType::eStencil).addShader(FRAGMENT, stencil_fragment_src);
 #ifdef USE_BVH
-      _programs[PROG_FIELD].addShader(COMPUTE, field_bvh_src); 
+      _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
 #else
-      _programs[PROG_FIELD].addShader(COMPUTE, field_src); 
+      _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
 #endif
-      _programs[PROG_INTERP].addShader(COMPUTE, interp_src);
+      _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
       for (auto& program : _programs) {
         program.build();
       }
@@ -88,26 +88,21 @@ namespace hdi::dr {
       std::cerr << e.what() << std::endl;
       exit(0); // yeah no, not recovering from this catastrophy
     }
-    
-    glGenTextures(_textures.size(), _textures.data());
-    
-    // Generate stencil texture
-    glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    // Generate fields texture
-    glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_FIELD]);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        
+    // Generate textures
+    glCreateTextures(GL_TEXTURE_2D, _textures.size(), _textures.data());
+    glTextureParameteri(_textures(TextureType::eStencil), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eStencil), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(_textures(TextureType::eStencil), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eStencil), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     
     // Generate framebuffer for grid computation
     glCreateFramebuffers(1, &_frbo_stencil);
-    glNamedFramebufferTexture(_frbo_stencil, GL_COLOR_ATTACHMENT0, _textures[TEXTURE_STENCIL], 0);
+    glNamedFramebufferTexture(_frbo_stencil, GL_COLOR_ATTACHMENT0, _textures(TextureType::eStencil), 0);
     glNamedFramebufferDrawBuffer(_frbo_stencil, GL_COLOR_ATTACHMENT0);
 
     // Generate vrao for point drawing
@@ -153,9 +148,9 @@ namespace hdi::dr {
       _dims = dims;
 
       glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_STENCIL]);
+      glBindTexture(GL_TEXTURE_2D, _textures(TextureType::eStencil));
       glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, _dims.x, _dims.y, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr);
-      glBindTexture(GL_TEXTURE_2D, _textures[TEXTURE_FIELD]);
+      glBindTexture(GL_TEXTURE_2D, _textures(TextureType::eField));
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, _dims.x, _dims.y, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
 
@@ -168,7 +163,7 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_STENCIL)
 
-      auto& program = _programs[PROG_STENCIL];
+      auto& program = _programs(ProgramType::eStencil);
       program.bind();
 
       // Specify and clear framebuffer
@@ -197,7 +192,7 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_FIELD)
 
-      auto& program = _programs[PROG_FIELD];
+      auto& program = _programs(ProgramType::eField);
       program.bind();
 
 #ifdef USE_BVH
@@ -207,17 +202,15 @@ namespace hdi::dr {
 
       // Bind buffers
       memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eNode, 0);
-      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eIdx, 1);
-      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::ePos, 2);
-      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eMinB, 3);
-      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eDiam, 4);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bounds_buff);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::ePos, 1);
+      memr.bindBuffer(bvh::BVHExtMemr<2>::MemrType::eDiam, 2);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bounds_buff);
       // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, position_buff);
       // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, interp_buff);
 
       // Bind textures and images
-      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-      glBindTextureUnit(0, _textures[TEXTURE_STENCIL]);
+      glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindTextureUnit(0, _textures(TextureType::eStencil));
 
       // Set uniforms
       program.uniform1ui("nPos", layout.nPos);
@@ -237,10 +230,10 @@ namespace hdi::dr {
       program.uniform1i("stencil_texture", 0);
 
       // Bind textures and buffers
-      glBindTextureUnit(0, _textures[TEXTURE_STENCIL]);
+      glBindTextureUnit(0, _textures(TextureType::eStencil));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindImageTexture(0, _textures[TEXTURE_FIELD], 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
       // Dispatch compute shader
       glDispatchCompute(_dims.x, _dims.y, 1);
@@ -254,14 +247,14 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_INTERP)
 
-      auto& program = _programs[PROG_INTERP];
+      auto& program = _programs(ProgramType::eInterp);
       program.bind();
       program.uniform1ui("num_points", n);
       program.uniform2ui("texture_size", _dims.x, _dims.y);
       program.uniform1i("fields_texture", 0);
 
       // Bind textures and buffers
-      glBindTextureUnit(0, _textures[TEXTURE_FIELD]);
+      glBindTextureUnit(0, _textures(TextureType::eField));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, interp_buff);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bounds_buff);

@@ -30,11 +30,11 @@
 
 #pragma once
 
-#include <array>
 #include <cstdlib>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/2d_field_computation.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_computation.h"
@@ -67,37 +67,33 @@ namespace hdi::dr {
     }
 
   private:
-    enum BufferType {
-      // Enums matching to storage buffers in _buffers array
-      BUFF_POSITION,
-      BUFF_INTERP_FIELDS,
-      BUFF_SUM_Q,
-      BUFF_SUM_Q_REDUCE_ADD,
-      BUFF_NEIGHBOUR,
-      BUFF_PROBABILITIES,
-      BUFF_INDEX,
-      BUFF_POSITIVE_FORCES,
-      BUFF_GRADIENTS,
-      BUFF_PREV_GRADIENTS,
-      BUFF_GAIN,
-      BUFF_BOUNDS_REDUCE_ADD,
-      BUFF_BOUNDS,
+    enum class BufferType {
+      ePosition,
+      eBounds,
+      eBoundsReduceAdd,
+      eSumQ,
+      eSumQReduceAdd,
+      eInterpFields,
+      eNeighbours,
+      eProbabilities,
+      eIndices,
+      ePositiveForces,
+      eGradients,
+      ePrevGradients,
+      eGain,
 
-      // Static enum length
-      BufferTypeLength
+      Length
     };
 
-    enum ProgramType {
-      // Enums matching to shader programs in _programs array
-      PROG_SUM_Q,
-      PROG_POSITIVE_FORCES,
-      PROG_GRADIENTS,
-      PROG_UPDATE,
-      PROG_BOUNDS,
-      PROG_CENTER,
+    enum class ProgramType {
+      eSumQ,
+      ePositiveForces,
+      eGradients,
+      eUpdate,
+      eBounds,
+      eCenter,
 
-      // Static enum length
-      ProgramTypeLength
+      Length
     };
 
     DECL_TIMERS(
@@ -112,10 +108,10 @@ namespace hdi::dr {
     Bounds _bounds;
     TsneParameters _params;
     utils::AbstractLog *_logger;
+    EnumArray<BufferType, GLuint> _buffers;
+    EnumArray<ProgramType, ShaderProgram> _programs;
     Baseline2dFieldComputation _2dFieldComputation;
     Baseline3dFieldComputation _3dFieldComputation;
-    dbg::EmbeddingRenderer _embeddingRenderer;
-    std::array<GLuint, BufferTypeLength> _buffers;
-    std::array<ShaderProgram, ProgramTypeLength> _programs;
+    dbg::EmbeddingRenderer<D> _embeddingRenderer;
   };
 }
