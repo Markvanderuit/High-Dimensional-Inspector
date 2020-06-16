@@ -67,17 +67,16 @@ namespace hdi {
         BVHLayout(uint kNode, uint nPos)
         : kNode(kNode),
           nPos(nPos)
-          // nLeaves(nPos)
         {
-          const uint logk = static_cast<uint>(std::log2(kNode));
-
-          nLvls = 20; // m = 10
-
+          nLvls = static_cast<uint>(std::ceil(std::log2(nPos)));
+          nLvls += 1;  // Safety factor for unbalanced tree
+          nNodes = (1u << (nLvls + 1)) - 1;
           // Compute nr of nodes iteratively (a bit more work because kNode >= 2)
-          nNodes = 0u;
-          for (uint i = 0u; i < nLvls; i++) {
-            nNodes |= 1u << (logk * i); 
-          }
+          // const uint logk = static_cast<uint>(std::log2(kNode));
+          // nNodes = 0u;
+          // for (uint i = 0u; i < nLvls; i++) {
+          //   nNodes |= 1u << (logk * i); 
+          // }
         }
 
         /**
