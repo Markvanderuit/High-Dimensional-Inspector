@@ -7,60 +7,100 @@
   static const char * name = \
   "#version " #version "\n" #shader
 
-GLSL(vert, 450,
-  // Wrapper structure for BoundsBuffer data
-  struct Bounds {
-    vec3 min;
-    vec3 max;
-    vec3 range;
-    vec3 invRange;
-  };
+namespace _2d {
+  GLSL(vert, 450,
+    struct Bounds {
+      vec2 min;
+      vec2 max;
+      vec2 range;
+      vec2 invRange;
+    };
 
-  layout (location = 0) in vec4 vertex;
-  layout (location = 0) out vec3 pos;
-  layout (location = 0) uniform mat4 uTransform;
-  layout (binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+    layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+    layout(location = 0) in vec2 vertex;
+    layout(location = 0) out vec2 pos;
+    layout(location = 0) uniform mat4 uTransform;
 
-  void main() {
-    pos = (vertex.xyz - bounds.min) * bounds.invRange;
-    gl_Position = uTransform * vec4(pos, 1);
-  }
-);
+    void main() {
+      pos = (vertex.xy - bounds.min) * bounds.invRange;
+      gl_Position = uTransform * vec4(pos, 0, 1);
+    }
+  );
 
-GLSL(frag, 450,
-  layout (location = 0) in vec3 pos;
-  layout (location = 0) out vec4 color;
-  layout (location = 1) uniform float uOpacity;
+  GLSL(frag, 450,
+    layout(location = 0) in vec2 pos;
+    layout(location = 0) out vec4 color;
+    layout(location = 1) uniform float uOpacity;
 
-  void main() {
-    color = vec4(0.0 + 1.0 * normalize(pos), uOpacity);
-  }
-);
+    void main() {
+      vec2 _pos = normalize(pos);
+      color = vec4(0.f, _pos.x, _pos.y, uOpacity);
+    }
+  );
+} // namespace _2d
+
+namespace _3d {
+  GLSL(vert, 450,
+    struct Bounds {
+      vec3 min;
+      vec3 max;
+      vec3 range;
+      vec3 invRange;
+    };
+
+    layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+    layout(location = 0) in vec4 vertex;
+    layout(location = 0) out vec3 pos;
+    layout(location = 0) uniform mat4 uTransform;
+
+    void main() {
+      pos = (vertex.xyz - bounds.min) * bounds.invRange;
+      gl_Position = uTransform * vec4(pos, 1);
+    }
+  );
+
+  GLSL(frag, 450,
+    layout(location = 0) in vec3 pos;
+    layout(location = 0) out vec4 color;
+    layout(location = 1) uniform float uOpacity;
+
+    void main() {
+      color = vec4(0.0 + 1.0 * normalize(pos), uOpacity);
+    }
+  );
+} // namespace _3d
 
 namespace hdi::dbg {
-  EmbeddingRenderer::EmbeddingRenderer()
-  : RenderComponent(10, false),
-    _isInit(false)
-  { }
+  template <unsigned D>
+  EmbeddingRenderer<D>::EmbeddingRenderer()
+  : RenderComponent(10, false) { }
 
-  EmbeddingRenderer::~EmbeddingRenderer()
-  {
+  template <unsigned D>
+  EmbeddingRenderer<D>::~EmbeddingRenderer() {
     if (_isInit) {
       destr();
     }
   }
 
-  void EmbeddingRenderer::init(size_t n,
-                               GLuint embeddingBuffer,
-                               GLuint boundsBuffer)
-  {
+  template <unsigned D>
+  void EmbeddingRenderer<D>::init(size_t n,
+                                  GLuint embeddingBuffer,
+                                  GLuint boundsBuffer) {
     RenderComponent::init();    
+    if (!_isInit) {
+      return;
+    }
 
     // Specify shader program
     try {
       _program.create();
-      _program.addShader(VERTEX, vert);
-      _program.addShader(FRAGMENT, frag);
+      if constexpr (D == 2) {
+        _program.addShader(VERTEX, _2d::vert);
+        _program.addShader(FRAGMENT, _2d::frag);
+      } else if constexpr (D == 3) {
+        _program.addShader(VERTEX, _3d::vert);
+        _program.addShader(FRAGMENT, _3d::frag);
+      }
       _program.build();
     } catch (const ShaderLoadingException& e) {
       std::cerr << e.what() << std::endl;
@@ -69,27 +109,28 @@ namespace hdi::dbg {
 
     // Specify vertex array object
     glCreateVertexArrays(1, &_vertexArray);
-    glVertexArrayVertexBuffer(_vertexArray, 0, embeddingBuffer, 0, 4 * sizeof(float));
+    glVertexArrayVertexBuffer(_vertexArray, 0, embeddingBuffer, 0, ((D > 2) ? 4 : 2) * sizeof(float));
     glEnableVertexArrayAttrib(_vertexArray, 0);
-    glVertexArrayAttribFormat(_vertexArray, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribFormat(_vertexArray, 0, ((D > 2) ? 3 : 2), GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(_vertexArray, 0, 0);
 
     _n = n;
     _boundsBuffer = boundsBuffer;
     _embeddingBuffer = embeddingBuffer;
-    _isInit = true;
   }
 
-  void EmbeddingRenderer::destr()
-  {
-    _isInit = false;
+  template <unsigned D>
+  void EmbeddingRenderer<D>::destr() {
+    if (!_isInit) {
+      return;
+    }
     _program.destroy();
     glDeleteVertexArrays(1, &_vertexArray);
     RenderComponent::destr();
   }
 
-  void EmbeddingRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
-  {
+  template <unsigned D>
+  void EmbeddingRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport) {
     if (!_isInit) {
       return;
     }
@@ -111,4 +152,8 @@ namespace hdi::dbg {
       _program.release();
     }
   }
+  
+  // Explicit template instantiations for 2 and 3 dimensions
+  template class EmbeddingRenderer<2>;
+  template class EmbeddingRenderer<3>;
 }

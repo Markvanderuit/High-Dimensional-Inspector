@@ -6,6 +6,7 @@
 #include "hdi/debug/renderer/renderer.hpp"
 
 namespace hdi::dbg {
+  template <unsigned D>
   class EmbeddingRenderer : private RenderComponent {
   public:
     EmbeddingRenderer();
@@ -18,7 +19,6 @@ namespace hdi::dbg {
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
   private:
-    bool _isInit;
     size_t _n;
     GLuint _embeddingBuffer;
     GLuint _boundsBuffer;
