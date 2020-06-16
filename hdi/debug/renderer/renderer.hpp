@@ -21,14 +21,20 @@ namespace hdi::dbg {
     friend bool cmpRenderComponent(RenderComponent *a, RenderComponent *b) {
       return a->_priority < b->_priority && a != b;
     };
+
+  protected:
+    bool _isInit;
+
   private:
     int _priority;
-    bool _isInit;
   };
 
   class RenderManager {
+  private:
+    typedef unsigned uint;
+    
   public:
-    RenderManager();
+    RenderManager(uint nDimensions);
     ~RenderManager();
     
     // Render all composite components
@@ -42,6 +48,7 @@ namespace hdi::dbg {
     static RenderManager *currentManager();
 
   private:
+    uint _nDimensions;
     Trackball _trackball;
     GLuint _framebuffer;
     GLuint _framebufferColorTexture;

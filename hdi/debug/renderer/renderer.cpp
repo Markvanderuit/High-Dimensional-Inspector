@@ -1,18 +1,9 @@
 #include "hdi/debug/renderer/renderer.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include <glm/gtx/transform.hpp>
 #include <array>
 #include <iostream>
 #include <sstream>
-
-#define GL_ASSERT(msg) \
-{ \
-  GLenum err; \
-  while ((err = glGetError()) != GL_NO_ERROR) { \
-    std::stringstream ss; \
-    ss << "glAssert failed at: " << msg << ", with " << err; \
-    throw std::runtime_error(ss.str()); \
-  } \
-}
 
 namespace hdi::dbg {
   RenderManager * RenderManager::_currentManager = nullptr;
@@ -55,8 +46,9 @@ namespace hdi::dbg {
     // ...
   }
 
-  RenderManager::RenderManager()
-  : _components(cmpRenderComponent),
+  RenderManager::RenderManager(uint nDimensions)
+  : _nDimensions(nDimensions),
+    _components(cmpRenderComponent),
     _framebufferSize(0, 0)
   {
     _currentManager = this;
@@ -112,13 +104,19 @@ namespace hdi::dbg {
     }
     
     // Calculate transformation matrix
-    glm::mat4 model = 
-                    glm::rotate(glm::radians(45.f), glm::vec3(0, 1, 0)) 
-                    * glm::rotate(glm::radians(30.f), glm::vec3(1, 0, 1)) 
-                    * glm::translate(glm::vec3(-0.5f, -0.5f, -0.5f));
-    glm::mat4 view = _trackball.matrix();
-    glm::mat4 proj = glm::perspectiveFov(0.8f, (float) size.x, (float) size.y, 0.0001f, 1000.f);
-    glm::mat4 transform = proj * view * model;
+    glm::mat4 transform;
+    if (_nDimensions > 2) {
+      glm::mat4 model = glm::rotate(glm::radians(45.f), glm::vec3(0, 1, 0)) 
+                      * glm::rotate(glm::radians(30.f), glm::vec3(1, 0, 1)) 
+                      * glm::translate(glm::vec3(-0.5f, -0.5f, -0.5f));
+      glm::mat4 view = _trackball.matrix();
+      glm::mat4 proj = glm::perspectiveFov(0.8f, (float) size.x, (float) size.y, 0.0001f, 1000.f);
+      transform = proj * view * model;
+    } else {
+      transform = glm::scale(glm::vec3(1.66, 1.66, 1))
+                * glm::translate(glm::vec3(-0.5f, -0.5f, -0.5f));
+    }
+    
     glm::ivec4 viewport(0, 0, size.x, size.y);
 
     // Specify and clear framebuffer

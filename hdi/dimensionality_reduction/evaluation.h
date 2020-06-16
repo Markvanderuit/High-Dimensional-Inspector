@@ -107,6 +107,7 @@ namespace hdi {
       std::vector<DataPoint> obj_X(panel_data.numDataPoints(), DataPoint(panel_data.numDimensions(), -1, panel_data.getData().data()));
       {
         int n = 0;
+        #pragma omp parallel for
         for (n = 0; n < panel_data.numDataPoints(); n++)
           obj_X[n] = DataPoint(panel_data.numDimensions(), n, panel_data.getData().data() + n * panel_data.numDimensions());
         tree.create(obj_X);
@@ -149,11 +150,15 @@ namespace hdi {
           }
         }
       }
-      for(auto& v: precision){
-        v /= pnts_to_evaluate.size();
+
+      #pragma omp parallel for
+      for (int i = 0; i < precision.size(); i++) {
+        precision[i] /= pnts_to_evaluate.size();
       }
-      for(auto& v: recall){
-        v /= pnts_to_evaluate.size();
+
+      #pragma omp parallel for
+      for (int i = 0; i < recall.size(); i++) {
+        recall[i] /= pnts_to_evaluate.size();
       }
     }
 
