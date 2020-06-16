@@ -166,13 +166,13 @@ namespace hdi::dr {
     utils::secureLogValue(logger, \
       std::string(str) + " average (\xE6s)", \
       std::to_string(glTimers[name].averageMicros()) \
-      );
+    );
 #else
   #define LOG_TIMER(logger, name, str) \
       utils::secureLogValue(logger, \
         std::string(str) + " average (\xC2\xB5s)", \
         std::to_string(glTimers[name].averageMicros()) \
-        );
+      );
 #endif
 #else
   #define DECL_TIMERS(...)

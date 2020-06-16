@@ -30,69 +30,45 @@
 
 #pragma once
 
-#include <vector>
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#define GLM_FORCE_ALIGNED_GENTYPES
-#include <glm/glm.hpp>
-#include <glm/gtc/type_aligned.hpp>
-#include "hdi/data/embedding.h"
-#include "hdi/data/map_mem_eff.h"
+#include <array>
+#include <type_traits>
 
 namespace hdi {
   namespace dr {
-    typedef unsigned uint;
-    typedef data::Embedding<float> Embedding;
-    typedef std::vector<data::MapMemEff<uint32_t, float>> SparseMatrix;
-
-    /**
-     * Simple bounding box type for D dimensions.
-     */
-    template <unsigned D>
-    class Bounds {
-    private:
-      typedef glm::vec<D, float, glm::aligned_highp> vec;
-
+    // Cast enum value to underlying type of enum class (eg. int)
+    template <typename ETy>
+    constexpr inline
+    typename std::underlying_type<ETy>::type underlying(ETy e) noexcept {
+      return static_cast<typename std::underlying_type<ETy>::type>(e);
+    }
+    
+    // Array class using Enums classes as indices
+    // For a used enum E, E::Length must be specified
+    template <typename ETy, typename Ty>
+    class EnumArray : public std::array<Ty, underlying(ETy::Length)> {
     public:
-      vec min, max;
-
-      vec range() const {
-        return max - min;
+      constexpr inline
+      const Ty& operator()(ETy e) const {
+        return operator[](underlying<ETy>(e));
       }
 
-      vec center() const {
-        return 0.5f * (max + min);
+      constexpr inline
+      Ty& operator()(ETy e) {
+        return operator[](underlying<ETy>(e));
       }
     };
 
-    /**
-     * Linearized version of probability matrix
-     */
-    struct LinearProbabilityMatrix {
-      std::vector<uint32_t> neighbours;
-      std::vector<float> probabilities;
-      std::vector<int> indices;
-    };
-
-    /**
-     * Compute linearized version of sparse matrix
-     */
-    inline LinearProbabilityMatrix linearizeProbabilityMatrix(const Embedding *embeddingPtr, 
-                                                              const SparseMatrix &P) {
-      LinearProbabilityMatrix LP;
-      LP.indices.reserve(2 * embeddingPtr->numDataPoints());
-      LP.neighbours.reserve(500 * embeddingPtr->numDataPoints());
-      LP.probabilities.reserve(500 * embeddingPtr->numDataPoints());
-
-      for (size_t i = 0; i < embeddingPtr->numDataPoints(); i++) {
-        LP.indices.push_back(static_cast<int>(LP.neighbours.size()));
-        for (const auto& p_ij : P[i]) {
-          LP.neighbours.push_back(p_ij.first);
-          LP.probabilities.push_back(p_ij.second);
-        }
-        LP.indices.push_back(static_cast<int>(P[i].size()));
+    // For an EnumArray of GLuints representing OpenGL buffer objects,
+    // report the total memory range in machine units occupied by those buffer objects.
+    template <typename ETy>
+    GLuint bufferSize(const EnumArray<ETy, GLuint> &array) {
+      GLuint size = 0;
+      for (const auto &handle : array) {
+        GLint i = 0;
+        glGetNamedBufferParameteriv(handle, GL_BUFFER_SIZE, &i);
+        size += static_cast<GLuint>(i);
       }
-
-      return LP;
+      return size;
     }
   }
 }
