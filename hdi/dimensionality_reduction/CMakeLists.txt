@@ -24,7 +24,9 @@ file(GLOB GpgpuSourceFiles
   gpgpu_sne/bvh/*.cpp 
   gpgpu_sne/utils/*.cpp 
   gpgpu_sne/*.cu 
-  gpgpu_sne/bvh/*.cu)
+  gpgpu_sne/bvh/*.cu
+  gpgpu_sne/bvh/utils/*.cu
+)
 
 add_library (hdidimensionalityreduction 
   ${HeaderFiles} 

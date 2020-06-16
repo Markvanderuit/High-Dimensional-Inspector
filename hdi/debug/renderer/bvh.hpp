@@ -52,7 +52,6 @@ namespace hdi::dbg {
       ProgramTypeLength
     };
 
-    bool _isInit;
     size_t _nPos;
     size_t _nCube;
     GLuint _boundsBuffer;

@@ -236,7 +236,6 @@ std::array<unsigned, 24> cubeIndices = {
 namespace hdi::dbg {
   BvhRenderer::BvhRenderer()
   : RenderComponent(1, false),
-    _isInit(false),
     _bvh(nullptr)
   { }
 
@@ -250,6 +249,9 @@ namespace hdi::dbg {
   void BvhRenderer::init(const dr::bvh::BVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
+    if (!_isInit) {
+      return;
+    }
 
     // This is gonna bite me
     _bvh = &bvh;
@@ -343,14 +345,16 @@ namespace hdi::dbg {
 
   void BvhRenderer::destr()
   {
-    RenderComponent::destr();
+    if (!_isInit) {
+      return;
+    }
     glDeleteBuffers(_buffers.size(), _buffers.data());
     glDeleteVertexArrays(_vertexArrays.size(), _vertexArrays.data());
     for (auto& program : _programs) {
       program.destroy();
     }
     _bvh = nullptr;
-    _isInit = false;
+    RenderComponent::destr();
   }
 
   void BvhRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
