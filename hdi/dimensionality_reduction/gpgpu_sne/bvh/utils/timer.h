@@ -28,72 +28,70 @@
  * OF SUCH DAMAGE.
  */
 
- #include "hdi/utils/log_helper_functions.h"
- #include <cuda_runtime.h>
- #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/cu_timer.h"
+#pragma once
 
- namespace hdi {
-   namespace dr {
-     namespace bvh {
-      CuTimer::CuTimer()
-      : _isInit(false)
-      { }
+#include "hdi/utils/abstract_log.h"
 
-      void CuTimer::init()
-      {
-        _msPoll = 0.f;
-        _msAvg = 0.f;
-        _iter = 0;
+namespace hdi {
+  namespace dr {
+    namespace bvh {
+      struct CuTimer {
+      private:
+        bool _isInit;
+        unsigned _iter;
+        float _msPoll, _msAvg;
+        void *_start, *_stop;
 
-        cudaEventCreate((cudaEvent_t *) &_start);
-        cudaEventCreate((cudaEvent_t *) &_stop);
+      public:
+        CuTimer();
 
-        _isInit = true;
-      }
+        // Manage object lifetime
+        void init();
+        void destr();
 
-      void CuTimer::destr()
-      {
-        _msPoll = 0.f;
-        _msAvg = 0.f;
-        _iter = 0;
+        // Tick to start recording a timed sequence
+        void tick();
 
-        cudaEventDestroy((cudaEvent_t) _start);
-        cudaEventDestroy((cudaEvent_t) _stop);
+        // Tick to stop recording a timed sequence
+        void tock();
 
-        _isInit = false;
-      }
+        // Poll until timer results are available
+        void poll();
 
-      void CuTimer::tick()
-      {
-        cudaEventRecord((cudaEvent_t) _start);
-      }
+        float lastMillis() const
+        {
+          return _msPoll;
+        }
+        
+        float lastMicros() const
+        {
+          return _msPoll * 1000.f;
+        }
 
-      void CuTimer::tock()
-      {
-        cudaEventRecord((cudaEvent_t) _stop);
-      }
+        float averageMillis() const
+        {
+          return _msAvg;
+        }
 
-      void CuTimer::poll()
-      {
-        // Query elapsed time
-        cudaEventSynchronize((cudaEvent_t) _stop);
-        cudaEventElapsedTime(&_msPoll, 
-                             (cudaEvent_t) _start, 
-                             (cudaEvent_t) _stop);
-                             
-        // Update average time
-        _msAvg = _msAvg + (_msPoll - _msAvg) / (++_iter);
-      }
+        float averageMicros() const
+        {
+          return _msAvg * 1000.f;
+        }
+      };
 
-      void CuTimer::log(utils::AbstractLog *pLogger, const char *str) const
-      {
-        utils::secureLogValue(
-          pLogger, 
-          std::string(str) + " average (\xE6s)",
-          std::to_string(averageMicros())
-        );
-      }
+      #ifdef _WIN32
+        #define LOG_TIMER(logger, timer, str) \
+          utils::secureLogValue(logger, \
+            std::string(str) + " average (\xE6s)", \
+            std::to_string(timer.averageMicros()) \
+          );
+      #else
+        #define LOG_TIMER(logger, timer, str) \
+          utils::secureLogValue(logger, \
+            std::string(str) + " average (\xC2\xB5s)", \
+            std::to_string(timer.averageMicros()) \
+          );
+      #endif
     }
   }
 }
-

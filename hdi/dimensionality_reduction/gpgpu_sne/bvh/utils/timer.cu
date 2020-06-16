@@ -28,56 +28,62 @@
  * OF SUCH DAMAGE.
  */
 
-#pragma once
+ #include <cuda_runtime.h>
+ #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/timer.h"
 
-#include "hdi/utils/abstract_log.h"
+ namespace hdi {
+   namespace dr {
+     namespace bvh {
+      CuTimer::CuTimer()
+      : _isInit(false)
+      { }
 
-namespace hdi {
-  namespace dr {
-    namespace bvh {
-      struct CuTimer {
-      private:
-        bool _isInit;
-        unsigned _iter;
-        float _msPoll, _msAvg;
-        void *_start, *_stop;
+      void CuTimer::init()
+      {
+        _msPoll = 0.f;
+        _msAvg = 0.f;
+        _iter = 0;
 
-      public:
-        CuTimer();
+        cudaEventCreate((cudaEvent_t *) &_start);
+        cudaEventCreate((cudaEvent_t *) &_stop);
 
-        // Manage timer lifetime
-        void init();
-        void destr();
+        _isInit = true;
+      }
 
-        // Tick/tock to record a timed sequence
-        void tick();
-        void tock();
+      void CuTimer::destr()
+      {
+        _msPoll = 0.f;
+        _msAvg = 0.f;
+        _iter = 0;
 
-        // Poll until timer results are available
-        void poll();
+        cudaEventDestroy((cudaEvent_t) _start);
+        cudaEventDestroy((cudaEvent_t) _stop);
 
-        float lastMillis() const
-        {
-          return _msPoll;
-        }
-        
-        float lastMicros() const
-        {
-          return _msPoll * 1000.f;
-        }
+        _isInit = false;
+      }
 
-        float averageMillis() const
-        {
-          return _msAvg;
-        }
+      void CuTimer::tick()
+      {
+        cudaEventRecord((cudaEvent_t) _start);
+      }
 
-        float averageMicros() const
-        {
-          return _msAvg * 1000.f;
-        }
+      void CuTimer::tock()
+      {
+        cudaEventRecord((cudaEvent_t) _stop);
+      }
 
-        void log(utils::AbstractLog *pLogger, const char *str) const;
-      };
+      void CuTimer::poll()
+      {
+        // Query elapsed time
+        cudaEventSynchronize((cudaEvent_t) _stop);
+        cudaEventElapsedTime(&_msPoll, 
+                             (cudaEvent_t) _start, 
+                             (cudaEvent_t) _stop);
+                             
+        // Update average time
+        _msAvg = _msAvg + (_msPoll - _msAvg) / (++_iter);
+      }
     }
   }
 }
+
