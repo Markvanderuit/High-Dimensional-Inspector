@@ -229,7 +229,7 @@ namespace hdi {
 #ifdef __USE_GCD__
           dispatch_sync(criticalQueue, ^{
 #else
-          #pragma critical
+          #pragma omp critical
           {
 #endif //__USE_GCD__
             precision[k-1] += precision_val;

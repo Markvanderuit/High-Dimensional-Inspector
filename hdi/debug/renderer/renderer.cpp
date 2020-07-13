@@ -106,8 +106,11 @@ namespace hdi::dbg {
     // Calculate transformation matrix
     glm::mat4 transform;
     if (_nDimensions > 2) {
-      glm::mat4 model = glm::rotate(glm::radians(45.f), glm::vec3(0, 1, 0)) 
-                      * glm::rotate(glm::radians(30.f), glm::vec3(1, 0, 1)) 
+      // glm::mat4 model = glm::rotate(glm::radians(45.f), glm::vec3(0, 1, 0)) 
+      //                 * glm::rotate(glm::radians(30.f), glm::vec3(1, 0, 1)) 
+      //                 * glm::translate(glm::vec3(-0.5f, -0.5f, -0.5f));
+      glm::mat4 model = glm::rotate(glm::radians(135.f), glm::vec3(0, 1, 0)) 
+                      * glm::rotate(glm::radians(0.f), glm::vec3(1, 0, 1)) 
                       * glm::translate(glm::vec3(-0.5f, -0.5f, -0.5f));
       glm::mat4 view = _trackball.matrix();
       glm::mat4 proj = glm::perspectiveFov(0.8f, (float) size.x, (float) size.y, 0.0001f, 1000.f);

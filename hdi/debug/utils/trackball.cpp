@@ -25,7 +25,7 @@ float projectToSphere(float r, glm::vec2 pos) {
 namespace hdi::dbg {
   Trackball::Trackball()
   : _r(1),
-    _s(2.25),
+    _s(1.8),
     _m(1),
     _isTracking(false) 
   { }

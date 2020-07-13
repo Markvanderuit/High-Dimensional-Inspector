@@ -34,7 +34,7 @@ namespace _2d {
 
     void main() {
       vec2 _pos = normalize(pos);
-      color = vec4(0.f, _pos.x, _pos.y, uOpacity);
+      color = vec4(_pos.x, abs(_pos.y - _pos.x), _pos.y, uOpacity); // accidental rainbow, neat!
     }
   );
 } // namespace _2d
@@ -65,7 +65,7 @@ namespace _3d {
     layout(location = 1) uniform float uOpacity;
 
     void main() {
-      color = vec4(0.0 + 1.0 * normalize(pos), uOpacity);
+      color = vec4(normalize(pos), uOpacity);
     }
   );
 } // namespace _3d
