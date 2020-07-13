@@ -43,8 +43,7 @@ genType ceilDiv(genType n, genType div) {
 
 constexpr bool doAdaptiveResolution = true;
 constexpr unsigned minFieldSize = 5;// 64;       // 5
-constexpr unsigned fixedFieldSize = 40;// 256;    // 40
-constexpr unsigned fixedDepthSize = 16;     // ...?
+constexpr unsigned fixedFieldSize = 256;// 256;    // 40
 constexpr float pixelRatio = 2.0f;
 constexpr float functionSupport = 6.5f;
 constexpr float boundsPadding = 0.1f;
@@ -128,9 +127,9 @@ namespace hdi::dr {
 
     // Initialize field computation subcomponent
     if constexpr (D == 2) {
-      _2dFieldComputation.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
+      _field2dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
     } else if constexpr (D == 3) {
-      _3dFieldComputation.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
+      _field3dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
     }
 
     // Initialize embedding renderer subcomponent
@@ -152,9 +151,9 @@ namespace hdi::dr {
   {
     // Destroy field computation subcomponent
     if constexpr (D == 2) {
-      _2dFieldComputation.destr();
+      _field2dCompute.destr();
     } else if constexpr (D == 3) {
-      _3dFieldComputation.destr();
+      _field3dCompute.destr();
     }
 
     // Destroy embedding renderer subcomponent
@@ -201,8 +200,8 @@ namespace hdi::dr {
       program.uniform1ui("iter", 1u);
       glDispatchCompute(1, 1, 1);
 
-      TOCK_TIMER(TIMR_BOUNDS);
       ASSERT_GL("GpgpuSneCompute::compute::bounds()");
+      TOCK_TIMER(TIMR_BOUNDS);
     }
     
     // Compute field approximation
@@ -223,7 +222,7 @@ namespace hdi::dr {
 
       // Perform field approximation
       if constexpr (D == 2) {
-        _2dFieldComputation.compute(
+        _field2dCompute.compute(
           dims, functionSupport, iteration, n,
           _buffers(BufferType::ePosition),
           _buffers(BufferType::eBounds),
@@ -231,8 +230,8 @@ namespace hdi::dr {
           _bounds
         );
       } else if constexpr (D == 3) {
-        _3dFieldComputation.compute(
-          dims, functionSupport, n,
+        _field3dCompute.compute(
+          dims, functionSupport, iteration, n,
           _buffers(BufferType::ePosition),
           _buffers(BufferType::eBounds),
           _buffers(BufferType::eInterpFields),
@@ -261,8 +260,8 @@ namespace hdi::dr {
       program.uniform1ui("iter", 1u);
       glDispatchCompute(1, 1, 1);
 
-      TOCK_TIMER(TIMR_SUM_Q);
       ASSERT_GL("GpgpuSneCompute::compute::sum_q()");
+      TOCK_TIMER(TIMR_SUM_Q);
     }
 
     // Compute resulting gradient
@@ -302,8 +301,8 @@ namespace hdi::dr {
         glDispatchCompute(ceilDiv(n, 128u), 1, 1);
       }
 
-      TOCK_TIMER(TIMR_GRADIENTS);
       ASSERT_GL("GpgpuSneCompute::compute::gradients()");
+      TOCK_TIMER(TIMR_GRADIENTS);
     }
 
     // Update embedding
@@ -331,8 +330,8 @@ namespace hdi::dr {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       glDispatchCompute(ceilDiv(n, 256u), 1, 1);
       
-      TOCK_TIMER(TIMR_UPDATE);
       ASSERT_GL("GpgpuSneCompute::compute::update()");
+      TOCK_TIMER(TIMR_UPDATE);
     }
 
     // Center embedding
@@ -364,8 +363,8 @@ namespace hdi::dr {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       glDispatchCompute(ceilDiv(n, 256u), 1, 1);
       
-      TOCK_TIMER(TIMR_CENTER);
       ASSERT_GL("GpgpuSneCompute::compute::center()");
+      TOCK_TIMER(TIMR_CENTER);
     }
 
     POLL_TIMERS();

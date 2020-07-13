@@ -36,8 +36,8 @@
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/2d_field_computation.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_computation.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_2d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
 #include "hdi/debug/renderer/embedding.hpp"
 
 namespace hdi::dr {
@@ -62,8 +62,8 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog *logger) {
       _logger = logger;
-      _2dFieldComputation.setLogger(logger);
-      _3dFieldComputation.setLogger(logger);
+      _field2dCompute.setLogger(logger);
+      _field3dCompute.setLogger(logger);
     }
 
   private:
@@ -110,8 +110,8 @@ namespace hdi::dr {
     utils::AbstractLog *_logger;
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
-    Baseline2dFieldComputation _2dFieldComputation;
-    Baseline3dFieldComputation _3dFieldComputation;
+    Field2dCompute _field2dCompute;
+    Field3dCompute _field3dCompute;
     dbg::EmbeddingRenderer<D> _embeddingRenderer;
   };
 }

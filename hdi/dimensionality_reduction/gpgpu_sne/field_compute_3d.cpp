@@ -33,8 +33,8 @@
 #include <algorithm>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_shaders.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/3d_field_computation.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
 
 template <typename genType> 
 inline
@@ -42,24 +42,26 @@ genType ceilDiv(genType n, genType div) {
   return (n + div - 1) / div;
 }
 
+// Magic numbers
 constexpr float pointSize = 2.f;
 
 namespace hdi::dr {
-  Baseline3dFieldComputation::Baseline3dFieldComputation()
-  : _isInit(false), _iteration(0), _dims(0), _logger(nullptr) {
+  Field3dCompute::Field3dCompute()
+  : _isInit(false), _dims(0), _logger(nullptr) {
 #ifdef USE_BVH
     _rebuildBvhOnIter = true;
-    _lastRebuildBvhTime = 0.0;
+    _nRebuildIters = 0;
+    _lastRebuildTime = 0.0;
 #endif
   }
 
-  Baseline3dFieldComputation::~Baseline3dFieldComputation() {
+  Field3dCompute::~Field3dCompute() {
     if (_isInit) {
       destr();
     }
   }
 
-  void Baseline3dFieldComputation::init(const TsneParameters& params, 
+  void Field3dCompute::init(const TsneParameters& params, 
                                               GLuint position_buff,
                                               GLuint bounds_buff, 
                                               unsigned n) {
@@ -133,16 +135,14 @@ namespace hdi::dr {
     glVertexArrayAttribBinding(_vrao_point, 0, 0);
 
 #ifdef USE_BVH
-    _bvh.init(params, position_buff, bounds_buff, n);
+    _bvh.init(params, BVH<3>::Layout(n, 8, 4), position_buff, bounds_buff);
     _renderer.init(_bvh, bounds_buff);
 #endif
 
-    _iteration = 0;
     _isInit = true;
-    std::cerr << "Baseline3dFieldComputation::init()" << std::endl;
   }
 
-  void Baseline3dFieldComputation::destr() {
+  void Field3dCompute::destr() {
     DSTR_TIMERS()
 #ifdef USE_BVH
     _renderer.destr();
@@ -154,11 +154,10 @@ namespace hdi::dr {
     for (auto& program : _programs) {
       program.destroy();
     }
-    _iteration = 0;
     _isInit = false;
   }
 
-  void Baseline3dFieldComputation::compute(uvec dims, float function_support, unsigned n,
+  void Field3dCompute::compute(uvec dims, float function_support, unsigned iteration, unsigned n,
                                            GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
                                            Bounds bounds) {
     vec minBounds = bounds.min;
@@ -179,11 +178,6 @@ namespace hdi::dr {
       glBindTexture(GL_TEXTURE_3D, _textures(TextureType::eField));
       glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _dims.x, _dims.y, _dims.z, 0, GL_RGBA, GL_FLOAT, nullptr);
     }
-
-#ifdef USE_BVH
-    // Compute BVH structure over embedding
-    _bvh.compute(_rebuildBvhOnIter, _iteration);
-#endif
 
     // Compute grid texture
     {
@@ -222,6 +216,10 @@ namespace hdi::dr {
       TOCK_TIMER(TIMR_GRID)
     }
 
+#ifdef USE_BVH
+    _bvh.compute(_rebuildBvhOnIter, iteration, position_buff, bounds_buff);
+#endif
+
     // Compute fields 3D texture through O(px n) reduction
     {
       TICK_TIMER(TIMR_FIELD)
@@ -230,14 +228,14 @@ namespace hdi::dr {
       program.bind();
 
 #ifdef USE_BVH
-      // Query bvh for layout specs and memory structure
-      const auto& layout = _bvh.layout();
-      const auto& memr = _bvh.memr();
+      // Query bvh for layout and buffer object handles
+      const auto layout = _bvh.layout();
+      const auto buffers = _bvh.buffers();
 
       // Bind buffers
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eNode, 0);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::ePos, 1);
-      memr.bindBuffer(bvh::BVHExtMemr<3>::MemrType::eDiam, 2);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.pos);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, buffers.node1);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bounds_buff);
 
       // Bind textures and images
@@ -246,10 +244,11 @@ namespace hdi::dr {
 
       // Set uniforms
       program.uniform1ui("nPos", layout.nPos);
-      program.uniform1ui("kNode", layout.kNode);
       program.uniform1ui("nLvls", layout.nLvls);
+      program.uniform1ui("kNode", layout.nodeFanout);
+      program.uniform1ui("kLeaf", layout.leafFanout);
       program.uniform1ui("gridDepth", std::min(128u, _dims.z));
-      program.uniform1f("theta", .5f);
+      program.uniform1f("theta", .5f); // TODO extract and make program parameter
       program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
 
       // Dispatch compute shader
@@ -302,28 +301,30 @@ namespace hdi::dr {
     
     // Update timers, log values on final iteration
     POLL_TIMERS()
-    if (_iteration >= _params._iterations - 1) {
+    if (iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
       LOG_TIMER(_logger, TIMR_GRID, "  Grid")
       LOG_TIMER(_logger, TIMR_FIELD, "  Field")
       LOG_TIMER(_logger, TIMR_INTERP, "  Interp")
     }
-// #ifdef USE_BVH
+    
+#ifdef USE_BVH
+    // _rebuildBvhOnIter = true;
     // Rebuild BVH once field computation time diverges from the last one by a certain degree
-    // if (_rebuildBvhOnIter) {
-    //   _lastRebuildBvhTime = glTimers[TIMR_FIELD].lastMicros();
-    //   if (_iteration >= _params._remove_exaggeration_iter) {
-    //     _rebuildBvhOnIter = false;
-    //     // std::cout << _iteration << std::endl;
-    //   }
-    // } else if (_lastRebuildBvhTime > 0.0) {
-    //   double currentRebuildTime = glTimers[TIMR_FIELD].lastMicros();
-    //   if (std::abs(currentRebuildTime - _lastRebuildBvhTime) / _lastRebuildBvhTime > 0.01) {
-    //     _rebuildBvhOnIter = true;
-    //   }
-    // }
-// #endif
-
-    _iteration++;
+    /* const uint maxIters = 6;
+    const double threshold = 0.01;// 0.0075; // how the @#@$@ do I determine this well
+    if (_rebuildBvhOnIter && _iteration >= _params._remove_exaggeration_iter) {
+      _lastRebuildTime = glTimers[TIMR_FIELD].lastMicros();
+      _nRebuildIters = 0;
+      _rebuildBvhOnIter = false;
+    } else if (_lastRebuildTime > 0.0) {
+      const double difference = std::abs(glTimers[TIMR_FIELD].lastMicros() - _lastRebuildTime) 
+                              / _lastRebuildTime;
+      if (difference >= threshold || ++_nRebuildIters >= maxIters) {
+        _rebuildBvhOnIter = true;
+      }
+    } */
+    _rebuildBvhOnIter = true;
+#endif
   }
 }

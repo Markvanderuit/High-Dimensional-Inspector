@@ -180,9 +180,10 @@ GLSL(field_bvh_src, 450,
   layout(location = 0) uniform uint nPos;     // nr of points
   layout(location = 1) uniform uint kNode;    // Node fanout
   layout(location = 2) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 3) uniform uint gridDepth;
-  layout(location = 4) uniform float theta;   // Approximation param
-  layout(location = 5) uniform uvec3 textureSize;
+  layout(location = 3) uniform uint kLeaf;    // Leaf fanout
+  layout(location = 4) uniform uint gridDepth;
+  layout(location = 5) uniform float theta;   // Approximation param
+  layout(location = 6) uniform uvec3 textureSize;
 
   // Constants
   const uint logk = uint(log2(kNode));
@@ -252,7 +253,7 @@ GLSL(field_bvh_src, 450,
       fieldValue += mass * vec4(tStud, t * (tStud * tStud));
 
       return true;
-    } else if (mass <= 8 || lvl == nLvls - 1) {
+    } else if (mass <= kLeaf || lvl == nLvls - 1) {
       // Iterate over all leaf points (there goes thread divergence)
       for (uint i = begin; i < begin + mass; ++i) {
         t = domainPos - posBuffer[i];

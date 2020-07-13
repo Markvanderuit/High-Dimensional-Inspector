@@ -30,7 +30,7 @@
 
 #pragma once
 
-// #define USE_BVH // Use BVH for px log n field computations
+#define USE_BVH // Use BVH for px log n field computations
 
 #include <array>
 #include "hdi/utils/abstract_log.h"
@@ -40,27 +40,31 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #ifdef USE_BVH
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
-// #include "hdi/debug/renderer/bvh.hpp" 
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
 #endif
 
 namespace hdi::dr {
-  class Baseline2dFieldComputation {
+  class Field2dCompute {
     typedef Bounds<2> Bounds;
     typedef glm::vec<2, float, glm::aligned_highp> vec;
     typedef glm::vec<2, uint, glm::aligned_highp> uvec;
 
   public:
-    Baseline2dFieldComputation();
-    ~Baseline2dFieldComputation();
+    Field2dCompute();
+    ~Field2dCompute();
 
     void init(const TsneParameters& params,
                     GLuint position_buff,
                     GLuint bounds_buff,
                     unsigned n);
     void destr();
-    void compute(uvec dims, float function_support, unsigned iteration, unsigned n,
-                 GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
+    void compute(uvec dims, 
+                 float function_support, 
+                 unsigned iteration, 
+                 unsigned n,
+                 GLuint position_buff, 
+                 GLuint bounds_buff, 
+                 GLuint interp_buff,
                  Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
@@ -74,17 +78,17 @@ namespace hdi::dr {
     bool _isInit;
     uvec _dims;
 
-    enum class TextureType {
-      eStencil,
-      eField,
-
-      Length
-    };
-
     enum class ProgramType {
       eStencil,
       eField,
       eInterp,
+
+      Length
+    };
+
+    enum class TextureType {
+      eStencil,
+      eField,
 
       Length
     };
@@ -95,11 +99,13 @@ namespace hdi::dr {
     GLuint _frbo_stencil;
     TsneParameters _params;
     utils::AbstractLog* _logger;
+
 #ifdef USE_BVH
-    bvh::BVH<2> _bvh;
+    BVH<2> _bvh;
     // dbg::BvhRenderer _renderer;
     bool _rebuildBvhOnIter;
-    double _lastRebuildBvhTime;
+    uint _nRebuildIters;
+    double _lastRebuildTime;
 #endif
 
     // Query timers matching to each shader

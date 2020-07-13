@@ -30,7 +30,7 @@
 
 #pragma once
 
-// #define USE_BVH // Use BVH for px log n field computations
+#define USE_BVH // Use BVH for px log n field computations
 
 #include <array>
 #include "hdi/utils/abstract_log.h"
@@ -40,27 +40,32 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #ifdef USE_BVH
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h" 
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
 #include "hdi/debug/renderer/bvh.hpp" 
 #endif
 
 namespace hdi::dr {
-  class Baseline3dFieldComputation {
+  class Field3dCompute {
     typedef Bounds<3> Bounds;
     typedef glm::vec<3, float, glm::aligned_highp> vec;
     typedef glm::vec<3, uint, glm::aligned_highp> uvec;
 
   public:
-    Baseline3dFieldComputation();
-    ~Baseline3dFieldComputation();
+    Field3dCompute();
+    ~Field3dCompute();
     
     void init(const TsneParameters& params,
                     GLuint position_buff,
                     GLuint bounds_buff,
                     unsigned n);
     void destr();
-    void compute(uvec dims, float function_support, unsigned n,
-                 GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
+    void compute(uvec dims, 
+                 float function_support, 
+                 unsigned iteration, 
+                 unsigned n,
+                 GLuint position_buff, 
+                 GLuint bounds_buff, 
+                 GLuint interp_buff,
                  Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
@@ -72,16 +77,7 @@ namespace hdi::dr {
 
   private:
     bool _isInit;
-    int _iteration;
     uvec _dims;
-
-    enum class TextureType {
-      eCellmap,
-      eGrid,
-      eField,
-
-      Length 
-    };
 
     enum class ProgramType {
       eGrid,
@@ -91,18 +87,28 @@ namespace hdi::dr {
       Length
     };
 
-    EnumArray<TextureType, GLuint> _textures;
+    enum class TextureType {
+      eCellmap,
+      eGrid,
+      eField,
+
+      Length 
+    };
+
     EnumArray<ProgramType, ShaderProgram> _programs;
+    EnumArray<TextureType, GLuint> _textures;
     std::array<uint32_t, 4 * 128> _cellData;
     GLuint _vrao_point;
     GLuint _frbo_grid;
     TsneParameters _params;
     utils::AbstractLog* _logger;
+
 #ifdef USE_BVH
-    bvh::BVH<3> _bvh;
+    BVH<3> _bvh;
     dbg::BvhRenderer _renderer;
     bool _rebuildBvhOnIter;
-    double _lastRebuildBvhTime;
+    uint _nRebuildIters;
+    double _lastRebuildTime;
 #endif
     
     // Query timers matching to each shader

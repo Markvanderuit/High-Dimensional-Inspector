@@ -142,14 +142,19 @@ GLSL(field_bvh_src, 450,
   layout(binding = 1, std430) restrict readonly buffer PosBuffer { vec2 posBuffer[]; };
   layout(binding = 2, std430) restrict readonly buffer DiamBuffer { vec4 diamBuffer[]; };
   layout(binding = 3, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  layout(binding = 4, std430) restrict coherent buffer DebugBuffer {
+    uint nPointsTotal;
+    uint nPointsLeaf;
+  };
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
   layout(binding = 0) uniform usampler2D stencilSampler;
 
   layout(location = 0) uniform uint nPos;     // nr of points
   layout(location = 1) uniform uint kNode;    // Node fanout
   layout(location = 2) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 3) uniform float theta;   // Approximation param
-  layout(location = 4) uniform uvec2 textureSize;
+  layout(location = 3) uniform uint kLeaf;    // Leaf fanout
+  layout(location = 4) uniform float theta;   // Approximation param
+  layout(location = 5) uniform uvec2 textureSize;
 
   // Constants
   const uint logk = uint(log2(kNode));
@@ -157,10 +162,11 @@ GLSL(field_bvh_src, 450,
   const float theta2 = theta * theta;
 
   // Traversal local memory
-  // We start a level lower, as the root node will never approximate
+  // We start a level lower, as the root node will probably never approximate
   uint lvl = 1u;
   uint loc = 1u;
   uint stack = 1u | (bitmask << (logk * lvl));
+  bool outputDebug = false;
 
   void descend() {
     // Move down tree
@@ -178,10 +184,10 @@ GLSL(field_bvh_src, 450,
 
     // Move dist up to where next available stack position is
     // and one to the right
-    if (dist == 0) {
-      loc++;
-    } else {
+    if (dist > 0) {
       loc >>= logk * dist;
+    } else {
+      loc++;
     }
     lvl = nextLvl;
 
@@ -193,7 +199,7 @@ GLSL(field_bvh_src, 450,
   }
 
   bool approx(vec2 domainPos, inout vec3 fieldValue) {
-    // Fetch packed node data
+    // Fetch node data
     const vec4 vNode = nodeBuffer[loc];
     const vec4 vDiam = diamBuffer[loc];
 
@@ -203,11 +209,11 @@ GLSL(field_bvh_src, 450,
     const vec2 diam = vDiam.xy;
     const uint begin = uint(vDiam.w);
     
-    // Squared distance to pos
+    // Compute squared distance between node and position
     vec2 t = domainPos - center;
     float t2 = dot(t, t);
 
-    // Compute squared diameter
+    // Compute squared diameter, adjusted for viewing angle
     vec2 b = abs(normalize(t)) * vec2(-1, 1);
     vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
     
@@ -217,17 +223,16 @@ GLSL(field_bvh_src, 450,
 
       // Field layout is: S, V.x, V.y, V.z
       fieldValue += mass * vec3(tStud, t * (tStud * tStud));
-
       return true;
-    } else if (mass <= 8 || lvl == nLvls - 1) {
-      // Iterate over all leaf points (there goes thread divergence)
+    } else if (mass <= kLeaf || lvl == nLvls - 1) {
+      // Iterate over all leaf points (hi, thread divergence here)
       for (uint i = begin; i < begin + mass; ++i) {
-        t = domainPos - posBuffer[i];
+        vec2 t = domainPos - posBuffer[i];
         float tStud = 1.f / (1.f +  dot(t, t));
 
         // Field layout is: S, V.x, V.y, V.z
         fieldValue += vec3(tStud, t * (tStud * tStud));
-       }
+      }
       return true;
     }
     return false;
@@ -252,14 +257,18 @@ GLSL(field_bvh_src, 450,
     const uvec2 globalIdx = gl_WorkGroupID.xy
                           * gl_WorkGroupSize.xy
                           + gl_LocalInvocationID.xy;
+
+    if (globalIdx == uvec2(48)) {
+      outputDebug = true;
+    }
                    
-    // Check that invocation is inside field texture
+    // Check that invocation is inside field texture bounds
     if (min(globalIdx, textureSize - 1) != globalIdx) {
       return;
     }
 
-    // Skip pixel if stencil is empty
-    if (texelFetch(stencilSampler, ivec2(globalIdx), 0).x == 0u) {
+    // Skip computation if stencil buffer is empty
+    if (!outputDebug && texelFetch(stencilSampler, ivec2(globalIdx), 0).x == 0u) {
       imageStore(fieldImage, ivec2(globalIdx), vec4(0));
       return;
     } 
