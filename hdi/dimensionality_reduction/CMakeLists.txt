@@ -37,6 +37,13 @@ add_library (hdidimensionalityreduction
 set_target_properties(hdidimensionalityreduction PROPERTIES CUDA_STANDARD 14)
 target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_14)
 target_link_libraries(hdidimensionalityreduction hdiutils hdidebug hdidata cub cuda_helper flann::flann glm)
+target_compile_options(hdidimensionalityreduction PRIVATE 
+  $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_52,code=sm_52 --use_fast_math -O3>)
+
+# set(cuda_flags	-arch=sm_60	-Xcompiler=-Wall)
+# target_compile_options(hdidimensionalityreduction	PUBLIC
+# 		…
+# 		$<$<COMPILE_LANGUAGE:CUDA>:${cuda_flags}>)
 
 ########### INSTALL ##############
 install (TARGETS hdidimensionalityreduction 
