@@ -40,12 +40,18 @@
 namespace hdi {
   namespace dr {  
     namespace bvh {
+      enum class InteropType {
+        eNone,
+        eReadOnly,
+        eWriteDiscard
+      };
+
       class InteropResource {
       public:
         InteropResource();
         ~InteropResource();
 
-        void init(GLuint handle);
+        void init(GLuint handle, InteropType interop = InteropType::eNone);
         void destr();
 
         void map();

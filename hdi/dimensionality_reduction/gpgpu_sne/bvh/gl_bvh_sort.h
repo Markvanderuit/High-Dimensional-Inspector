@@ -30,46 +30,47 @@
 
 #pragma once
 
-#include <array>
-#include <type_traits>
-#include <glad/glad.h>
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/timer.h"
 
 namespace hdi {
   namespace dr {
-    // Cast enum value to underlying type of enum class (eg. int)
-    template <typename ETy>
-    constexpr inline
-    typename std::underlying_type<ETy>::type underlying(ETy e) noexcept {
-      return static_cast<typename std::underlying_type<ETy>::type>(e);
-    }
-    
-    // Array class using Enums classes as indices
-    // For a used enum E, E::Length must be specified
-    template <typename ETy, typename Ty>
-    class EnumArray : public std::array<Ty, underlying(ETy::Length)> {
+    class BVHSorter {
     public:
-      constexpr inline
-      const Ty& operator()(ETy e) const {
-        return operator[](underlying<ETy>(e));
-      }
+      BVHSorter();
+      ~BVHSorter();
 
-      constexpr inline
-      Ty& operator()(ETy e) {
-        return operator[](underlying<ETy>(e));
-      }
+      // void init(GLuint unsortedKeysBuffer, GLuint sortedIdxBuffer, unsigned n, unsigned bits);
+      void init(GLuint keysUnsortedBuffer, 
+                GLuint keysSortedBuffer,
+                GLuint idxSortedBuffer, 
+                unsigned n, unsigned lvls);
+      void destr();
+      void compute();
+
+    private:
+      enum class BufferType {
+        eTemp,
+        eIdxUnsorted,
+
+        Length
+      };
+
+      enum class InteropBufferType {
+        eKeysUnsorted,
+        eKeysSorted,
+        eIdxSorted,
+
+        Length
+      };
+
+      bool _isInit;
+      unsigned _nPos;
+      unsigned _nLvls;
+      size_t _tempSize;
+      EnumArray<BufferType, void*> _buffers;
+      EnumArray<InteropBufferType, InteropBuffer> _interops;
     };
-
-    // For an EnumArray of GLuints representing OpenGL buffer objects,
-    // report the total memory range in machine units occupied by those buffer objects.
-    template <typename ETy>
-    GLuint bufferSize(const EnumArray<ETy, GLuint> &array) {
-      GLuint size = 0;
-      for (const auto &handle : array) {
-        GLint i = 0;
-        glGetNamedBufferParameteriv(handle, GL_BUFFER_SIZE, &i);
-        size += static_cast<GLuint>(i);
-      }
-      return size;
-    }
   }
 }

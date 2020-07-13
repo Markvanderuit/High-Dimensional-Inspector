@@ -32,6 +32,8 @@
 
 #include <cstdlib>
 #include <cuda_runtime.h>
+#include <iostream>
+#include <sstream>
 
 namespace hdi {
   namespace dr {

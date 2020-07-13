@@ -54,8 +54,8 @@ namespace hdi {
         // Initialize managing memory subclasses
         _intMemr.init(_layout, tempSize);
         _extMemr.init(_layout);
-        _extPos.init(posBuffer);
-        _extBounds.init(boundsBuffer);
+        _extPos.init(posBuffer, InteropType::eReadOnly);
+        _extBounds.init(boundsBuffer, InteropType::eReadOnly);
 
         // Fill unsorted indices
         {
@@ -98,7 +98,7 @@ namespace hdi {
       template <unsigned D>
       void BVH<D>::compute(bool rebuild, unsigned iteration) {
         using vec = vec<D>;
-
+        
         // Map external resources for access
         _extMemr.map();
         _extPos.map();
@@ -201,11 +201,33 @@ namespace hdi {
           (float4 *) _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam)
         ); */
         _timers[TIMR_CLEANUP].tock();
-        
+
+        if (iteration == 0) {
+          std::vector<float4> node0Buffer(1);
+          std::vector<float4> node1Buffer(1);
+
+          cudaMemcpy(node0Buffer.data(), _extMemr.ptr(BVHExtMemr<D>::MemrType::eNode),
+            1 * sizeof(float4), cudaMemcpyDeviceToHost);
+          cudaMemcpy(node1Buffer.data(), _extMemr.ptr(BVHExtMemr<D>::MemrType::eDiam),
+            1 * sizeof(float4), cudaMemcpyDeviceToHost);
+
+          for (int i = 0; i < 16; i++) {
+            // std::cout << std::bitset<32>(codeBuffer[i]) << '\n';
+            std::cout << "Range\t"
+                      << node1Buffer[i].w << '-' << node0Buffer[i].w << '\n';
+            // std::cout << "Center\t"
+            //           << node0Buffer[i].x << ", "
+            //           << node0Buffer[i].y << ", "
+            //           << node0Buffer[i].z << '\n';
+          }
+        }
+
         // Unmap external resources for access
+        _timers[TIMR_TEST].tick();
         _extMemr.unmap();
         _extBounds.unmap();
         _extPos.unmap();
+        _timers[TIMR_TEST].tock();
         
         for (auto &timer : _timers) {
           timer.poll();
@@ -213,11 +235,12 @@ namespace hdi {
 
         if (iteration >= static_cast<unsigned>(_params._iterations) - 1) {
           utils::secureLog(_logger, "\nBVH construction");
-          LOG_TIMER(_logger, _timers[TIMR_MORTON], "  Morton");
-          LOG_TIMER(_logger, _timers[TIMR_SORT], "  Sorting");
-          LOG_TIMER(_logger, _timers[TIMR_SUBDIV], "  Subdiv");
-          LOG_TIMER(_logger, _timers[TIMR_DATA], "  Bboxes");
-          LOG_TIMER(_logger, _timers[TIMR_CLEANUP], "  Cleanup");
+          CU_LOG_TIMER(_logger, _timers[TIMR_MORTON], "  Morton");
+          CU_LOG_TIMER(_logger, _timers[TIMR_SORT], "  Sorting");
+          CU_LOG_TIMER(_logger, _timers[TIMR_SUBDIV], "  Subdiv");
+          CU_LOG_TIMER(_logger, _timers[TIMR_DATA], "  Bboxes");
+          CU_LOG_TIMER(_logger, _timers[TIMR_CLEANUP], "  Cleanup");
+          CU_LOG_TIMER(_logger, _timers[TIMR_TEST ], "  Test");
         }
       }
       

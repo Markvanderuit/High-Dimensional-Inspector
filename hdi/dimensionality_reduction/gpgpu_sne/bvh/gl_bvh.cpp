@@ -1,0 +1,319 @@
+/*
+ * Copyright (c) 2014, Nicola Pezzotti (Delft University of Technology)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *  notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *  notice, this list of conditions and the following disclaimer in the
+ *  documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *  must display the following acknowledgement:
+ *  This product includes software developed by the Delft University of Technology.
+ * 4. Neither the name of the Delft University of Technology nor the names of
+ *  its contributors may be used to endorse or promote products derived from
+ *  this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY NICOLA PEZZOTTI ''AS IS'' AND ANY EXPRESS
+ * OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ * EVENT SHALL NICOLA PEZZOTTI BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ */
+
+#include <algorithm>
+#include <bitset>
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh_shaders_2d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh_shaders_3d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
+
+template <typename genType> 
+inline
+genType ceilDiv(genType n, genType div) {
+  return (n + div - 1) / div;
+}
+
+namespace hdi::dr {
+  template <unsigned D>
+  BVH<D>::BVH()
+  : _isInit(false), _logger(nullptr) { }
+
+  template <unsigned D>
+  BVH<D>::~BVH() {
+    if (_isInit) {
+      destr();
+    }
+  }
+
+  template <unsigned D>
+  void BVH<D>::init(const TsneParameters &params,
+                          const BVH<D>::Layout &layout,
+                          GLuint posBuffer,
+                          GLuint boundsBuffer) {      
+    _params = params;
+    _layout = layout;
+
+    // Create program objects
+    {
+      for (auto &program : _programs) {
+        program.create();
+      }
+
+      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _2d::subdiv_src);
+      _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _2d::divide_dispatch_src);
+
+      // Blargh, swap some shaders depending on embedding dimension being 2 or 3
+      if constexpr (D == 2) {
+        _programs(ProgramType::eMorton).addShader(COMPUTE, _2d::morton_src);
+        _programs(ProgramType::ePosSorted).addShader(COMPUTE, _2d::pos_sorted_src);
+        _programs(ProgramType::eLeaf).addShader(COMPUTE, _2d::leaf_src);
+        _programs(ProgramType::eBbox).addShader(COMPUTE, _2d::bbox_src);
+      } else if constexpr (D == 3) {
+        _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
+        _programs(ProgramType::ePosSorted).addShader(COMPUTE, _3d::pos_sorted_src);
+        _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
+        _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
+      }
+
+      for (auto &program : _programs) {
+        program.build();
+      }
+    }
+
+    // Create buffer objects
+    {
+      using vecd = glm::vec<D, float, glm::aligned_highp>; // 8 or 16 byte aligned vector type
+
+      // Root node data will have total mass (nPos) initialized for top node
+      std::vector<glm::vec4> nodeData(_layout.nNodes, glm::vec4(0));
+      nodeData[0].w = _layout.nPos;
+      glm::uvec4 head(0);
+
+      glCreateBuffers(_buffers.size(), _buffers.data());
+      glNamedBufferStorage(_buffers(BufferType::eMortonUnsorted), _layout.nPos * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eMortonSorted), _layout.nPos * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eIdxSorted), _layout.nPos * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePosSorted), _layout.nPos * sizeof(vecd), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eLeafFlag), _layout.nNodes * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eLeafHead), sizeof(uint), &head[0], 0);
+      glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), &head[0], 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode0), _layout.nNodes * sizeof(glm::vec4), nodeData.data(), 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode1), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eMinB), _layout.nNodes * sizeof(vecd), nullptr, 0);
+    }
+
+    // Pass stuff to sorter
+    _sorter.init(
+      _buffers(BufferType::eMortonUnsorted), 
+      _buffers(BufferType::eMortonSorted), 
+      _buffers(BufferType::eIdxSorted), 
+      _layout.nPos, 
+      _layout.nLvls * uint(std::log2(_layout.nodeFanout))
+    );
+
+    // Output tree info
+    utils::secureLogValue(_logger, "   BVHBuilder", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
+    utils::secureLogValue(_logger, "      fanout", _layout.nodeFanout);
+    utils::secureLogValue(_logger, "      nPos", _layout.nPos);
+    utils::secureLogValue(_logger, "      nLvls", _layout.nLvls);
+    utils::secureLogValue(_logger, "      nNodes", _layout.nNodes);
+
+    INIT_TIMERS();
+    ASSERT_GL("BVHBuilder::init()");
+    _isInit = true;
+  }
+
+  template <unsigned D>
+  void BVH<D>::destr() {
+    _sorter.destr();
+    for (auto &program : _programs) {
+      program.destroy();
+    }
+    glDeleteBuffers(_buffers.size(), _buffers.data());
+    DSTR_TIMERS();
+    ASSERT_GL("BVHBuilder::destr()");
+    _isInit = false;
+  }
+
+  template <unsigned D>
+  void BVH<D>::compute(bool rebuild, 
+                       unsigned iteration,
+                       GLuint posBuffer,
+                       GLuint boundsBuffer) {
+    // Generate morton codes
+    if (rebuild) {
+      TICK_TIMER(TIMR_MORTON);
+
+      auto &program = _programs(ProgramType::eMorton);
+      program.bind();
+      program.uniform1ui("nPoints", _layout.nPos);
+
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, posBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, boundsBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMortonUnsorted));
+
+      glDispatchCompute(ceilDiv(_layout.nPos, 256u), 1, 1);
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+      TOCK_TIMER(TIMR_MORTON);
+      ASSERT_GL("BVHBuilder::compute::morton()");
+    } // rebuild
+
+    // Delegate sorting of position indices over morton codes to the CUDA CUB library
+    // This means we pay a cost for OpenGL-CUDA interopability, unfortunately.
+    // Afterwards generate sorted list of positions based on sorted indices
+    if (rebuild) {
+      TICK_TIMER(TIMR_SORT);
+      
+      _sorter.compute(); // ohboy
+
+      auto &program = _programs(ProgramType::ePosSorted);
+      program.bind();
+      program.uniform1ui("nPoints", _layout.nPos);
+
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eIdxSorted));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, posBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::ePosSorted));
+
+      glDispatchCompute(ceilDiv(_layout.nPos, 256u), 1, 1);
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+      TOCK_TIMER(TIMR_SORT);
+      ASSERT_GL("BVHBuilder::compute::posSorted()");
+    } // rebuild
+
+    // Perform subdivision based on generated morton codes
+    if (rebuild) {
+      TICK_TIMER(TIMR_SUBDIV); 
+
+      // Set leaf queue head to 0
+      glClearNamedBufferData(_buffers(BufferType::eLeafHead), 
+        GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+
+      auto &program = _programs(ProgramType::eSubdiv);
+      program.bind();
+      program.uniform1ui("leafFanout", _layout.leafFanout);
+      program.uniform1ui("nodeFanout", _layout.nodeFanout);
+
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode0));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eNode1));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eLeafFlag));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eLeafHead));
+
+      // Iterate through tree levels from top to bottom
+      const uint logk = std::log2(_layout.nodeFanout);
+      uint begin = 0;
+      for (uint lvl = 0; lvl < _layout.nLvls - 1; lvl++) {
+        const uint end = begin + (1u << (logk * lvl)) - 1;
+        const uint range = 1 + end - begin;
+
+        program.uniform1ui("isBottom", lvl == _layout.nLvls - 2); // All further subdivided nodes are leaves
+        program.uniform1ui("rangeBegin", begin);
+        program.uniform1ui("rangeEnd", end);
+
+        glDispatchCompute(ceilDiv(range, 256u / _layout.nodeFanout), 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        begin = end + 1;
+      }
+
+      TOCK_TIMER(TIMR_SUBDIV);
+      ASSERT_GL("BVHBuilder::compute::subdiv()");
+    } //
+
+    // Compute leaf data
+    {
+      TICK_TIMER(TIMR_LEAF);
+
+      // Divide contents of BufferType::eLeafHead by workgroup size
+      if (rebuild) {
+        auto &program = _programs(ProgramType::eDivideDispatch);
+        program.bind();
+        program.uniform1ui("div", 256);
+
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eLeafHead));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
+        
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      } // rebuild
+      
+      auto &program = _programs(ProgramType::eLeaf);
+      program.bind();
+      program.uniform1ui("nNodes", _layout.nNodes);
+
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::ePosSorted));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eLeafFlag));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eLeafHead));
+
+      glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
+      glDispatchComputeIndirect(0);
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+      TOCK_TIMER(TIMR_LEAF);
+      ASSERT_GL("BVHBuilder::compute::leaf()");
+    }
+
+    // Compute auxiliary data, eg. bounding boxes and Barnes-Hut stuff
+    {
+      TICK_TIMER(TIMR_BBOX);
+      
+      auto &program = _programs(ProgramType::eBbox);
+      program.bind();
+      program.uniform1ui("nodeFanout", _layout.nodeFanout);
+
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
+
+      // Iterate through levels from bottom to top.
+      const uint logk = std::log2(_layout.nodeFanout);
+      uint end = _layout.nNodes - 1;
+      for (int lvl = _layout.nLvls - 1; lvl > 0; lvl--) {
+        const uint begin = 1 + end - (1u << (logk * lvl));
+        const uint range = end - begin;
+                  
+        program.uniform1ui("rangeBegin", begin);
+        program.uniform1ui("rangeEnd", end);
+
+        glDispatchCompute(ceilDiv(range, 256u), 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        end = begin - 1;
+      }
+      
+      TOCK_TIMER(TIMR_BBOX);
+      ASSERT_GL("BVHBuilder::compute::bbox()");
+    }
+
+    // Output timer data on final iteration
+    POLL_TIMERS();
+    if (iteration == _params._iterations - 1) {
+      utils::secureLog(_logger, "\nBVH building");
+      LOG_TIMER(_logger, TIMR_MORTON, "  Morton");
+      LOG_TIMER(_logger, TIMR_SORT, "  Sorting");
+      LOG_TIMER(_logger, TIMR_SUBDIV, "  Subdiv");
+      LOG_TIMER(_logger, TIMR_LEAF, "  Leaf")
+      LOG_TIMER(_logger, TIMR_BBOX, "  Bbox")
+    }
+  }
+
+  // Explicit template instantiations
+  template class BVH<2>;
+  template class BVH<3>;
+}

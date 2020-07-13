@@ -43,7 +43,8 @@ namespace hdi {
           TIMR_SORT,        // Radix sort timer
           TIMR_SUBDIV,      // Tree subdivision timer
           TIMR_DATA,        // Tree data computation timer
-          TIMR_CLEANUP,
+          TIMR_CLEANUP,     // Cleanup pass computation timer
+          TIMR_TEST,
 
           // Static enum length
           TimerTypeLength

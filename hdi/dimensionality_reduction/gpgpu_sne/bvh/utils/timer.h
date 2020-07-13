@@ -80,13 +80,13 @@ namespace hdi {
       };
 
       #ifdef _WIN32
-        #define LOG_TIMER(logger, timer, str) \
+        #define CU_LOG_TIMER(logger, timer, str) \
           utils::secureLogValue(logger, \
             std::string(str) + " average (\xE6s)", \
             std::to_string(timer.averageMicros()) \
           );
       #else
-        #define LOG_TIMER(logger, timer, str) \
+        #define CU_LOG_TIMER(logger, timer, str) \
           utils::secureLogValue(logger, \
             std::string(str) + " average (\xC2\xB5s)", \
             std::to_string(timer.averageMicros()) \

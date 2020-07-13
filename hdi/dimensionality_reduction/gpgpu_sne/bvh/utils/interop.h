@@ -30,46 +30,40 @@
 
 #pragma once
 
-#include <array>
-#include <type_traits>
 #include <glad/glad.h>
 
 namespace hdi {
   namespace dr {
-    // Cast enum value to underlying type of enum class (eg. int)
-    template <typename ETy>
-    constexpr inline
-    typename std::underlying_type<ETy>::type underlying(ETy e) noexcept {
-      return static_cast<typename std::underlying_type<ETy>::type>(e);
-    }
-    
-    // Array class using Enums classes as indices
-    // For a used enum E, E::Length must be specified
-    template <typename ETy, typename Ty>
-    class EnumArray : public std::array<Ty, underlying(ETy::Length)> {
-    public:
-      constexpr inline
-      const Ty& operator()(ETy e) const {
-        return operator[](underlying<ETy>(e));
-      }
-
-      constexpr inline
-      Ty& operator()(ETy e) {
-        return operator[](underlying<ETy>(e));
-      }
+    enum class InteropType {
+      eNone,
+      eReadOnly,
+      eWriteDiscard
     };
 
-    // For an EnumArray of GLuints representing OpenGL buffer objects,
-    // report the total memory range in machine units occupied by those buffer objects.
-    template <typename ETy>
-    GLuint bufferSize(const EnumArray<ETy, GLuint> &array) {
-      GLuint size = 0;
-      for (const auto &handle : array) {
-        GLint i = 0;
-        glGetNamedBufferParameteriv(handle, GL_BUFFER_SIZE, &i);
-        size += static_cast<GLuint>(i);
-      }
-      return size;
-    }
+    class InteropBuffer {
+    public:
+      InteropBuffer();
+      ~InteropBuffer();
+
+      void init(GLuint handle, InteropType interop = InteropType::eNone);
+      void destr();
+
+      void map();
+      void unmap();
+      void *ptr();
+
+      friend void mapResources(size_t count, InteropBuffer *resources);
+      friend void unmapResources(size_t count, InteropBuffer *resources);
+
+    private:
+      bool _isInit;
+      bool _isMapped;
+      GLuint _glHandle;
+      struct cudaGraphicsResource *_cuHandle;
+      void *_cuPtr;
+    };
+
+    void mapResources(size_t count, InteropBuffer *resources);
+    void unmapResources(size_t count, InteropBuffer *resources);
   }
 }

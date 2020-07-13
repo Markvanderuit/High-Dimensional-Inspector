@@ -77,9 +77,21 @@ namespace hdi {
         }
       }
 
-      void InteropResource::init(GLuint handle) {
+      void InteropResource::init(GLuint handle, InteropType interop) {
         _glHandle = handle;
-        ASSERT_CU(cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, cudaGraphicsMapFlagsNone));
+        uint flag;
+        switch (interop) {
+          case InteropType::eNone:
+            flag = cudaGraphicsRegisterFlagsNone;  
+            break;
+          case InteropType::eReadOnly:
+            flag = cudaGraphicsRegisterFlagsReadOnly;  
+            break;
+          case InteropType::eWriteDiscard:
+            flag = cudaGraphicsRegisterFlagsWriteDiscard;  
+            break;
+        };
+        ASSERT_CU(cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, flag));
         _isInit = true;
       }
 
@@ -139,7 +151,7 @@ namespace hdi {
         ASSERT_GL("BVHExtMemr::init");
 
         // Register buffer as CUDA-OpenGL interopability resources
-        ASSERT_CU(cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, cudaGraphicsMapFlagsNone));
+        ASSERT_CU(cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, cudaGraphicsRegisterFlagsNone));
         
         utils::secureLogValue(_logger, "   BvhExtMemr", "2 x " + std::to_string(size / 1'000'000) + "mb");
 
