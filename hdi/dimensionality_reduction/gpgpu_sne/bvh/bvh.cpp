@@ -34,9 +34,9 @@
 #include <cmath>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh_shaders_2d.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh_shaders_3d.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_shaders_2d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_shaders_3d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
 
 template <typename genType> 
 inline

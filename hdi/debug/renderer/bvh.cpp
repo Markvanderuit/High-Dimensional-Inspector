@@ -352,11 +352,12 @@ namespace hdi::dbg {
     if (!_isInit) {
       return;
     }
+    if (!_bvh) {
+      return;
+    }
 
-    // Map focus position buffer for reading/writing
-    float *ptr = (float *) glMapNamedBuffer(_buffers[BUFF_FOCUS_POS], 
-      GL_READ_WRITE
-    );
+    // Map focus position buffer for reading/writing so ImGUI components can touch it
+    float *ptr = (float *) glMapNamedBuffer(_buffers[BUFF_FOCUS_POS], GL_READ_WRITE);
     
     ImGui::Begin("BVH Rendering");
     ImGui::Text("Z-Order Curve");
@@ -456,9 +457,5 @@ namespace hdi::dbg {
       glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, _nCube);
       program.release();
     }
-
-    /* if (++_iterations > 1000) {
-      _cubeOpacity = std::max(0.f, _cubeOpacity - (1.f / 30.f));
-    } */
   }
 }

@@ -40,7 +40,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #ifdef USE_BVH
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
 #endif
 
 namespace hdi::dr {

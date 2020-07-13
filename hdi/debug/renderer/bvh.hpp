@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
 
 namespace hdi::dbg {
   class BvhRenderer : private RenderComponent {
@@ -62,8 +62,6 @@ namespace hdi::dbg {
     // This is gonna bite me, but this whole thing is a hack anyways 
     const dr::BVH<3> *_bvh;
     
-    unsigned _iterations = 0;
-
     // ImGui default settings
     bool _drawCube = false;
     bool _drawBarnesHut = false;

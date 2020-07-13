@@ -31,7 +31,7 @@
 #include <numeric>
 #include <vector>
 #include <cub/cub.cuh>
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh_sort.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_sort.h"
 
 typedef unsigned uint;
 
@@ -79,13 +79,12 @@ namespace hdi {
     }
 
     void BVHSorter::destr() {
-      _interops(InteropBufferType::eKeysUnsorted).destr();
-      _interops(InteropBufferType::eKeysSorted).destr();
-      _interops(InteropBufferType::eIdxSorted).destr();
-
-      cudaFree(_buffers(BufferType::eTemp));
-      cudaFree(_buffers(BufferType::eIdxUnsorted));
-      
+      for (auto &interop : _interops) {
+        interop.destr();
+      }
+      for (auto &buffer : _buffers) {
+        cudaFree(buffer);
+      }
       _isInit = false;
     }
 
@@ -93,7 +92,7 @@ namespace hdi {
       mapResources(_interops.size(), _interops.data());
       
       const int msb = 30; // exclusive
-      const int lsb = (msb - 1) - _nLvls; // inclusive
+      const int lsb = msb - _nLvls;// (msb - 1) - _nLvls; // inclusive
       
       cub::DeviceRadixSort::SortPairs<uint, uint>(
         (void *) _buffers(BufferType::eTemp), 
