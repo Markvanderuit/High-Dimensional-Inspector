@@ -60,41 +60,35 @@ GLSL(flags_comp, 450,
   }
 
   void main() {
-    const uint idx = uint(gl_WorkGroupID.xyz
-                              * gl_WorkGroupSize.xyz
-                              + gl_LocalInvocationID.xyz);
+    const uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
 
     // Check that invocation is inside range
-    if (idx >= nNodes) {
+    if (i >= nNodes) {
       return;
     }
     
     // Map pixel position to domain bounds
     vec3 domainPos = pos * bounds.range + bounds.min;
-    
-    // For the bitshifts
-    uint nodeIdx = idx + 1;
 
     // Test whether to flag this node for drawing
-    float flag = approx(domainPos, nodeIdx - 1);
+    float flag = approx(domainPos, i);
     bool parentFlag = false;
-    if (flag > 0.f && idx != 0) {
-      uint parentIdx = nodeIdx;
-      while (parentIdx > 1 && parentFlag == false) {
-        parentIdx >>= 1;
-        parentFlag = parentFlag || (approx(domainPos, parentIdx - 1) > 0.f);
+    if (flag > 0.f && i != 0) {
+      uint _i = i;
+      while (_i > 0 && parentFlag == false) {
+        _i >>= logk;
+        parentFlag = parentFlag || (approx(domainPos, _i) > 0.f);
       }
-      // parentFlag = approx(domainPos, (nodeIdx >> 1) - 1) > 0.f;
     }
     
     if (flag > 0.f && !parentFlag) {
-      flagsBuffer[idx] = flag;
-      lineBuffer[2 * idx] = pos;
-      lineBuffer[2 * idx + 1] = (nodeBuffer[idx].xyz - bounds.min) * bounds.invRange;
+      flagsBuffer[i] = flag;
+      lineBuffer[2 * i] = pos;
+      lineBuffer[2 * i + 1] = (nodeBuffer[i].xyz - bounds.min) * bounds.invRange;
     } else {
-      flagsBuffer[idx] = 0.f;
-      lineBuffer[2 * idx] = vec3(100000);
-      lineBuffer[2 * idx + 1] = vec3(100000);
+      flagsBuffer[i] = 0.f;
+      lineBuffer[2 * i] = vec3(100000);
+      lineBuffer[2 * i + 1] = vec3(100000);
     }
   }
 );
@@ -246,7 +240,7 @@ namespace hdi::dbg {
     }
   }
 
-  void BvhRenderer::init(const dr::bvh::BVH<3> &bvh, GLuint boundsBuffer)
+  void BvhRenderer::init(const dr::BVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
     if (!_isInit) {
@@ -256,10 +250,9 @@ namespace hdi::dbg {
     // This is gonna bite me
     _bvh = &bvh;
     
-    // Query bvh for layout specs and buffer handle
-    const auto& layout = bvh.layout();
-    const auto& memr = bvh.memr(); 
-    GLuint buffer = memr.bufferHandle();
+    // Query bvh for layout specs and buffer handles
+    const auto layout = bvh.layout();
+    const auto buffers = bvh.buffers(); 
 
     // Create and build shader programs
     try {
@@ -296,11 +289,9 @@ namespace hdi::dbg {
     glNamedBufferStorage(_buffers[BUFF_FOCUS_LINES], sizeof(glm::vec4) * 2 * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
     // Specify vertex array object for instanced draw
-    size_t minboffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::eMinB);
-    size_t diamOffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::eDiam);
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 0, _buffers[BUFF_CUBE_VERT], 0, sizeof(glm::vec4));
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 1, buffer, minboffset, sizeof(glm::vec4));
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 2, buffer, diamOffset, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 1, buffers.minb, 0, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 2, buffers.node1, 0, sizeof(glm::vec4));
     glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 3, _buffers[BUFF_FLAGS], 0, sizeof(float));
     glVertexArrayElementBuffer(_vertexArrays[VRAO_CUBE], _buffers[BUFF_CUBE_IDX]);
     glVertexArrayBindingDivisor(_vertexArrays[VRAO_CUBE], 0, 0);
@@ -321,8 +312,7 @@ namespace hdi::dbg {
     glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 3, 3);
 
     // Specify vertex array object for embedding positions
-    size_t embOffset = memr.memrOffset(dr::bvh::BVHExtMemr<3>::MemrType::ePos);// (layout.nNodes) * sizeof(glm::vec4);
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_POINTS], 0, buffer, embOffset, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays[VRAO_POINTS], 0, buffers.pos, 0, sizeof(glm::vec4));
     glEnableVertexArrayAttrib(_vertexArrays[VRAO_POINTS], 0);
     glVertexArrayAttribFormat(_vertexArrays[VRAO_POINTS], 0, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(_vertexArrays[VRAO_POINTS], 0, 0);
@@ -391,28 +381,27 @@ namespace hdi::dbg {
     glUnmapNamedBuffer(_buffers[BUFF_FOCUS_POS]);
 
     if (_bvh && _drawBarnesHut) {
-      const auto& layout = _bvh->layout();
-      const auto& memr = _bvh->memr(); 
-      const uint nNode = layout.nNodes;
+      const auto layout = _bvh->layout();
+      const auto buffers = _bvh->buffers(); 
 
       auto &program = _programs[PROG_FLAGS];
       program.bind();
 
       // Set uniforms
-      program.uniform1ui("nNodes", nNode);
-      program.uniform1ui("kNode", layout.kNode);
+      program.uniform1ui("nNodes", layout.nNodes);
+      program.uniform1ui("kNode", layout.nodeFanout);
       program.uniform1f("theta", _flagTheta);
 
       // Bind buffers
-      memr.bindBuffer(dr::bvh::BVHExtMemr<3>::MemrType::eNode, 0);
-      memr.bindBuffer(dr::bvh::BVHExtMemr<3>::MemrType::eDiam, 1);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.node1);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _boundsBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFF_FOCUS_POS]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFF_FLAGS]);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers[BUFF_FOCUS_LINES]);
 
       // Fire away
-      glDispatchCompute(ceilDiv(nNode, 256u), 1, 1);
+      glDispatchCompute(ceilDiv(layout.nNodes, 256u), 1, 1);
       
       program.release();
     }
@@ -467,5 +456,9 @@ namespace hdi::dbg {
       glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, _nCube);
       program.release();
     }
+
+    /* if (++_iterations > 1000) {
+      _cubeOpacity = std::max(0.f, _cubeOpacity - (1.f / 30.f));
+    } */
   }
 }

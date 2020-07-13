@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/gl_bvh.h"
 
 namespace hdi::dbg {
   class BvhRenderer : private RenderComponent {
@@ -13,7 +13,7 @@ namespace hdi::dbg {
     BvhRenderer();
     ~BvhRenderer();
 
-    void init(const dr::bvh::BVH<3> &bvh, GLuint boundsBuffer);
+    void init(const dr::BVH<3> &bvh, GLuint boundsBuffer);
     void destr();
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
@@ -59,8 +59,10 @@ namespace hdi::dbg {
     std::array<GLuint, VertexArrayTypeLength> _vertexArrays;
     std::array<ShaderProgram, ProgramTypeLength> _programs;
 
-    // This is gonna bite me
-    const hdi::dr::bvh::BVH<3> *_bvh;
+    // This is gonna bite me, but this whole thing is a hack anyways 
+    const dr::BVH<3> *_bvh;
+    
+    unsigned _iterations = 0;
 
     // ImGui default settings
     bool _drawCube = false;
@@ -68,7 +70,7 @@ namespace hdi::dbg {
     bool _drawOrder = false;
     float _flagTheta = 0.5f;
     float _orderLineWidth = 1.f;
-    float _cubeLineWidth = 4.f;
+    float _cubeLineWidth = 1.f;
     float _cubeTheta = 0.f;// 0.75f;
     float _orderOpacity = 0.75f;
     float _cubeOpacity = 1.0f;
