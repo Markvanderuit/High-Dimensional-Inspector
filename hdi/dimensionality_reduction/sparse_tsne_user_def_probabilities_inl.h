@@ -70,7 +70,6 @@ namespace hdi{
     SparseTSNEUserDefProbabilities<scalar, sparse_scalar_matrix>::SparseTSNEUserDefProbabilities():
       _initialized(false),
       _logger(nullptr),
-      _theta(0),
       _exaggeration_baseline(1)
     {
 
@@ -220,7 +219,7 @@ namespace hdi{
         utils::secureLog(_logger,"Remove exaggeration...");
       }
 
-      if(_theta == 0){
+      if(_params._theta == 0){
         doAnIterationExact(mult);
       }else{
         doAnIterationBarnesHut(mult);
@@ -352,7 +351,7 @@ namespace hdi{
       #pragma omp parallel for
       for(int n = 0; n < getNumberOfDataPoints(); n++){
 //#endif //__USE_GCD__
-        sptree.computeNonEdgeForcesOMP(n, _theta, negative_forces.data() + n * _params._embedding_dimensionality, sum_Q_subvalues[n]);
+        sptree.computeNonEdgeForcesOMP(n, _params._theta, negative_forces.data() + n * _params._embedding_dimensionality, sum_Q_subvalues[n]);
       }
 //#ifdef __USE_GCD__
 //      );

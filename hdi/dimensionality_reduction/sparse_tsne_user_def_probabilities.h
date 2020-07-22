@@ -95,12 +95,6 @@ namespace hdi{
       void setIteration(unsigned int iteration){_iteration = iteration;}
       //! iterations performed by the algo
       unsigned int iteration()const{return _iteration;}
-
-      //! Set Barnes Hut approximation theta
-      void setTheta(double theta){_theta = theta;}
-      //! Barnes Hut approximation theta
-      double theta(){return _theta;}
-
       //! Exageration baseline
       double& exaggeration_baseline(){return _exaggeration_baseline;}
       const double& exaggeration_baseline()const{return _exaggeration_baseline;}
@@ -142,7 +136,6 @@ namespace hdi{
       scalar_vector_type _gradient; //! Current gradient
       scalar_vector_type _previous_gradient; //! Previous gradient
       scalar_vector_type _gain; //! Gain
-      scalar_type _theta; //! value of theta used in the Barnes-Hut approximation. If a value of 1 is provided the exact tSNE computation is used.
 
       TsneParameters _params;
       unsigned int _iteration;
