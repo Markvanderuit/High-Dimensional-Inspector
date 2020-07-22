@@ -35,10 +35,20 @@ add_library (hdidimensionalityreduction
   ${GpgpuSourceFiles})
 # target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_11)
 set_target_properties(hdidimensionalityreduction PROPERTIES CUDA_STANDARD 14)
-target_compile_features(hdidimensionalityreduction PUBLIC cxx_std_14)
+# set_target_properties(hdidimensionalityreduction PROPERTIES CUDA_SEPARABLE_COMPILATION  ON)
 target_link_libraries(hdidimensionalityreduction hdiutils hdidebug hdidata cub cuda_helper flann::flann glm)
-target_compile_options(hdidimensionalityreduction PRIVATE 
-  $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_52,code=sm_52 --use_fast_math -O3>)
+target_compile_features(hdidimensionalityreduction PUBLIC 
+  cxx_std_14
+)
+target_compile_options(hdidimensionalityreduction PUBLIC 
+  "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:
+    -gencode arch=compute_30,code=sm_30 
+    -gencode arch=compute_52,code=sm_52 
+    -gencode arch=compute_75,code=sm_75
+    --use_fast_math 
+    -O3
+  >"
+)
 
 # set(cuda_flags	-arch=sm_60	-Xcompiler=-Wall)
 # target_compile_options(hdidimensionalityreduction	PUBLIC
