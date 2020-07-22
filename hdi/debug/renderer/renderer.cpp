@@ -9,7 +9,8 @@ namespace hdi::dbg {
   RenderManager * RenderManager::_currentManager = nullptr;
 
   RenderComponent::RenderComponent(int priority, bool isInit)
-  : _priority(priority), _isInit(isInit)
+  : _priority(priority), 
+    _isInit(isInit)
   {
     if (isInit) {
       init();
@@ -46,10 +47,11 @@ namespace hdi::dbg {
     // ...
   }
 
-  RenderManager::RenderManager(uint nDimensions)
+  RenderManager::RenderManager(uint nDimensions, const std::vector<uint> &labels)
   : _nDimensions(nDimensions),
     _components(cmpRenderComponent),
-    _framebufferSize(0, 0)
+    _framebufferSize(0, 0),
+    _labels(0)
   {
     _currentManager = this;
     _trackball.init();
@@ -58,6 +60,12 @@ namespace hdi::dbg {
     glCreateFramebuffers(1, &_framebuffer);
     glCreateTextures(GL_TEXTURE_2D, 1, &_framebufferColorTexture);
     glCreateTextures(GL_TEXTURE_2D, 1, &_framebufferDepthTexture);
+
+    // Construct buffer for holding label data
+    if (!labels.empty()) {
+      glCreateBuffers(1, &_labels);
+      glNamedBufferStorage(_labels, labels.size() * sizeof(uint), labels.data(), 0);
+    }
   }
 
   RenderManager::~RenderManager()
@@ -69,6 +77,11 @@ namespace hdi::dbg {
     glDeleteFramebuffers(1, &_framebuffer);
     glDeleteTextures(1, &_framebufferColorTexture);
     glDeleteTextures(1, &_framebufferDepthTexture);
+    
+    // Destroy labels buffer if it exists
+    if (_labels) {
+      glDeleteBuffers(1, &_labels);
+    }
   }
 
   void RenderManager::render()
@@ -162,6 +175,12 @@ namespace hdi::dbg {
     if (_components.find(ptr) != _components.end()) {
       _components.erase(ptr);
     }
+  }
+
+  
+  const GLuint RenderManager::labelsBuffer() const
+  {
+    return _labels;
   }
   
   RenderManager *RenderManager::currentManager()

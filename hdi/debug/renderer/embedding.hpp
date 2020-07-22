@@ -19,6 +19,7 @@ namespace hdi::dbg {
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
   private:
+    bool _hasLabels;
     size_t _n;
     GLuint _embeddingBuffer;
     GLuint _boundsBuffer;
@@ -27,6 +28,7 @@ namespace hdi::dbg {
 
     // ImGui default settings
     bool _draw = true;
+    bool _drawLabels = false;
     float _pointSize = 4.f;
     float _pointOpacity = 1.f;
   };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <set>
 #include <glad/glad.h>
 #include "hdi/debug/utils/trackball.hpp"
@@ -34,7 +35,7 @@ namespace hdi::dbg {
     typedef unsigned uint;
     
   public:
-    RenderManager(uint nDimensions);
+    RenderManager(uint nDimensions, const std::vector<uint> &labels = std::vector<uint>());
     ~RenderManager();
     
     // Render all composite components
@@ -43,6 +44,7 @@ namespace hdi::dbg {
     // Register render components
     void addRenderComponent(RenderComponent *ptr);
     void removeRenderComponent(RenderComponent *ptr);
+    const GLuint labelsBuffer() const;
 
     // Static access
     static RenderManager *currentManager();
@@ -50,6 +52,7 @@ namespace hdi::dbg {
   private:
     uint _nDimensions;
     Trackball _trackball;
+    GLuint _labels;
     GLuint _framebuffer;
     GLuint _framebufferColorTexture;
     GLuint _framebufferDepthTexture;

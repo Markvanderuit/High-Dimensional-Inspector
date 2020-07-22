@@ -16,25 +16,45 @@ namespace _2d {
       vec2 invRange;
     };
 
+    const vec3 labels[10] = vec3[10](
+      vec3(16, 78, 139),
+      vec3(139, 90, 43),
+      vec3(138, 43, 226),
+      vec3(0, 128, 0),
+      vec3(255, 150, 0),
+      vec3(204, 40, 40),
+      vec3(131, 139, 131),
+      vec3(0, 205, 0),
+      vec3(20, 20, 20),
+      vec3(0, 150, 255)
+    );
+
     layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
     layout(location = 0) in vec2 vertex;
-    layout(location = 0) out vec2 pos;
+    layout(location = 1) in uint label;
+    layout(location = 0) out vec4 color;
     layout(location = 0) uniform mat4 uTransform;
+    layout(location = 1) uniform bool drawLabels;
+    layout(location = 2) uniform float uOpacity;
 
     void main() {
-      pos = (vertex.xy - bounds.min) * bounds.invRange;
+      vec2 pos = (vertex.xy - bounds.min) * bounds.invRange;
+      if (drawLabels) {
+        color = vec4(labels[label % 10] / 255.f, uOpacity);
+      } else {
+        vec2 _pos = normalize(pos);
+        color = vec4(_pos.x, abs(_pos.y - _pos.x), _pos.y, uOpacity); // accidental rainbow, neat!
+      }
       gl_Position = uTransform * vec4(pos, 0, 1);
     }
   );
 
   GLSL(frag, 450,
-    layout(location = 0) in vec2 pos;
-    layout(location = 0) out vec4 color;
-    layout(location = 1) uniform float uOpacity;
+    layout(location = 0) in vec4 inColor;
+    layout(location = 0) out vec4 outColor;
 
     void main() {
-      vec2 _pos = normalize(pos);
-      color = vec4(_pos.x, abs(_pos.y - _pos.x), _pos.y, uOpacity); // accidental rainbow, neat!
+      outColor = inColor;
     }
   );
 } // namespace _2d
@@ -48,24 +68,44 @@ namespace _3d {
       vec3 invRange;
     };
 
+    const vec3 labels[10] = vec3[10](
+      vec3(16, 78, 139),
+      vec3(139, 90, 43),
+      vec3(138, 43, 226),
+      vec3(0, 128, 0),
+      vec3(255, 150, 0),
+      vec3(204, 40, 40),
+      vec3(131, 139, 131),
+      vec3(0, 205, 0),
+      vec3(20, 20, 20),
+      vec3(0, 150, 255)
+    );
+
     layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
     layout(location = 0) in vec4 vertex;
-    layout(location = 0) out vec3 pos;
+    layout(location = 1) in uint label;
+    layout(location = 0) out vec4 color;
     layout(location = 0) uniform mat4 uTransform;
+    layout(location = 1) uniform bool drawLabels;
+    layout(location = 2) uniform float uOpacity;
 
     void main() {
-      pos = (vertex.xyz - bounds.min) * bounds.invRange;
+      vec3 pos = (vertex.xyz - bounds.min) * bounds.invRange;
+      if (drawLabels) {
+        color = vec4(labels[label % 10] / 255.f, uOpacity);
+      } else {
+        color = vec4(normalize(pos), uOpacity);
+      }
       gl_Position = uTransform * vec4(pos, 1);
     }
   );
 
   GLSL(frag, 450,
-    layout(location = 0) in vec3 pos;
-    layout(location = 0) out vec4 color;
-    layout(location = 1) uniform float uOpacity;
+    layout(location = 0) in vec4 inColor;
+    layout(location = 0) out vec4 outColor;
 
     void main() {
-      color = vec4(normalize(pos), uOpacity);
+      outColor = inColor;
     }
   );
 } // namespace _3d
@@ -73,7 +113,7 @@ namespace _3d {
 namespace hdi::dbg {
   template <unsigned D>
   EmbeddingRenderer<D>::EmbeddingRenderer()
-  : RenderComponent(10, false) { }
+  : RenderComponent(10, false), _hasLabels(false), _drawLabels(false) { }
 
   template <unsigned D>
   EmbeddingRenderer<D>::~EmbeddingRenderer() {
@@ -114,6 +154,19 @@ namespace hdi::dbg {
     glVertexArrayAttribFormat(_vertexArray, 0, ((D > 2) ? 3 : 2), GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(_vertexArray, 0, 0);
 
+    // Add labels to vertex array object if they exist
+    const auto *ptr = RenderManager::currentManager();
+    if (ptr) {
+      GLuint labelsBuffer = ptr->labelsBuffer();
+      if (labelsBuffer) {
+        _hasLabels = true;
+        glVertexArrayVertexBuffer(_vertexArray, 1, labelsBuffer, 0, sizeof(unsigned));
+        glEnableVertexArrayAttrib(_vertexArray, 1);
+        glVertexArrayAttribIFormat(_vertexArray, 1, 1, GL_UNSIGNED_INT, 0);
+        glVertexArrayAttribBinding(_vertexArray, 1, 1);
+      }
+    }
+
     _n = n;
     _boundsBuffer = boundsBuffer;
     _embeddingBuffer = embeddingBuffer;
@@ -137,17 +190,21 @@ namespace hdi::dbg {
 
     ImGui::Begin("Embedding Rendering");
     ImGui::Checkbox("Draw", &_draw);
+    if (_hasLabels) {
+      ImGui::Checkbox("Draw labels", &_drawLabels);
+    }
     ImGui::SliderFloat("Point size", &_pointSize, 0.5f, 16.f, "%1.1f");
     ImGui::SliderFloat("Point opacity", &_pointOpacity, 0.05f, 1.f, "%.2f");
     ImGui::End();
     
     if (_draw) {
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
-      glBindVertexArray(_vertexArray);
-      glPointSize(_pointSize);
       _program.bind();
       _program.uniformMatrix4f("uTransform", &transform[0][0]);
       _program.uniform1f("uOpacity", _pointOpacity);
+      _program.uniform1ui("drawLabels", _drawLabels ? 1 : 0);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
+      glBindVertexArray(_vertexArray);
+      glPointSize(_pointSize);
       glDrawArrays(GL_POINTS, 0, _n);
       _program.release();
     }
