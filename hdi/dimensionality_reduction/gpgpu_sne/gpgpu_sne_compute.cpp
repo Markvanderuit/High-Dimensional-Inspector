@@ -41,10 +41,11 @@ genType ceilDiv(genType n, genType div) {
   return (n + div - 1) / div;
 }
 
+// Random magic numbers for the field resolution growth
 constexpr bool doAdaptiveResolution = true;
-constexpr unsigned minFieldSize = 5;// 64;       // 5
-constexpr unsigned fixedFieldSize = 256;// 256;    // 40
-constexpr float pixelRatio = 2.0f;
+constexpr unsigned minFieldSize = 5;// 64;          // 5 default
+constexpr unsigned fixedFieldSize = 256;// 256;     // 40 default
+constexpr float pixelRatio = 1.5; // 2.0f;          // 2.0 for 2d, 1.5 for 3d works well
 constexpr float functionSupport = 6.5f;
 constexpr float boundsPadding = 0.1f;
 
@@ -133,14 +134,13 @@ namespace hdi::dr {
     }
 
     // Initialize embedding renderer subcomponent
-      _embeddingRenderer.init(
-        embedding->numDataPoints(), 
-        _buffers(BufferType::ePosition), 
-        _buffers(BufferType::eBounds)
-      );
+    _embeddingRenderer.init(
+      embedding->numDataPoints(), 
+      _buffers(BufferType::ePosition), 
+      _buffers(BufferType::eBounds)
+    );
 
     INIT_TIMERS();
-    
     ASSERT_GL("GpgpuSneCompute::init()");
     _isInit = true;
     std::cerr << "GpgpuSneCompute::init()" << std::endl;
@@ -156,7 +156,7 @@ namespace hdi::dr {
       _field3dCompute.destr();
     }
 
-    // Destroy embedding renderer subcomponent
+    // Destroy renderer subcomponent
     _embeddingRenderer.destr();
 
     // Destroy own components
@@ -165,12 +165,10 @@ namespace hdi::dr {
     }
     glDeleteBuffers(_buffers.size(), _buffers.data());
     DSTR_TIMERS();
-
     ASSERT_GL("GpgpuSneCompute::destr()");
     _isInit = false;
   }
 
-  // Specialization of compute function for 2 dimensions
   template <unsigned D>
   void GpgpuSneCompute<D>::compute(Embedding* embeddingPtr,
                                    float exaggeration,

@@ -68,11 +68,6 @@ namespace hdi::dr {
       _gpgpu_3d_sne_compute.setLogger(logger);
     }
 
-    unsigned iteration() const
-    {
-      return _iteration;
-    }
-
   private:
     bool _isInit;
     unsigned _iteration;
