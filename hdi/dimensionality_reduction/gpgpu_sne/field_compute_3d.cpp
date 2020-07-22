@@ -35,6 +35,10 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/string_cast.hpp>
+
+#define USE_WIDE_BVH // Toggle full-warp traversal of a wide BVH
 
 template <typename genType> 
 inline
@@ -47,13 +51,13 @@ constexpr float pointSize = 2.f;
 
 namespace hdi::dr {
   Field3dCompute::Field3dCompute()
-  : _isInit(false), _dims(0), _logger(nullptr) {
-#ifdef USE_BVH
-    _rebuildBvhOnIter = true;
-    _nRebuildIters = 0;
-    _lastRebuildTime = 0.0;
-#endif
-  }
+  : _isInit(false), 
+    _dims(0), 
+    _logger(nullptr),
+    _useBvh(false),
+    _rebuildBvhOnIter(true),
+    _nRebuildIters(0),
+    _lastRebuildTime(0.0) { }
 
   Field3dCompute::~Field3dCompute() {
     if (_isInit) {
@@ -65,22 +69,31 @@ namespace hdi::dr {
                                               GLuint position_buff,
                                               GLuint bounds_buff, 
                                               unsigned n) {
-    INIT_TIMERS()
     _params = params;
+    _useBvh = _params._theta > 0.0;
 
     // Build shader programs
     try {
       for (auto& program : _programs) {
         program.create();
       }
+
       _programs(ProgramType::eGrid).addShader(VERTEX, grid_vert_src);
       _programs(ProgramType::eGrid).addShader(FRAGMENT, grid_fragment_src);
-#ifdef USE_BVH
-      _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
-#else
-      _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
-#endif
+      _programs(ProgramType::eFlag).addShader(COMPUTE, grid_flag_src);
+      _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, divide_dispatch_src);
       _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
+
+      if (_useBvh) {
+#ifdef USE_WIDE_BVH
+        _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_wide_src); 
+#else
+        _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
+#endif // USE_WIDE_BVH
+      } else {
+        _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
+      }
+
       for (auto& program : _programs) {
         program.build();
       }
@@ -134,26 +147,37 @@ namespace hdi::dr {
     glVertexArrayAttribFormat(_vrao_point, 0, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(_vrao_point, 0, 0);
 
-#ifdef USE_BVH
-    _bvh.init(params, BVH<3>::Layout(n, 8, 4), position_buff, bounds_buff);
-    _renderer.init(_bvh, bounds_buff);
-#endif
+    glm::uvec3 dispatch(1);
 
+    // Generate buffer objects
+    glCreateBuffers(_buffers.size(), _buffers.data());
+    glNamedBufferStorage(_buffers(BufferType::eFlagHead), 3 * sizeof(uint), glm::value_ptr(dispatch), 0);
+    glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), glm::value_ptr(dispatch), 0);
+
+    if (_useBvh) {
+      _bvh.init(params, BVH<3>::Layout(n, 8, 4), position_buff, bounds_buff);
+      _renderer.init(_bvh, bounds_buff);
+    }
+
+    INIT_TIMERS()
+    ASSERT_GL("Field3dCompute::init()");
     _isInit = true;
   }
 
   void Field3dCompute::destr() {
-    DSTR_TIMERS()
-#ifdef USE_BVH
+    if (_useBvh) {
     _renderer.destr();
     _bvh.destr();
-#endif
+    }
+    glDeleteBuffers(_buffers.size(), _buffers.data());
     glDeleteTextures(_textures.size(), _textures.data());
     glDeleteFramebuffers(1, &_frbo_grid);
     glDeleteVertexArrays(1, &_vrao_point);
     for (auto& program : _programs) {
       program.destroy();
     }
+    DSTR_TIMERS();
+    ASSERT_GL("Field3dCompute::destr()");
     _isInit = false;
   }
 
@@ -177,6 +201,12 @@ namespace hdi::dr {
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32UI, _dims.x, _dims.y, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, nullptr);
       glBindTexture(GL_TEXTURE_3D, _textures(TextureType::eField));
       glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _dims.x, _dims.y, _dims.z, 0, GL_RGBA, GL_FLOAT, nullptr);
+      glNamedBufferData(_buffers(BufferType::eFlag), sizeof(uvec) * _dims.x * _dims.y * _dims.z, nullptr, GL_STREAM_READ);
+    }
+
+    // Compute BVH structure over embedding
+    if (_useBvh) {
+      _bvh.compute(_rebuildBvhOnIter, iteration, position_buff, bounds_buff);
     }
 
     // Compute grid texture
@@ -213,12 +243,53 @@ namespace hdi::dr {
       glDisable(GL_COLOR_LOGIC_OP);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       
+      ASSERT_GL("Fiel3dCompute::compute::grid()");
       TOCK_TIMER(TIMR_GRID)
     }
 
-#ifdef USE_BVH
-    _bvh.compute(_rebuildBvhOnIter, iteration, position_buff, bounds_buff);
+    {
+      TICK_TIMER(TIMR_FLAGS);
+
+      // Push pixels which are not empty in the grid on a work queue
+      { 
+        // Reset queue head
+        glClearNamedBufferSubData(_buffers(BufferType::eFlagHead),
+          GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+
+        auto &program = _programs(ProgramType::eFlag);
+        program.bind();
+        program.uniform1ui("gridDepth", std::min(128u, _dims.z));
+        program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
+        program.uniform1i("gridSampler", 0);
+
+        glBindTextureUnit(0, _textures(TextureType::eGrid));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eFlag));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eFlagHead));
+
+        glDispatchCompute(ceilDiv(_dims.x, 8u), ceilDiv(_dims.y, 4u),  ceilDiv(_dims.z, 4u));
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      } 
+
+      // Divide work queue head by block size
+      // Don't do this for normal field computation, it uses a full block per pixel
+      if (_useBvh) {
+        auto &program = _programs(ProgramType::eDivideDispatch);
+        program.bind();
+#ifdef USE_WIDE_BVH
+        program.uniform1ui("div", 256 / _bvh.layout().nodeFanout);
+#else
+        program.uniform1ui("div", 256);
 #endif
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eFlagHead));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
+
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      }
+
+      ASSERT_GL("Fiel3dCompute::compute::flags()");
+      TOCK_TIMER(TIMR_FLAGS);
+    }
 
     // Compute fields 3D texture through O(px n) reduction
     {
@@ -226,53 +297,46 @@ namespace hdi::dr {
 
       auto &program = _programs(ProgramType::eField);
       program.bind();
-
-#ifdef USE_BVH
-      // Query bvh for layout and buffer object handles
-      const auto layout = _bvh.layout();
-      const auto buffers = _bvh.buffers();
-
-      // Bind buffers
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.pos);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, buffers.node1);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bounds_buff);
-
-      // Bind textures and images
-      glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-      glBindTextureUnit(0, _textures(TextureType::eGrid));
-
-      // Set uniforms
-      program.uniform1ui("nPos", layout.nPos);
-      program.uniform1ui("nLvls", layout.nLvls);
-      program.uniform1ui("kNode", layout.nodeFanout);
-      program.uniform1ui("kLeaf", layout.leafFanout);
-      program.uniform1ui("gridDepth", std::min(128u, _dims.z));
-      program.uniform1f("theta", .5f); // TODO extract and make program parameter
       program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
 
-      // Dispatch compute shader
-      glDispatchCompute(ceilDiv(_dims.x, 4u), ceilDiv(_dims.y, 4u), ceilDiv(_dims.z, 4u));
-      glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-
-#else
-      // Bind textures, images and buffers
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
-      glBindTextureUnit(0, _textures(TextureType::eGrid));
+      // Bind output image
       glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-      // Set uniforms
-      program.uniform1ui("num_points", n);
-      program.uniform1ui("grid_depth", std::min(128u, _dims.z));
-      program.uniform3ui("texture_size", _dims.x, _dims.y, _dims.z);
-      program.uniform1i("grid_texture", 0);
+      if (_useBvh) {
+        // Query bvh for layout and buffer object handles
+        const auto layout = _bvh.layout();
+        const auto buffers = _bvh.buffers();
 
-      // Dispatch compute shader
-      glDispatchCompute(_dims.x, _dims.y, 2);
+        // Bind buffers
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.node1);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, buffers.pos);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bounds_buff);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eFlag));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eFlagHead));
+
+        // Set uniforms
+        program.uniform1ui("nPos", layout.nPos);
+        program.uniform1ui("nLvls", layout.nLvls);
+        program.uniform1ui("kNode", layout.nodeFanout);
+        program.uniform1ui("kLeaf", layout.leafFanout);
+        program.uniform1f("theta2", _params._theta * _params._theta); // TODO extract and make program parameter
+
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
+      } else {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, position_buff);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bounds_buff);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eFlag));
+        program.uniform1ui("nPoints", n);
+
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eFlagHead));
+      }
+
+      // Dispatch compute shader based on Buffertype::eDispatch or BufferType::eFlagHead
+      glDispatchComputeIndirect(0);
       glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-#endif
       
+      ASSERT_GL("Field3dCompute::compute::field()");
       TOCK_TIMER(TIMR_FIELD)
     }
 
@@ -296,35 +360,36 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(n, 128u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
+      ASSERT_GL("Field3dCompute::compute::interp()");
       TOCK_TIMER(TIMR_INTERP)
     }
     
     // Update timers, log values on final iteration
     POLL_TIMERS()
+    // LOG_TIMER(_logger, TIMR_FIELD, "  Field");
     if (iteration >= _params._iterations - 1) {
       utils::secureLog(_logger, "\nField computation");
-      LOG_TIMER(_logger, TIMR_GRID, "  Grid")
-      LOG_TIMER(_logger, TIMR_FIELD, "  Field")
-      LOG_TIMER(_logger, TIMR_INTERP, "  Interp")
+      LOG_TIMER(_logger, TIMR_GRID, "  Grid");
+      LOG_TIMER(_logger, TIMR_FLAGS, "  Flags");
+      LOG_TIMER(_logger, TIMR_FIELD, "  Field");
+      LOG_TIMER(_logger, TIMR_INTERP, "  Interp");
     }
     
-#ifdef USE_BVH
-    // _rebuildBvhOnIter = true;
     // Rebuild BVH once field computation time diverges from the last one by a certain degree
-    /* const uint maxIters = 6;
-    const double threshold = 0.01;// 0.0075; // how the @#@$@ do I determine this well
-    if (_rebuildBvhOnIter && _iteration >= _params._remove_exaggeration_iter) {
-      _lastRebuildTime = glTimers[TIMR_FIELD].lastMicros();
-      _nRebuildIters = 0;
-      _rebuildBvhOnIter = false;
-    } else if (_lastRebuildTime > 0.0) {
-      const double difference = std::abs(glTimers[TIMR_FIELD].lastMicros() - _lastRebuildTime) 
-                              / _lastRebuildTime;
-      if (difference >= threshold || ++_nRebuildIters >= maxIters) {
-        _rebuildBvhOnIter = true;
-      }
-    } */
-    _rebuildBvhOnIter = true;
-#endif
+    if (_useBvh) {
+      // const uint maxIters = 6;
+      // const double threshold = 0.005;// 0.0075; // how the @#@$@ do I determine this well
+      // if (_rebuildBvhOnIter && iteration >= _params._remove_exaggeration_iter) {
+      //   _lastRebuildTime = glTimers[TIMR_FIELD].lastMicros();
+      //   _nRebuildIters = 0;
+      //   _rebuildBvhOnIter = false;
+      // } else if (_lastRebuildTime > 0.0) {
+      //   const double difference = std::abs(glTimers[TIMR_FIELD].lastMicros() - _lastRebuildTime) 
+      //                           / _lastRebuildTime;
+      //   if (difference >= threshold || ++_nRebuildIters >= maxIters) {
+      //     _rebuildBvhOnIter = true;
+      //   }
+      // }
+    }
   }
 }

@@ -30,8 +30,6 @@
 
 #pragma once
 
-#define USE_BVH // Use BVH for px log n field computations
-
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
@@ -39,9 +37,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
-#ifdef USE_BVH
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
-#endif
 
 namespace hdi::dr {
   class Field2dCompute {
@@ -69,9 +65,7 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-#ifdef USE_BVH
       _bvh.setLogger(logger);
-#endif
     }
 
   private:
@@ -100,13 +94,12 @@ namespace hdi::dr {
     TsneParameters _params;
     utils::AbstractLog* _logger;
 
-#ifdef USE_BVH
-    BVH<2> _bvh;
     // dbg::BvhRenderer _renderer;
+    bool _useBvh;
+    BVH<2> _bvh;
     bool _rebuildBvhOnIter;
     uint _nRebuildIters;
     double _lastRebuildTime;
-#endif
 
     // Query timers matching to each shader
     DECL_TIMERS(

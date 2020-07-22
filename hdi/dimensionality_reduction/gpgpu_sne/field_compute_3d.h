@@ -30,8 +30,6 @@
 
 #pragma once
 
-#define USE_BVH // Use BVH for px log n field computations
-
 #include <array>
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
@@ -39,10 +37,8 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
-#ifdef USE_BVH
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
 #include "hdi/debug/renderer/bvh.hpp" 
-#endif
 
 namespace hdi::dr {
   class Field3dCompute {
@@ -70,17 +66,25 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-#ifdef USE_BVH
       _bvh.setLogger(logger);
-#endif
     }
 
   private:
     bool _isInit;
     uvec _dims;
 
+    enum class BufferType {
+      eFlag,
+      eFlagHead,
+      eDispatch,
+
+      Length
+    };
+
     enum class ProgramType {
       eGrid,
+      eFlag,
+      eDivideDispatch,
       eField,
       eInterp,
 
@@ -95,6 +99,7 @@ namespace hdi::dr {
       Length 
     };
 
+    EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
     EnumArray<TextureType, GLuint> _textures;
     std::array<uint32_t, 4 * 128> _cellData;
@@ -103,17 +108,17 @@ namespace hdi::dr {
     TsneParameters _params;
     utils::AbstractLog* _logger;
 
-#ifdef USE_BVH
+    bool _useBvh;
     BVH<3> _bvh;
     dbg::BvhRenderer _renderer;
     bool _rebuildBvhOnIter;
     uint _nRebuildIters;
     double _lastRebuildTime;
-#endif
     
     // Query timers matching to each shader
     DECL_TIMERS(
       TIMR_GRID, 
+      TIMR_FLAGS,
       TIMR_FIELD, 
       TIMR_INTERP
     )
