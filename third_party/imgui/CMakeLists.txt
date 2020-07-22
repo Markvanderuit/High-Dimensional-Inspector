@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.10)
 
-add_library (imgui
+add_library(imgui
   src/imgui.cpp
   src/imgui_draw.cpp
   src/imgui_widgets.cpp
