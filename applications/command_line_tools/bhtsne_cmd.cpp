@@ -90,7 +90,7 @@ void parseCli(int argc, char* argv[]) {
     ("d,dimensions", "target embedding dimensions", cxxopts::value<int>())
     ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<int>())
     ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
-    ("t,theta", "BH-approximation theta", cxxopts::value<float>())
+    ("t,theta", "BH-approximation angle", cxxopts::value<float>())
     ("h,help", "Print help and exit")
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
     ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
@@ -184,6 +184,7 @@ int main(int argc, char *argv[]) {
     tsne_params._perplexity = static_cast<double>(perplexity);
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
+    tsne_params._theta = theta;
 
     // Load the input data
     {
@@ -217,7 +218,6 @@ int main(int argc, char *argv[]) {
 
     // Init used T-SNE algorithm
     hdi::utils::secureLog(&log, "Initializing t-SNE...");
-    bhTSNE.setTheta(theta);
     bhTSNE.initialize(distributions, &embedding, tsne_params);
     
     // Perform minimization

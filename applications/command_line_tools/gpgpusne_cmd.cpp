@@ -63,10 +63,12 @@ unsigned num_dimensions;
 int iterations = 1000;
 int exaggeration_iter = 250;
 int perplexity = 30;
+float theta = 0.5;
 unsigned embedding_dimensions = 2;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doVisualisation = false;
+bool doLabelExtraction = false;
 
 // Timer values
 float data_loading_time = 0.f;
@@ -76,29 +78,36 @@ float kl_divergence_comp_time = 0.f;
 float nnp_comp_time = 0.f;
 float data_saving_time = 0.f;
 
-void loadData(hdi::data::PanelData<scalar_type>& panel_data, std::string filename_data, unsigned int num_points, unsigned int num_dims) {
+void loadData(hdi::data::PanelData<scalar_type>& panelData, 
+              std::vector<unsigned> &labelData, 
+              std::string filename_data, 
+              unsigned int num_points, 
+              unsigned int num_dims) 
+{
   std::ifstream file_data(filename_data, std::ios::in | std::ios::binary);
   if (!file_data.is_open()) {
     throw std::runtime_error("data file cannot be found");
   }
 
-  panel_data.clear();
+  panelData.clear();
   for (size_t j = 0; j < num_dims; ++j) {
-    panel_data.addDimension(std::make_shared<hdi::data::EmptyData>());
+    panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
   }
-  panel_data.initialize();
+  panelData.initialize();
 
+  if (doLabelExtraction) {
+    labelData.resize(num_points);
+  }
+
+  std::vector<scalar_type> buffer(num_dims);
   for (size_t j = 0; j < num_points; ++j) {
-    std::vector<scalar_type> input_data(num_dims);
-    // unsigned label = 0u;
-    // file_data.read((char *) &label, 1);
-    // std::cout << label << std::endl;
-    for (size_t i = 0; i < num_dims; ++i) {
-      unsigned appo = 0u;
-      file_data.read((char *) &appo, 4);
-      input_data[i] = scalar_type(appo);
+    // Read 4-byte label if label extraction is required
+    if (doLabelExtraction) {
+      file_data.read((char *) &labelData[j], sizeof(uint));
     }
-    panel_data.addDataPoint(std::make_shared<hdi::data::EmptyData>(), input_data);
+    // Read 4-byte point data for entire row
+    file_data.read((char *) buffer.data(), sizeof(float) * buffer.size());
+    panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
   }
 }
 
@@ -115,7 +124,9 @@ void parseCli(int argc, char* argv[]) {
     ("d,dimensions", "target embedding dimensions", cxxopts::value<int>())
     ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<int>())
     ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
+    ("t,theta", "BH-approximation angle", cxxopts::value<float>())
     ("h,help", "Print help and exit")
+    ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ("vis", "Run the OpenGL visualization", cxxopts::value<bool>())
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
     ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
@@ -152,6 +163,9 @@ void parseCli(int argc, char* argv[]) {
   if (result.count("dimensions")) {
     embedding_dimensions = result["dimensions"].as<int>();
   }
+  if (result.count("theta")) {
+    theta = result["theta"].as<float>();
+  }
   if (result.count("kld")) {
     doKlDivergence = result["kld"].as<bool>();
   }
@@ -160,6 +174,9 @@ void parseCli(int argc, char* argv[]) {
   }
   if (result.count("vis")) {
     doVisualisation = result["vis"].as<bool>();
+  }
+  if (result.count("lbl")) {
+    doLabelExtraction = result["lbl"].as<bool>();
   }
 }
 
@@ -173,7 +190,8 @@ int main(int argc, char *argv[]) {
     hdi::dr::HDJointProbabilityGenerator<scalar_type>::Parameters prob_gen_param;
     hdi::dr::TsneParameters tsne_params;
     hdi::data::Embedding<scalar_type> embedding;
-    hdi::data::PanelData<scalar_type> panel_data;
+    hdi::data::PanelData<scalar_type> panelData;
+    std::vector<unsigned> labelData;
 
     // Set tsne parameters
     tsne_params._seed = 1;
@@ -182,12 +200,13 @@ int main(int argc, char *argv[]) {
     tsne_params._iterations = iterations;
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
+    tsne_params._theta = theta;
 
     // Load the input data
     {
       hdi::utils::secureLog(&log, "Loading original data...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
-      loadData(panel_data, inputFileName, num_data_points, num_dimensions);
+      loadData(panelData, labelData, inputFileName, num_data_points, num_dimensions);
     }
 
     // Compute probability distribution or load from file if it is cached
@@ -209,9 +228,9 @@ int main(int argc, char *argv[]) {
       // Compute joint probability distribution
       prob_gen.setLogger(&log);
       prob_gen_param._perplexity = perplexity;
-      prob_gen.computeJointProbabilityDistribution(panel_data.getData().data(),
-                                                   panel_data.numDimensions(),
-                                                   panel_data.numDataPoints(),
+      prob_gen.computeJointProbabilityDistribution(panelData.getData().data(),
+                                                   panelData.numDimensions(),
+                                                   panelData.numDataPoints(),
                                                    distributions,
                                                    prob_gen_param);
       
@@ -224,13 +243,12 @@ int main(int argc, char *argv[]) {
     hdi::dbg::Window window;
     if (doVisualisation) {
       hdi::dbg::WindowInfo windowInfo;
-      windowInfo.flags =
-                         hdi::dbg::WindowInfo::bDecorated
+      windowInfo.flags = hdi::dbg::WindowInfo::bDecorated
                        | hdi::dbg::WindowInfo::bSRGB 
                        | hdi::dbg::WindowInfo::bFocused
                        | hdi::dbg::WindowInfo::bResizable;
-      windowInfo.width = 1920;
-      windowInfo.height = 1920;
+      windowInfo.width = 1024;
+      windowInfo.height = 1024;
       windowInfo.title = "GPGPU T-SNE";
       window = hdi::dbg::Window(windowInfo);
     } else {
@@ -238,7 +256,7 @@ int main(int argc, char *argv[]) {
     }
     window.enableVsync(false);
     hdi::dbg::InputManager inputManager(window);
-    hdi::dbg::RenderManager renderManager(embedding_dimensions);
+    hdi::dbg::RenderManager renderManager(embedding_dimensions, labelData);
 
     // Init T-SNE algorithm and perform minimization
     hdi::dr::GradientDescentTSNE tSNE;
@@ -292,7 +310,7 @@ int main(int argc, char *argv[]) {
       unsigned K = 30;
       std::vector<unsigned> points(num_data_points);
       std::iota(points.begin(), points.end(), 0);
-      hdi::dr::computePrecisionRecall(panel_data, embedding, points, precision, recall, K);
+      hdi::dr::computePrecisionRecall(panelData, embedding, points, precision, recall, K);
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
