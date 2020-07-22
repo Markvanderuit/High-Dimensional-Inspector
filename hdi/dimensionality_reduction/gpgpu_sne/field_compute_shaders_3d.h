@@ -67,94 +67,119 @@ GLSL(grid_fragment_src, 450,
   }
 );
 
+GLSL(grid_flag_src, 450,
+  layout(local_size_x = 8, local_size_y = 4, local_size_z = 4) in;
+  
+  layout(binding = 0, std430) restrict writeonly buffer Queue { uvec3 queueBuffer[]; };
+  layout(binding = 1, std430) restrict coherent buffer QHead { uint queueHead; }; 
+
+  layout(location = 0) uniform uint gridDepth;
+  layout(location = 1) uniform uvec3 textureSize;
+  layout(location = 2) uniform usampler2D gridSampler;
+  
+  void main() {
+    // Check that invocation is inside field texture
+    const uvec3 i = gl_WorkGroupID.xyz * gl_WorkGroupSize.xyz + gl_LocalInvocationID.xyz;
+    if (min(i, textureSize - 1) != i) {
+      return;
+    }
+
+    // Compute pixel position in [0, 1]
+    vec3 pos = (vec3(i) + 0.5) / vec3(textureSize);
+
+    // Read voxel grid
+    uvec4 gridValue = texture(gridSampler, pos.xy);
+    int z = int(pos.z * gridDepth);
+
+    // Push pixel on queue if not to be skipped
+    if (bitfieldExtract(gridValue[z / 32], 31 - (z % 32) , 1) > 0) {
+      queueBuffer[atomicAdd(queueHead, 1)] = i;
+    }
+  }
+);
+
+GLSL(divide_dispatch_src, 450,
+  layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+  layout(binding = 0, std430) restrict readonly buffer Value { uint value; };
+  layout(binding = 1, std430) restrict writeonly buffer Disp { uvec3 dispatch; };
+  layout(location = 0) uniform uint div;
+
+  void main() {
+    dispatch = uvec3((value + div - 1) / div, 1, 1);
+  }
+);
+
 GLSL(field_src, 450,
-  layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-  layout(binding = 0, std430) buffer PosInterface { vec3 Positions[]; };
-  layout(binding = 1, std430) buffer BoundsInterface { 
-    vec3 minBounds;
-    vec3 maxBounds;
+  // Wrapper structure for Bounds data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
     vec3 range;
     vec3 invRange;
   };
-  layout(binding = 0, rgba32f) writeonly uniform image3D fields_texture;
-  layout(location = 0) uniform uint num_points;
-  layout(location = 1) uniform uint grid_depth;
-  layout(location = 2) uniform uvec3 texture_size;
-  layout(location = 3) uniform usampler2D grid_texture;
 
-  // Reduction components
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+  // Buffer object bindings
+  layout(binding = 0, std430) restrict readonly buffer Posit { vec3 posBuffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 2, std430) restrict readonly buffer Queue { uvec3 queueBuffer[]; };
+  layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
+
+  // Uniform locations
+  layout(location = 0) uniform uint nPoints;
+  layout(location = 1) uniform uvec3 textureSize;
+
+  // Shared memory for reduction
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = groupSize / 2;
   shared vec4 reductionArray[halfGroupSize];
+  
+  // Shared memory for pixel position
+  shared uvec3 px;
 
   void main() {
-    // Location of current workgroup
-    ivec2 xyFixed = ivec2(gl_WorkGroupID.xy);
-    vec2 xyUnfixed = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size.xy);
-    uint lid = gl_LocalInvocationIndex.x;
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = gl_WorkGroupID.x;
+    const uint li = gl_LocalInvocationID.x;
+    if (li == 0) {
+      px = queueBuffer[i];
+    }
+    barrier();
 
-    // Query grid map for entire z axis
-    // Skip all pixels if empty
-    uvec4 gridVec;
-    if ((gridVec = texture(grid_texture, xyUnfixed)) == uvec4(0)) {
-      uint z = gl_WorkGroupID.z * gl_WorkGroupSize.z + lid;
-      if (z < texture_size.z) {
-        imageStore(fields_texture, ivec3(xyFixed, z), vec4(0));
-      }
-      return;
+    // Compute pixel position in [0, 1]
+    // Then map pixel position to domain bounds
+    vec3 pos = (vec3(px) + 0.5) / vec3(textureSize);
+    pos = pos * bounds.range + bounds.min;
+
+    // Iterate over points to obtain density/gradient field values
+    vec4 field = vec4(0);
+    for (uint j = li; j < nPoints; j += groupSize) {
+      // Field layout is: S, V.x, V.y, V.z
+      vec3 t = pos - posBuffer[j];
+      float tStud = 1.f / (1.f + dot(t, t));
+      field += vec4(tStud, t * (tStud * tStud));
     }
     
-    // Workgroups stride over z-dimension
-    for (uint z = gl_WorkGroupID.z; 
-          z < texture_size.z; 
-          z += gl_NumWorkGroups.z) {
-      // Map xyz to [0, 1]
-      ivec3 xyzFixed = ivec3(xyFixed, z);
-      vec3 domain_pos = (vec3(xyzFixed) + vec3(0.5)) / vec3(texture_size);
-
-      // Query grid map sample or skip pixel
-      int _z = int(domain_pos.z * grid_depth);
-      if (bitfieldExtract(gridVec[_z / 32], 31 - (_z % 32) , 1) == 0) {
-        if (lid < 1) {
-          imageStore(fields_texture, xyzFixed, vec4(0));
-        }
-        continue;
-      }
-
-      // Map to domain bounds
-      domain_pos = domain_pos * range + minBounds;
-
-      // Iterate over points to obtain density/gradient
-      vec4 v = vec4(0);
-      for (uint i = lid; i < num_points; i += groupSize) {
-        vec3 t = domain_pos - Positions[i];
-        float t_stud = 1.f / (1.f + dot(t, t));
-        vec3 t_stud_2 = t * (t_stud * t_stud);
-
-        // Field layout is: S, V.x, V.y, V.z
-        v += vec4(t_stud, t_stud_2);
-      }
-      
-      // Perform reduce add over all computed points for this pixel
-      if (lid >= halfGroupSize) {
-        reductionArray[lid - halfGroupSize] = v;
-      }
+    // Perform reduce add over all computed points for this pixel
+    if (li >= halfGroupSize) {
+      reductionArray[li - halfGroupSize] = field;
+    }
+    barrier();
+    if (li < halfGroupSize) {
+      reductionArray[li] += field;
+    }
+    for (uint j = halfGroupSize / 2; j > 1; j /= 2) {
       barrier();
-      if (lid < halfGroupSize) {
-        reductionArray[lid] += v;
+      if (li < j) {
+        reductionArray[li] += reductionArray[li + j];
       }
-      for (uint i = halfGroupSize / 2; i > 1; i /= 2) {
-        barrier();
-        if (lid < i) {
-          reductionArray[lid] += reductionArray[lid + i];
-        }
-      }
-      barrier();
-      if (lid < 1) {
-        vec4 reducedArray = reductionArray[0] + reductionArray[1];
-        imageStore(fields_texture, xyzFixed, reducedArray);
-      }
-      barrier();
+    }
+    barrier();
+
+    if (li == 0) {
+      vec4 reducedArray = reductionArray[0] + reductionArray[1];
+      imageStore(fieldImage, ivec3(px), reducedArray);
     }
   }
 );
@@ -168,31 +193,31 @@ GLSL(field_bvh_src, 450,
     vec3 invRange;
   };
 
-  layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
   
-  layout(binding = 0, std430) restrict readonly buffer NodeBuffer { vec4 nodeBuffer[]; };
-  layout(binding = 1, std430) restrict readonly buffer PosBuffer { vec3 posBuffer[]; };
-  layout(binding = 2, std430) restrict readonly buffer DiamBuffer { vec4 diamBuffer[]; };
-  layout(binding = 3, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+  // Buffer, sampler and image bindings
+  layout(binding = 0, std430) restrict readonly buffer Node0 { vec4 node0Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer Node1 { vec4 node1Buffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer Posit { vec3 posBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 4, std430) restrict readonly buffer Queue { uvec3 queueBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; }; 
   layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
-  layout(binding = 0) uniform usampler2D gridSampler;
 
-  layout(location = 0) uniform uint nPos;     // nr of points
-  layout(location = 1) uniform uint kNode;    // Node fanout
-  layout(location = 2) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 3) uniform uint kLeaf;    // Leaf fanout
-  layout(location = 4) uniform uint gridDepth;
-  layout(location = 5) uniform float theta;   // Approximation param
-  layout(location = 6) uniform uvec3 textureSize;
+  // Uniforms
+  layout(location = 0) uniform uint nPos;      // nr of points
+  layout(location = 1) uniform uint nLvls;     // Nr of tree levels
+  layout(location = 2) uniform uint kNode;     // Node fanout
+  layout(location = 3) uniform uint kLeaf;     // Leaf fanout
+  layout(location = 4) uniform float theta2;   // Squared approximation param
+  layout(location = 5) uniform uvec3 textureSize;
 
-  // Constants
+  // Fun stuff for fast modulo and division and stuff
   const uint logk = uint(log2(kNode));
   const uint bitmask = ~((~0u) << logk);
-  const float theta2 = theta * theta;
 
-  // Traversal local memory
-  // We start a level lower, as the root node will never approximate
-  uint lvl = 1u;
+  // Traversal data
+  uint lvl = 1u; // We start a level lower, as the root node will probably never approximate
   uint loc = 1u;
   uint stack = 1u | (bitmask << (logk * lvl));
 
@@ -226,19 +251,19 @@ GLSL(field_bvh_src, 450,
     stack |= b << shift;
   }
 
-  bool approx(vec3 domainPos, inout vec4 fieldValue) {
-    // Fetch packed node data
-    const vec4 vNode = nodeBuffer[loc];
-    const vec4 vDiam = diamBuffer[loc];
+  bool approx(vec3 pos, inout vec4 field) {
+    // Fetch node data for each invoc
+    const vec4 node0 = node0Buffer[loc];
+    const vec4 node1 = node1Buffer[loc];
 
     // Unpack node data
-    const vec3 center = vNode.xyz;
-    const uint mass = uint(vNode.w);
-    const vec3 diam = vDiam.xyz;
-    const uint begin = uint(vDiam.w);
+    const vec3 center = node0.xyz;
+    const uint mass = uint(node0.w);
+    const vec3 diam = node1.xyz;
+    const uint begin = uint(node1.w);
 
     // Squared distance to pos
-    vec3 t = domainPos - center;
+    vec3 t = pos - center;
     float t2 = dot(t, t);
 
     // Compute squared diameter
@@ -248,66 +273,211 @@ GLSL(field_bvh_src, 450,
     if (dot(c, c) / t2 < theta2) {
       // If BH-approximation passes, compute approximated value
       float tStud = 1.f / (1.f + t2);
-
-      // Field layout is: S, V.x, V.y, V.z
-      fieldValue += mass * vec4(tStud, t * (tStud * tStud));
-
+      field += mass * vec4(tStud, t * (tStud * tStud));
       return true;
     } else if (mass <= kLeaf || lvl == nLvls - 1) {
       // Iterate over all leaf points (there goes thread divergence)
       for (uint i = begin; i < begin + mass; ++i) {
-        t = domainPos - posBuffer[i];
+        vec3 t = pos - posBuffer[i];
         float tStud = 1.f / (1.f +  dot(t, t));
-
-        // Field layout is: S, V.x, V.y, V.z
-        fieldValue += vec4(tStud, t * (tStud * tStud));
+        field += vec4(tStud, t * (tStud * tStud));
        }
       return true;
     }
     return false;
   }
 
-  vec4 traverse(vec3 domainPos) {
-    vec4 fieldValue = vec4(0);
+  vec4 traverse(vec3 pos) {
+    vec4 field = vec4(0);
 
     do {
-      if (approx(domainPos, fieldValue)) {
+      if (approx(pos, field)) {
         ascend();
       } else {
         descend();
       }
     } while (lvl > 0u);
 
-    return fieldValue;
+    return field;
   }
 
   void main() {
-    // Invocation ID
-    const uvec3 globalIdx = gl_WorkGroupID.xyz
-                          * gl_WorkGroupSize.xyz
-                          + gl_LocalInvocationID.xyz;
-                   
-    // Check that invocation is inside field texture
-    if (min(globalIdx, textureSize - 1) != globalIdx) {
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    if (i >= queueHead) {
       return;
     }
+    const uvec3 px = queueBuffer[i];
 
     // Compute pixel position in [0, 1]
-    vec3 domainPos = (vec3(globalIdx) + 0.5) / vec3(textureSize);
-
-    // Read voxel grid to skip empty pixels
-    uvec4 gridValue = texture(gridSampler, domainPos.xy);
-    int z = int(domainPos.z * gridDepth);
-    if (bitfieldExtract(gridValue[z / 32], 31 - (z % 32) , 1) == 0) {
-      return;
-    }
-
-    // Map pixel position to domain bounds
-    domainPos = domainPos * bounds.range + bounds.min;
+    // Then map pixel position to domain bounds
+    vec3 pos = (vec3(px) + 0.5) / vec3(textureSize);
+    pos = pos * bounds.range + bounds.min;
 
     // Traverse tree and store result
-    vec4 v = traverse(domainPos);
-    imageStore(fieldImage, ivec3(globalIdx), v);
+    imageStore(fieldImage, ivec3(px), traverse(pos));
+  }
+);
+
+GLSL(field_bvh_wide_src, 450,
+  #extension GL_KHR_shader_subgroup_clustered : require\n
+
+  // Wrapper structure for bounds data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
+    vec3 range;
+    vec3 invRange;
+  };
+
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+  
+  // Buffer, sampler and image bindings
+  layout(binding = 0, std430) restrict readonly buffer Node0 { vec4 node0Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer Node1 { vec4 node1Buffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer Posit { vec3 posBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 4, std430) restrict readonly buffer Queue { uvec3 queueBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; }; 
+  layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
+
+  // Uniforms
+  layout(location = 0) uniform uint nPos;      // nr of points
+  layout(location = 1) uniform uint nLvls;     // Nr of tree levels
+  layout(location = 2) uniform uint kNode;     // Node fanout
+  layout(location = 3) uniform uint kLeaf;     // Leaf fanout
+  layout(location = 5) uniform float theta2;   // Squared approximation param
+  layout(location = 6) uniform uvec3 textureSize;
+
+  // Fun stuff for fast modulo and division in our binary cases
+  const uint logk = uint(log2(kNode));
+  const uint logKQueue = uint(log2(32 >> logk));
+  const uint kNodeMod = bitfieldInsert(0, ~0, 0, int(logk));
+  const uint kQueueMod = bitfieldInsert(0, ~0, 0, int(logKQueue));
+
+  // Traversal constants
+  const uint thread = gl_LocalInvocationID.x & kNodeMod;
+  const uint mask = bitfieldInsert(0, ~0, 0, int(kNode));
+
+  // Traversal data
+  uint queue[6]; // oops, hardcoded queue size :(
+  uint lvl = 1u; // We start a level lower, as the root node will never approximate
+  uint loc = 1u;
+
+  // Read kNode bits from the current queue head
+  uint readQueue() {
+    const uint shift = (lvl & kQueueMod) << logk;
+    return mask & (queue[lvl >> logKQueue] >> shift);
+  }
+
+  // Bitwise OR kNode bits on the current queue head
+  void orQueue(in uint v) {
+    const uint shift = (lvl & kQueueMod) << logk;
+    queue[lvl >> logKQueue] |= v << shift;
+  }
+
+  // Bitwise AND kNode bits on the current queue head
+  void andQueue(in uint v) {
+    const uint shift = (lvl & kQueueMod) << logk;
+    queue[lvl >> logKQueue] &= (v << shift) | (~0 ^ (mask << shift)); // ouch
+  }
+
+  // Bitwise OR kNode bits on the current queue head between a cluster 
+  // of kNode invocations 
+  void clusterQueue() {
+    const uint i = lvl >> logKQueue;
+    queue[i] = subgroupClusteredOr(queue[i], kNode);
+  }
+
+  void computeField(in vec3 pos, inout vec4 field) {
+    // Fetch node data for each invoc
+    const vec4 node0 = node0Buffer[loc + thread];
+    const vec4 node1 = node1Buffer[loc + thread];
+
+    // Unpack node data
+    const vec3 center = node0.xyz;
+    const uint mass = uint(node0.w);
+    const vec3 diam = node1.xyz;
+    const uint begin = uint(node1.w);
+
+    // Compute squared distance between node and position
+    vec3 t = pos - center;
+    float t2 = dot(t, t);
+
+    // Compute squared diameter, adjusted for viewing angle
+    const vec3 b = abs(normalize(t)) * vec3(-1, -1, 1);
+    const vec3 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
+    
+    if (dot(c, c) / t2 < theta2) {
+      // If BH-approximation passes, compute approximated value
+      float tStud = 1.f / (1.f + t2);
+      field += mass * vec4(tStud, t * (tStud * tStud));
+    } else if (mass <= kLeaf || lvl == nLvls - 1) {
+      // Iterate over all leaf points (there goes thread divergence)
+      for (uint i = begin; i < begin + mass; ++i) {
+        vec3 t = pos - posBuffer[i];
+        float tStud = 1.f / (1.f +  dot(t, t));
+        field += vec4(tStud, t * (tStud * tStud));
+      }
+    } else {
+      // Node must be subdivided, push flag on queue
+      orQueue(1u << thread);
+    }
+   
+    // Cluster queue values across subgroup
+    clusterQueue();
+  }
+
+  vec4 traverse(vec3 pos) {
+    // First tree level is always tested
+    vec4 field = vec4(0);
+    computeField(pos, field);
+
+    // Traverse tree until root node is reached
+    while (lvl != 0u) {
+      const uint head = readQueue();
+      if (head == 0u) {
+        // Move up tree one level
+        loc >>= logk;
+        lvl--;
+      } else {
+        // Pop next flagged node from queue head
+        const uint flag = findLSB(head);
+        andQueue(~(1u << flag));
+
+        // Move down tree one level at flagged node
+        loc = loc - ((loc - 1) & kNodeMod) + flag;
+        loc = (loc * kNode) + 1u;
+        lvl++;
+
+        // Test full fan-out on new tree level
+        computeField(pos, field);
+      }
+    }
+
+    return field;
+  }
+
+  void main() {
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
+                 / kNode; // Each pixel is worked on by kNode invocations
+    if (i >= queueHead) {
+      return;
+    }
+    const uvec3 px = queueBuffer[i];
+
+    // Compute pixel position in [0, 1]
+    // Then map pixel position to domain bounds
+    vec3 pos = (vec3(px) + 0.5) / vec3(textureSize);
+    pos = pos * bounds.range + bounds.min;
+
+    // Traverse tree, add together results from subgroup
+    // Only let first thread in subgroup store result
+    vec4 field = subgroupClusteredAdd(traverse(pos), kNode);
+    if (thread == 0u) {
+      imageStore(fieldImage, ivec3(px), field);
+    }
   }
 );
 
