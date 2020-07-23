@@ -1,27 +1,22 @@
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+cmake_minimum_required (VERSION 3.10)
 
-include_directories ("${CMAKE_SOURCE_DIR}")
-include_directories ("${CMAKE_CURRENT_BINARY_DIR}")
+file(GLOB headers 
+  *.hpp 
+)
 
-# Gather list of all .h files in "/"
-file(GLOB HeaderFiles *.h)
-file(GLOB QOBJHeaderFiles *_qobj.h)
-file(GLOB SourceFiles *.cpp)
-file(GLOB FormFiles *.ui)
-file(GLOB ResourceFiles *.qrc)
+file(GLOB sources 
+  *.cpp 
+)
 
-qt5_wrap_ui(UiHeaders ${FormFiles})
-qt5_wrap_cpp(MocSources ${QOBJHeaderFiles})
-qt5_add_resources(Resources ${ResourceFiles})
+add_library(hdiutils ${headers} ${sources})
+target_include_directories(hdiutils PUBLIC ${CMAKE_SOURCE_DIR})
+target_compile_features(hdiutils PUBLIC cxx_std_17)
+target_link_libraries (hdiutils
+  Qt5::Core     # AAAARGH
+  Qt5::Widgets  # NOOOOOO
+  roaring
+)
 
-add_library(hdiutils ${HeaderFiles} ${SourceFiles} ${UiHeaders} ${MocSources} ${Resources} )
-
-target_link_libraries (hdiutils Qt5::Core Qt5::Widgets roaring)
-if (UNIX)
-    target_link_libraries (hdiutils ${CMAKE_DL_LIBS}) # glad.cpp requires -ldl
-endif (UNIX)
-
-########### INSTALL ##############
-install (TARGETS hdiutils DESTINATION bin)
-install (FILES ${HeaderFiles} ${UiHeaders} DESTINATION include/hdi/utils)
+# ########### INSTALL ##############
+install(TARGETS hdiutils DESTINATION bin)
+install(FILES ${headers} DESTINATION include/hdi/utils)
