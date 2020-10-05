@@ -37,10 +37,21 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
-#include "hdi/debug/renderer/bvh.hpp" 
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
+#include "hdi/debug/renderer/field.hpp"
+#include "hdi/debug/renderer/point_bvh.hpp" 
+#include "hdi/debug/renderer/pixel_bvh.hpp" 
 
 namespace hdi::dr {
+  /**
+   * Field3dCompute
+   * 
+   * Class which computes the scalar and vector field components required for the tSNE 
+   * minimization fully on the GPU. Manages subclasses and subcomponents such as tree
+   * structures. Can perform full computation in O(p N) time, single tree approximation
+   * in O(p log N) time, dual tree approximation in O(log P log N) time.
+   */
   class Field3dCompute {
     typedef Bounds<3> Bounds;
     typedef glm::vec<3, float, glm::aligned_highp> vec;
@@ -56,37 +67,74 @@ namespace hdi::dr {
                     unsigned n);
     void destr();
     void compute(uvec dims, 
-                 float function_support, 
                  unsigned iteration, 
                  unsigned n,
                  GLuint position_buff, 
-                 GLuint bounds_buff, 
+                 GLuint bounds_buff,  
                  GLuint interp_buff,
                  Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-      _bvh.setLogger(logger);
+      _embeddingBvh.setLogger(logger);
+      _fieldBvh.setLogger(logger);
     }
 
   private:
-    bool _isInit;
-    uvec _dims;
-
     enum class BufferType {
-      eFlag,
-      eFlagHead,
       eDispatch,
+
+      // Queue + head for compact list of field pixels
+      ePixels,
+      ePixelsHead,
+      ePixelsHeadReadback,
+      
+      // Queue + head with default list of node pairs for start of hierarchy traversal
+      ePairsInit,
+      ePairsInitHead,
+      
+      // Queue + head for list of node pairs which form large leaves during traversal
+      ePairsLeaf,
+      ePairsLeafHead,
+
+      // Queues + heads for list of node pairs for iterative hierarchy traversal
+      ePairsInput,
+      ePairsOutput,
+      ePairsInputHead,
+      ePairsOutputHead,
+      ePairsInputHeadReadback,
+      ePairsOutputHeadReadback,
+
+      // Queue + head for list of node pairs for iterative hierarchy traversal
+      // at a certain levelm in the dual hierarchy, from which we can restart
+      ePairsCache,
+      ePairsCacheHead,
+      
+      // Queue + head for list of node pairs which were accepted as approximations
+      // in the top few levels of the dual hierarchy
+      ePairsApprox,
+      ePairsApproxHead,
 
       Length
     };
 
     enum class ProgramType {
       eGrid,
-      eFlag,
+      ePixels,
       eDivideDispatch,
-      eField,
       eInterp,
+      eField,
+
+      // Single tree programs
+      eFlagBvh,
+      eFieldBvh,
+
+      // Dual tree programs
+      eFieldDual,
+      eFieldDualDispatch,
+      eLeaf,
+      eIterate,
+      ePush,
 
       Length
     };
@@ -99,27 +147,70 @@ namespace hdi::dr {
       Length 
     };
 
-    EnumArray<BufferType, GLuint> _buffers;
-    EnumArray<ProgramType, ShaderProgram> _programs;
-    EnumArray<TextureType, GLuint> _textures;
-    std::array<uint32_t, 4 * 128> _cellData;
-    GLuint _vrao_point;
-    GLuint _frbo_grid;
+    bool _isInit;
+    uvec _dims;
     TsneParameters _params;
     utils::AbstractLog* _logger;
 
-    bool _useBvh;
-    BVH<3> _bvh;
-    dbg::BvhRenderer _renderer;
+    // BVH components
+    EmbeddingBVH<3> _embeddingBvh;
+    FieldBVH<3> _fieldBvh;
+
+    // Pretty much all buffer, program and texture handles
+    EnumArray<BufferType, GLuint> _buffers;
+    EnumArray<ProgramType, ShaderProgram> _programs;
+    EnumArray<TextureType, GLuint> _textures;
+    
+    // Subcomponents for the debug renderer
+    dbg::FieldRenderer<3> _fieldRenderer;
+    dbg::PointBVHRenderer _pointBVHRenderer;
+    dbg::PixelBVHRenderer<3> _pixelBVHRenderer;
+
+    // Misc
+    bool _useVoxelGrid;
+    bool _usePointBvh;
+    bool _usePixelBvh;
+    GLuint _voxelVao;
+    GLuint _voxelFbo;
     bool _rebuildBvhOnIter;
     uint _nRebuildIters;
     double _lastRebuildTime;
+    uint _startLvl;
+    size_t _pairsInitSize;
+    uint _rebuildDelayIters;
     
+  private:
+    // Functions called by Field3dCompute::compute()
+    void compactField(unsigned n,
+                      GLuint positionsBuffer, 
+                      GLuint boundsBuffer);
+    void computeField(unsigned n,
+                      unsigned iteration,
+                      GLuint positionsBuffer,
+                      GLuint boundsBuffer);
+    void computeFieldBvh(unsigned n,
+                         unsigned iteration,
+                         GLuint positionsBuffer,
+                         GLuint boundsBuffer);
+    void computeFieldDualBvh(unsigned n,
+                             unsigned iteration,
+                             GLuint positionsBuffer,
+                             GLuint boundsBuffer);
+    void computeFieldDualBvhPartial(unsigned n,
+                             unsigned iteration,
+                             GLuint positionsBuffer,
+                             GLuint boundsBuffer);
+    void queryField(unsigned n,
+                    GLuint positionsBuffer,
+                    GLuint boundsBuffer,
+                    GLuint interpBuffer);
+
+  private:
     // Query timers matching to each shader
     DECL_TIMERS(
-      TIMR_GRID, 
       TIMR_FLAGS,
       TIMR_FIELD, 
+      TIMR_PUSH,
       TIMR_INTERP
     )
   };
