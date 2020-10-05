@@ -41,12 +41,12 @@ genType ceilDiv(genType n, genType div) {
   return (n + div - 1) / div;
 }
 
-// Random magic numbers for the field resolution growth
+// Magic numbers for the field computation
 constexpr bool doAdaptiveResolution = true;
-constexpr unsigned minFieldSize = 5;// 64;          // 5 default
-constexpr unsigned fixedFieldSize = 40;             // 40 default
-constexpr float pixelRatio = 1.25f;                 // 2 in 2d, ~1.35 in 3d
-constexpr float boundsPadding = 0.1f;
+constexpr unsigned minFieldSize = 5;                // 5 is default
+constexpr unsigned fixedFieldSize = 40;             // 40 is default
+constexpr float pixelRatio = 1.4f;                  // 2.0 in 2d, < 1.35 in 3d seems to work fine
+constexpr float boundsPadding = 0.1f;               // Padding to forcedly grow embedding
 
 namespace hdi::dr {
   /**

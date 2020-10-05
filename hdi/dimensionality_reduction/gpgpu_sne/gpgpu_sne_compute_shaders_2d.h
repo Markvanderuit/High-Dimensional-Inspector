@@ -175,69 +175,68 @@ namespace hdi::dr::_2d {
   );
 
   SHADER_SRC(positive_forces_src, 450,
-    layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-    layout(binding = 0, std430) restrict readonly buffer Pos { vec2 Positions[]; };
-    layout(binding = 1, std430) restrict readonly buffer Neigh { uint Neighbours[]; };
-    layout(binding = 2, std430) restrict readonly buffer Prob { float Probabilities[]; };
-    layout(binding = 3, std430) restrict readonly buffer Ind { int Indices[]; };
-    layout(binding = 4, std430) restrict writeonly buffer Posit { vec2 PositiveForces[]; };
-    layout(location = 0) uniform uint nPoints;
-    layout(location = 1) uniform float invNPoints;
+    #extension GL_KHR_shader_subgroup_ballot : require\n      // subgroupBroadcast(...) support
+    #extension GL_KHR_shader_subgroup_arithmetic : require\n  // subgroupAdd(...) support
+
+    layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+    // Buffer bindings
+    layout(binding = 0, std430) restrict readonly buffer Posit { vec2 positionsBuffer[]; };
+    layout(binding = 1, std430) restrict readonly buffer Neigh { uint neighboursBuffer[]; };
+    layout(binding = 2, std430) restrict readonly buffer Simil { float similaritiesBuffer[]; };
+    layout(binding = 3, std430) restrict readonly buffer Indic { int indicesBuffer[]; };
+    layout(binding = 4, std430) restrict writeonly buffer Attr { vec2 attrForcesBuffer[]; };
+
+    // Uniform values
+    layout(location = 0) uniform uint nPos;
+    layout(location = 1) uniform float invPos;
+
+    // Shorthand subgroup constants
+    const uint thread = gl_SubgroupInvocationID;
+    const uint nThreads = gl_SubgroupSize;
 
     const uint groupSize = gl_WorkGroupSize.x;
     const uint halfGroupSize = groupSize / 2;
     shared vec2 reduction_array[halfGroupSize];
 
     void main () {
-      const uint i = gl_WorkGroupID.x;
-      const uint lid = gl_LocalInvocationID.x;
-      if (i >= nPoints) {
+      const uint i = (gl_WorkGroupSize.x * gl_WorkGroupID.x + gl_LocalInvocationID.x) / nThreads;
+      if (i >= nPos) {
         return;
       }
 
-      // Computing positive forces using nearest neighbors
-      vec2 point_i = Positions[i];
-      int index = Indices[i * 2 + 0];
-      int size = Indices[i * 2 + 1];
-      vec2 positive_force = vec2(0);
-      for (uint j = lid; j < size; j += groupSize) {
-        // Get other point coordinates
-        vec2 point_j = Positions[Neighbours[index + j]];
+      // Load position of current embedding point
+      const vec2 position = subgroupBroadcastFirst(thread < 1 ? positionsBuffer[i] : vec2(0));
 
-        // Calculate 2D distance between the two points
-        vec2 dist = point_i - point_j;
+      // Load k nearest neighbours range data for current embedding point
+      const uint _i = thread < 2 ? indicesBuffer[i * 2 + thread] : 0u;
+      const uint begin = subgroupBroadcast(_i, 0u);
+      const uint extent = subgroupBroadcast(_i, 1u);
 
-        // Similarity measure of the two points
-        float qij = 1.f + dot(dist, dist);
+      // Sum attractive force over k nearest neighbours using subgroup
+      vec2 attrForce = vec2(0);
+      for (uint j = begin + thread; j < begin + extent; j += nThreads) {
+        // Calculate difference between the two positions
+        const vec2 diff = position - positionsBuffer[neighboursBuffer[j]]; // youch, bottleneck!
+
+        // High/low dimensional similarity measures of the two points
+        const float p_ij = similaritiesBuffer[j];
+        const float q_ij = 1.f / (1.f + dot(diff, diff));
 
         // Calculate the attractive force
-        positive_force += Probabilities[index + j] * dist / qij;
+        attrForce += p_ij * q_ij * diff;
       }
-      positive_force *= invNPoints;
+      attrForce = subgroupAdd(attrForce * invPos);
 
-      // Reduce add positive_force to a single value
-      if (lid >= halfGroupSize) {
-        reduction_array[lid - halfGroupSize] = positive_force;
+      // Store result
+      if (thread < 1) {
+        attrForcesBuffer[i] = attrForce;
       }
-      barrier();
-      if (lid < halfGroupSize) {
-        reduction_array[lid] += positive_force;
-      }
-      for (uint reduceSize = halfGroupSize / 2; reduceSize > 1; reduceSize /= 2) {
-        barrier();
-        if (lid < reduceSize) {
-          reduction_array[lid] += reduction_array[lid + reduceSize];
-        }
-      }
-      barrier();
-      if (lid < 1) {
-        PositiveForces[i] = reduction_array[0] + reduction_array[1];
-      } 
     }
   );
 
   SHADER_SRC(gradients_src, 450,
-    layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+    layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Pos { vec2 PositiveForces[]; };
     layout(binding = 1, std430) restrict readonly buffer Field { vec3 Fields[]; };
     layout(binding = 2, std430) restrict readonly buffer SumQ { 
