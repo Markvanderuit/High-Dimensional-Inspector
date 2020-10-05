@@ -41,9 +41,9 @@
 #include "../block/block_store.cuh"
 #include "../block/block_radix_rank.cuh"
 #include "../block/block_exchange.cuh"
+#include "../config.cuh"
 #include "../util_type.cuh"
 #include "../iterator/cache_modified_input_iterator.cuh"
-#include "../util_namespace.cuh"
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -70,19 +70,20 @@ enum RadixRankAlgorithm
  * Parameterizable tuning policy type for AgentRadixSortDownsweep
  */
 template <
-    int                         _BLOCK_THREADS,         ///< Threads per thread block
-    int                         _ITEMS_PER_THREAD,      ///< Items per thread (per tile of input)
-    BlockLoadAlgorithm          _LOAD_ALGORITHM,        ///< The BlockLoad algorithm to use
-    CacheLoadModifier           _LOAD_MODIFIER,         ///< Cache load modifier for reading keys (and values)
-    RadixRankAlgorithm          _RANK_ALGORITHM,        ///< The radix ranking algorithm to use
-    BlockScanAlgorithm          _SCAN_ALGORITHM,        ///< The block scan algorithm to use
-    int                         _RADIX_BITS>            ///< The number of radix bits, i.e., log2(bins)
-struct AgentRadixSortDownsweepPolicy
+    int                 NOMINAL_BLOCK_THREADS_4B,       ///< Threads per thread block
+    int                 NOMINAL_ITEMS_PER_THREAD_4B,    ///< Items per thread (per tile of input)
+    typename            ComputeT,                       ///< Dominant compute type
+    BlockLoadAlgorithm  _LOAD_ALGORITHM,                ///< The BlockLoad algorithm to use
+    CacheLoadModifier   _LOAD_MODIFIER,                 ///< Cache load modifier for reading keys (and values)
+    RadixRankAlgorithm  _RANK_ALGORITHM,                ///< The radix ranking algorithm to use
+    BlockScanAlgorithm  _SCAN_ALGORITHM,                ///< The block scan algorithm to use
+    int                 _RADIX_BITS,                    ///< The number of radix bits, i.e., log2(bins)
+    typename            ScalingType = RegBoundScaling<NOMINAL_BLOCK_THREADS_4B, NOMINAL_ITEMS_PER_THREAD_4B, ComputeT> >
+struct AgentRadixSortDownsweepPolicy :
+    ScalingType
 {
     enum
     {
-        BLOCK_THREADS           = _BLOCK_THREADS,           ///< Threads per thread block
-        ITEMS_PER_THREAD        = _ITEMS_PER_THREAD,        ///< Items per thread (per tile of input)
         RADIX_BITS              = _RADIX_BITS,              ///< The number of radix bits, i.e., log2(bins)
     };
 
