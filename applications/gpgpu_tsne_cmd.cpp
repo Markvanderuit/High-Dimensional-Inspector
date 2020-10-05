@@ -64,11 +64,13 @@ int iterations = 1000;
 int exaggeration_iter = 250;
 int perplexity = 30;
 float theta = 0.5;
+float thetaDual = 0.5;
 unsigned embedding_dimensions = 2;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doVisualisation = false;
 bool doLabelExtraction = false;
+bool doDataLoad = true;
 
 // Timer values
 float data_loading_time = 0.f;
@@ -89,11 +91,13 @@ void loadData(hdi::data::PanelData<scalar_type>& panelData,
     throw std::runtime_error("data file cannot be found");
   }
 
-  panelData.clear();
-  for (size_t j = 0; j < num_dims; ++j) {
-    panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
+  if (doDataLoad) {
+    panelData.clear();
+    for (size_t j = 0; j < num_dims; ++j) {
+      panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
+    }
+    panelData.initialize();
   }
-  panelData.initialize();
 
   if (doLabelExtraction) {
     labelData.resize(num_points);
@@ -107,7 +111,9 @@ void loadData(hdi::data::PanelData<scalar_type>& panelData,
     }
     // Read 4-byte point data for entire row
     file_data.read((char *) buffer.data(), sizeof(float) * buffer.size());
-    panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
+    if (doDataLoad) {
+      panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
+    }
   }
 }
 
@@ -125,6 +131,7 @@ void parseCli(int argc, char* argv[]) {
     ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<int>())
     ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
     ("t,theta", "BH-approximation angle", cxxopts::value<float>())
+    ("a,theta2", "Dual-tree BH-approximation angle", cxxopts::value<float>())
     ("h,help", "Print help and exit")
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ("vis", "Run the OpenGL visualization", cxxopts::value<bool>())
@@ -166,6 +173,9 @@ void parseCli(int argc, char* argv[]) {
   if (result.count("theta")) {
     theta = result["theta"].as<float>();
   }
+  if (result.count("theta2")) {
+    thetaDual = result["theta2"].as<float>();
+  }
   if (result.count("kld")) {
     doKlDivergence = result["kld"].as<bool>();
   }
@@ -201,27 +211,32 @@ int main(int argc, char *argv[]) {
     tsne_params._mom_switching_iter = exaggeration_iter;
     tsne_params._remove_exaggeration_iter = exaggeration_iter;
     tsne_params._theta = theta;
+    tsne_params._thetaDual = thetaDual;
 
-    // Load the input data
+    // Check if there is a cache file already to load the probability distr
+    std::string cacheFileName = inputFileName 
+      + "_cache"
+      + "_n=" + std::to_string(num_data_points)
+      + "_p=" + std::to_string(perplexity);
+    std::ifstream cacheFile(cacheFileName, std::ios::binary);
+    if (cacheFile.is_open() && !doNNPreservation) {
+      doDataLoad = false;
+    }
+
+    // Load the input data and labels
     {
       hdi::utils::secureLog(&log, "Loading original data...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
       loadData(panelData, labelData, inputFileName, num_data_points, num_dimensions);
     }
 
-    // Compute probability distribution or load from file if it is cached
-    std::string cacheFileName = inputFileName 
-      + "_cache"
-      + "_n=" + std::to_string(num_data_points)
-      + "_p=" + std::to_string(perplexity);
-    std::ifstream cacheFile(cacheFileName, std::ios::binary);
     if (cacheFile.is_open()) { 
-      // There IS a cache file already
+      // There IS a cache file already, load just that
       hdi::utils::secureLog(&log, "Loading joint probability distribution from cache file...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
       hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
     } else { 
-      // No cache file, start from scratch
+      // No cache file, build probability distr from scratch
       hdi::utils::secureLog(&log, "Computing joint probability distribution...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
 
@@ -247,8 +262,8 @@ int main(int argc, char *argv[]) {
                        | hdi::dbg::WindowInfo::bSRGB 
                        | hdi::dbg::WindowInfo::bFocused
                        | hdi::dbg::WindowInfo::bResizable;
-      windowInfo.width = 1024;
-      windowInfo.height = 1024;
+      windowInfo.width = 2560;
+      windowInfo.height = 1440;
       windowInfo.title = "GPGPU T-SNE";
       window = hdi::dbg::Window(windowInfo);
     } else {
@@ -256,7 +271,10 @@ int main(int argc, char *argv[]) {
     }
     window.enableVsync(false);
     hdi::dbg::InputManager inputManager(window);
-    hdi::dbg::RenderManager renderManager(embedding_dimensions, labelData);
+    hdi::dbg::RenderManager renderManager;
+    if (doVisualisation) {
+      renderManager.init(embedding_dimensions, labelData);
+    }
 
     // Init T-SNE algorithm and perform minimization
     hdi::dr::GradientDescentTSNE tSNE;
@@ -347,6 +365,7 @@ int main(int argc, char *argv[]) {
         inputManager.render();
         window.display();
       }
+      renderManager.destr();
       tSNE.destr();
     }
 
