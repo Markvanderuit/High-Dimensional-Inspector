@@ -101,7 +101,6 @@ add_subdirectory(hdi/dimensionality_reduction)
 
 # Add command line tools
 add_subdirectory(applications)
-add_subdirectory(applications/data_conversion)
 
 # Install
 # We don't want to install in the default location, just use ./bin for now
