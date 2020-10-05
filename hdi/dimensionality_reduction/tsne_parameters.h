@@ -52,7 +52,8 @@ namespace hdi {
         _remove_exaggeration_iter(250),
         _exponential_decay_iter(150),
         _perplexity(30.0),
-        _theta(0.0)
+        _theta(0.0),
+        _thetaDual(0.0)
       { }
 
       int _seed;
@@ -69,7 +70,8 @@ namespace hdi {
       unsigned int _remove_exaggeration_iter;     //! iterations with complete exaggeration of the attractive forces
       unsigned int _exponential_decay_iter;       //! iterations required to remove the exaggeration using an exponential decay
       double _perplexity;                         //! Perplexity of data, probably between 5 and 50
-      double _theta;                              //! Approximation angle, probably between 0.0 (full computation) and 0.5 (very approximate)
+      double _theta;                              //! Approximation angle between 0.0 (disables approx) and 0.5 (very approximate) for single-tree approx.
+      double _thetaDual;                          //! Approximation angle between 0.0 (disables approximation) and 1.0 (very approximate) for dual-tree approx.
     };
   }
 }
