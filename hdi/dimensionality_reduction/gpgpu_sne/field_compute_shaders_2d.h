@@ -59,6 +59,17 @@ GLSL(stencil_fragment_src, 450,
   }
 );
 
+GLSL(divide_dispatch_src, 450,
+  layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+  layout(binding = 0, std430) restrict readonly buffer Value { uint value; };
+  layout(binding = 1, std430) restrict writeonly buffer Disp { uvec3 dispatch; };
+  layout(location = 0) uniform uint div;
+
+  void main() {
+    dispatch = uvec3((value + div - 1) / div, 1, 1);
+  }
+);
+
 GLSL(field_src, 450,
   layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
   layout(binding = 0, std430) restrict readonly buffer Pos { vec2 Positions[]; };
@@ -69,9 +80,9 @@ GLSL(field_src, 450,
     vec2 invRange;
   };
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fields_texture;
-  layout(location = 0) uniform uint num_points;
-  layout(location = 1) uniform uvec2 texture_size;
-  layout(location = 2) uniform usampler2D stencil_texture;
+  layout(location = 0) uniform uint nPoints;
+  layout(location = 1) uniform uvec2 textureSize;
+  layout(location = 2) uniform usampler2D stencilTexture;
 
   // Reduction components
   const uint groupSize = gl_WorkGroupSize.x;
@@ -84,7 +95,7 @@ GLSL(field_src, 450,
     uint lid = gl_LocalInvocationIndex.x;
 
     // Skip pixel if stencil is empty
-    if (texelFetch(stencil_texture, xyFixed, 0).x == 0u) {
+    if (texelFetch(stencilTexture, xyFixed, 0).x == 0u) {
       if (lid < 1) {
         imageStore(fields_texture, xyFixed, vec4(0));
       }
@@ -92,12 +103,12 @@ GLSL(field_src, 450,
     } 
 
     // Map to domain pos
-    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(texture_size);
+    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(textureSize);
     domain_pos = domain_pos * range + minBounds;
 
     // Iterate over points to obtain density/gradient
     vec3 v = vec3(0);
-    for (uint i = lid; i < num_points; i += groupSize) {
+    for (uint i = lid; i < nPoints; i += groupSize) {
       vec2 t = domain_pos - Positions[i];
       float t_stud = 1.f / (1.f + dot(t, t));
       vec2 t_stud_2 = t * (t_stud * t_stud);
@@ -136,15 +147,16 @@ GLSL(field_bvh_src, 450,
     vec2 invRange;
   };
 
-  layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
   // Buffer, sampler and image bindings
   layout(binding = 0, std430) restrict readonly buffer Node0 { vec4 node0Buffer[]; };
   layout(binding = 1, std430) restrict readonly buffer Node1 { vec4 node1Buffer[]; };
   layout(binding = 2, std430) restrict readonly buffer Posit { vec2 posBuffer[]; };
   layout(binding = 3, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 4, std430) restrict readonly buffer Queue { uvec2 queueBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; }; 
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
-  layout(binding = 0) uniform usampler2D stencilSampler;
 
   // Uniforms
   layout(location = 0) uniform uint nPos;     // nr of points
@@ -204,15 +216,21 @@ GLSL(field_bvh_src, 450,
     const vec2 diam = node1.xy;
     const uint begin = uint(node1.w);
     
-    // Compute squared distance between node and position
-    vec2 t = pos - center;
-    float t2 = dot(t, t);
+    // Distance between node and pixel position
+    const vec2 t = pos - center;
+    const float t2 = dot(t, t);
+
+    // Align the distance vector so it is always coming from the same part of the axis
+    // such that the largest possible diameter of the bounding box is visible
+    const vec2 b = abs(t) * vec2(-1, 1);
+    const vec2 b_ = normalize(b);
 
     // Compute squared diameter, adjusted for viewing angle
-    vec2 b = abs(normalize(t)) * vec2(-1, 1);
-    vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
-    
-    if (dot(c, c) / t2 < theta2) {
+    // This is the vector rejection of diam onto unit vector b_
+    const vec2 ext = diam - b_ * dot(diam, b_); 
+
+    // Tangens of the angle should not exceed theta
+    if (dot(ext, ext) / t2 < theta2) { 
       // If BH-approximation passes, compute approximated value
       float tStud = 1.f / (1.f + t2);
       field += mass * vec3(tStud, t * (tStud * tStud));
@@ -244,25 +262,20 @@ GLSL(field_bvh_src, 450,
   }
 
   void main() {
-    // Check that invocation is inside field texture bounds
-    const uvec2 i = gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy;
-    if (min(i, textureSize - 1) != i) {
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    if (i >= queueHead) {
       return;
     }
+    const uvec2 px = queueBuffer[i];
 
-    // Skip computation if stencil buffer is empty
-    if (texelFetch(stencilSampler, ivec2(i), 0).x == 0u) {
-      imageStore(fieldImage, ivec2(i), vec4(0));
-      return;
-    } 
-
-    // Compute pixel position in [0, 1], then map to domain bounds
-    vec2 pos = (vec2(i) + 0.5) / vec2(textureSize);
+    // Compute pixel position in [0, 1]
+    // Then map pixel position to domain bounds
+    vec2 pos = (vec2(px) + 0.5) / vec2(textureSize);
     pos = pos * bounds.range + bounds.min;
 
     // Traverse tree and store result
-    vec3 field = traverse(pos);
-    imageStore(fieldImage, ivec2(i), vec4(field, 0));
+    imageStore(fieldImage, ivec2(px), vec4(traverse(pos), 0));
   }
 );
 
@@ -345,16 +358,22 @@ GLSL(field_bvh_wide_src, 450,
     const uint mass = uint(node0.w);
     const vec2 diam = node1.xy;
     const uint begin = uint(node1.w);
-  
-    // Compute squared distance between node and position
+
+    // Compute squared distance between node and positio
     const vec2 t = pos - center;
     const float t2 = dot(t, t);
 
-    // Compute squared diameter, adjusted for viewing angle
-    const vec2 b = abs(normalize(t)) * vec2(-1, 1);
-    const vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
+    // Align the distance vector so it is always coming from the same part of the axis
+    // such that the largest possible diameter of the bounding box is visible
+    const vec2 b = abs(t) * vec2(-1, 1);
+    const vec2 b_ = normalize(b);
 
-    if (dot(c, c) / t2 < theta2) {
+    // Compute squared diameter, adjusted for viewing angle
+    // This is the vector rejection of diam onto unit vector b_
+    const vec2 ext = diam - b_ * dot(diam, b_); 
+    
+    // Tangens of the angle should not exceed theta
+    if (dot(ext, ext) / t2 < theta2) {
       // If BH-approximation passes, compute approximated value
       float tStud = 1.f / (1.f + t2);
       field += mass * vec3(tStud, t * (tStud * tStud));
@@ -430,6 +449,141 @@ GLSL(field_bvh_wide_src, 450,
     if (thread == 0u) {
       imageStore(fieldImage, ivec2(i), vec4(field, 0));
     }
+  }
+);
+
+GLSL(pixels_bvh_src, 450,
+  // Return types for approx(...) function below
+  #define STOP 0\n // Voxel encompasses node, stop traversal
+  #define DESC 1\n // Node encompasses voxel, descend
+  #define ASCN 2\n // Node and voxel dont overlap, ascend
+  
+  // Wrapper structure for BoundsBuffer data
+  struct Bounds {
+    vec2 min;
+    vec2 max;
+    vec2 range;
+    vec2 invRange;
+  };
+
+  layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+  
+  // Buffer, sampler and image bindings
+  layout(binding = 0, std430) restrict readonly buffer Node1 { vec4 node1Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer MinbB { vec2 minbBuffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 3, std430) restrict writeonly buffer Queue { uvec2 queueBuffer[]; };
+  layout(binding = 4, std430) restrict coherent buffer QHead { uint queueHead; }; 
+
+  // Uniforms
+  layout(location = 0) uniform uint nPos;      // nr of points
+  layout(location = 1) uniform uint nLvls;     // Nr of tree levels
+  layout(location = 2) uniform uint kNode;     // Node fanout
+  layout(location = 3) uniform uint kLeaf;     // Leaf fanout
+  layout(location = 4) uniform uvec2 textureSize;
+
+  // Fun stuff for fast modulo and division and stuff
+  const uint logk = uint(log2(kNode));
+  const uint bitmask = ~((~0u) << logk);
+
+  // Traversal data
+  uint lvl = 1u; // We start a level lower, as the root node will probably never approximate
+  uint loc = 1u;
+  uint stack = 1u | (bitmask << (logk * lvl));
+
+  // Pixel size
+  const vec2 bbox = bounds.range / vec2(textureSize);
+  const float extl = length(bbox);
+
+  void descend() {
+    // Move down tree
+    lvl++;
+    loc = loc * kNode + 1u;
+
+    // Push unvisited locations on stack
+    stack |= (bitmask << (logk * lvl));
+  }
+
+  void ascend() {
+    // Find distance to next level on stack
+    uint nextLvl = findMSB(stack) / logk;
+    uint dist = lvl - nextLvl;
+
+    // Move dist up to where next available stack position is
+    // and one to the right
+    if (dist == 0) {
+      loc++;
+    } else {
+      loc >>= logk * dist;
+    }
+    lvl = nextLvl;
+
+    // Pop visited location from stack
+    uint shift = logk * lvl;
+    uint b = (stack >> shift) - 1;
+    stack &= ~(bitmask << shift);
+    stack |= b << shift;
+  }
+
+  bool overlap1D(vec2 a, vec2 b) {
+    return a.y >= b.x && b.y >= a.x;
+  }
+
+  bool overlap2D(vec2 mina, vec2 maxa, vec2 minb, vec2 maxb) {
+    return overlap1D(vec2(mina.x, maxa.x), vec2(minb.x, maxb.x))
+        && overlap1D(vec2(mina.y, maxa.y), vec2(minb.y, maxb.y));
+  }
+
+  uint approx(vec2 minb, vec2 maxb, vec2 center) {
+    // Fetch node data
+    const vec2 _diam = node1Buffer[loc].xy;
+    const vec2 _minb = minbBuffer[loc];
+    const vec2 _maxb = _minb + _diam;
+    const vec2 _center = _minb + 0.5 * _diam; 
+
+    // Test bounding box containment
+    const bool isOverlap = overlap2D(minb, maxb, _minb, _maxb);
+    const bool isMin = min(_minb, minb) == minb;
+    const bool isMax = max(_maxb, maxb) == maxb;
+
+    if (isOverlap) {
+      if (lvl == nLvls - 1 || isMin && isMax) {
+        return STOP;
+      } else {
+        return DESC;
+      }
+    } else {
+      return ASCN;
+    }
+  }
+
+  void main() {
+    const uvec2 xy = gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy;
+    if (min(xy, textureSize - 1) != xy) {
+      return;
+    }
+
+    // Compute information about this voxel
+    vec2 center = (vec2(xy) + 0.5) / vec2(textureSize); // Map to [0, 1]
+    center = bounds.min + bounds.range * center; // Map to embedding domain
+    const vec2 minb = center - 1.5f * bbox; ;// - 0.5 * bbox;
+    const vec2 maxb = center + 1.5f * bbox; ;// + 0.5 * bbox;
+
+    // Traverse tree to find out if there is a closest or contained point
+    do {
+      const uint appr = approx(minb, maxb, center);
+      if (appr == STOP) {
+        // Store result and exit
+        queueBuffer[atomicAdd(queueHead, 1)] = xy;
+        return;
+      } else if (appr == ASCN) {
+        ascend();
+      } else if (appr == DESC) {
+        descend();
+      } else {
+        return;
+      }
+    } while (lvl > 0);
   }
 );
 

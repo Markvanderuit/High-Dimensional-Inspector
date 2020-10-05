@@ -37,9 +37,18 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
+#include "hdi/debug/renderer/field.hpp"
 
 namespace hdi::dr {
+  /**
+   * Field2dCompute
+   * 
+   * Class which computes the scalar and vector field components required for the tSNE 
+   * minimization fully on the GPU. Manages subclasses and subcomponents such as tree
+   * structures. Can perform full computation in O(p N) time, single tree approximation
+   * in O(p log N) time. Dual tree approximation is not currently available.
+   */
   class Field2dCompute {
     typedef Bounds<2> Bounds;
     typedef glm::vec<2, float, glm::aligned_highp> vec;
@@ -55,7 +64,6 @@ namespace hdi::dr {
                     unsigned n);
     void destr();
     void compute(uvec dims, 
-                 float function_support, 
                  unsigned iteration, 
                  unsigned n,
                  GLuint position_buff, 
@@ -69,11 +77,21 @@ namespace hdi::dr {
     }
 
   private:
-    bool _isInit;
-    uvec _dims;
+    enum class BufferType {
+      eDispatch,
+
+      // Queue + head for compact list of field pixels
+      ePixels,
+      ePixelsHead,
+      ePixelsHeadReadback,
+
+      Length
+    };
 
     enum class ProgramType {
+      eDispatch,
       eStencil,
+      ePixels,
       eField,
       eInterp,
 
@@ -87,21 +105,49 @@ namespace hdi::dr {
       Length
     };
 
+    // BVH Subcomponent
+    EmbeddingBVH<2> _bvh;
+
+    // Pretty much all program, buffer and texture handles
+    EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
     EnumArray<TextureType, GLuint> _textures;
-    GLuint _vrao_point;
-    GLuint _frbo_stencil;
+
+    // Subcomponent for debug renderer
+    dbg::FieldRenderer<2> _fieldRenderer;
+
+    // Misc
+    bool _isInit;
+    uvec _dims;
     TsneParameters _params;
     utils::AbstractLog* _logger;
-
-    // dbg::BvhRenderer _renderer;
     bool _useBvh;
-    BVH<2> _bvh;
-    bool _rebuildBvhOnIter;
-    uint _nRebuildIters;
+    GLuint _stencilVao;
+    GLuint _stencilFbo;
     double _lastRebuildTime;
+    uint _nRebuildIters;
+    bool _rebuildBvhOnIter;
 
-    // Query timers matching to each shader
+  private:
+    // Functions called by Field2dCompute::compute()
+    void compactField(unsigned n,
+                      GLuint positionsBuffer, 
+                      GLuint boundsBuffer);
+    void computeField(unsigned n,
+                      unsigned iteration,
+                      GLuint positionsBuffer,
+                      GLuint boundsBuffer);
+    void computeFieldBvh(unsigned n,
+                         unsigned iteration,
+                         GLuint positionsBuffer,
+                         GLuint boundsBuffer);
+    void queryField(unsigned n,
+                    GLuint positionsBuffer,
+                    GLuint boundsBuffer,
+                    GLuint interpBuffer);
+
+  private:
+    // Query timers matching to each shader program
     DECL_TIMERS(
       TIMR_STENCIL, 
       TIMR_FIELD, 
