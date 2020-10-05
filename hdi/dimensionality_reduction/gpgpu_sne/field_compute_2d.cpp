@@ -69,7 +69,6 @@ namespace hdi::dr {
     }
   }
 
-
   /**
    * Field2dCompute::init()
    * 

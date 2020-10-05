@@ -44,15 +44,30 @@ namespace hdi::dbg {
 
   void RenderComponent::render(glm::mat4 transform, glm::ivec4 viewport)
   {
-    // ...
+    // Override and implement
   }
 
-  RenderManager::RenderManager(uint nDimensions, const std::vector<uint> &labels)
-  : _nDimensions(nDimensions),
-    _components(cmpRenderComponent),
-    _framebufferSize(0, 0),
-    _labels(0)
+  RenderManager::RenderManager()
+  : _isInit(false)
+  { }
+
+  RenderManager::~RenderManager()
   {
+    if (_isInit) {
+      destr();
+    }
+  }
+
+  void RenderManager::init(uint nDimensions, const std::vector<uint> &labels) 
+  {
+    if (_isInit) {
+      return;
+    }
+
+    _nDimensions = nDimensions;
+    _components = std::set<RenderComponent *, decltype(cmpRenderComponent)*>(cmpRenderComponent);
+    _framebufferSize = glm::ivec2(0, 0);
+    _labels = 0;
     _currentManager = this;
     _trackball.init();
 
@@ -66,10 +81,16 @@ namespace hdi::dbg {
       glCreateBuffers(1, &_labels);
       glNamedBufferStorage(_labels, labels.size() * sizeof(uint), labels.data(), 0);
     }
+
+    _isInit = true;
   }
 
-  RenderManager::~RenderManager()
+  void RenderManager::destr() 
   {
+    if (!_isInit) {
+      return;
+    }
+
     _currentManager = nullptr;
     _trackball.destr();
 
@@ -82,6 +103,8 @@ namespace hdi::dbg {
     if (_labels) {
       glDeleteBuffers(1, &_labels);
     }
+
+    _isInit = false;
   }
 
   void RenderManager::render()

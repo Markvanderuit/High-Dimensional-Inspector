@@ -44,6 +44,7 @@
 // #define DELAY_BVH_REBUILD    // Refit BVH for rebuildDelay iterations
 // #define DELAY_BVH_TRAVERSAL  // Only partially redo dual hierarchy cut for rebuildDelay iterations
 
+
 namespace hdi::dr {
   // Magic numbers
   constexpr float pointSize = 3.f;                      // Point size in voxel grid
@@ -183,8 +184,7 @@ namespace hdi::dr {
       _pixelBVHRenderer.init(_fieldBvh, bounds_buff);
       _rebuildDelayIters = 0;
 
-      // We sacrifice this memory to appease the wrath of the gods of runtime complexity
-      // Guess that's the downside of a dual-tree traversal, all your vram is glorped.
+      // Hey look it's the downside of dual hierarchy traversals. Your VRAM is glorped.
       glNamedBufferStorage(_buffers(BufferType::ePairsInput), pairsInputBufferSize, nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsOutput), pairsInputBufferSize, nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsCache), pairsInputBufferSize, nullptr, 0);
@@ -249,13 +249,16 @@ namespace hdi::dr {
     _isInit = true;
   }
 
-
   /**
    * Field3dCompute::destr()
    * 
    * Destroys GPU components and subclasses.
    */
   void Field3dCompute::destr() {
+    // Destroy renderer subcomponent
+    _fieldRenderer.destr();
+
+    // Destroy BVH subcomponents
     if (_usePointBvh) {
       _pointBVHRenderer.destr();
       _embeddingBvh.destr();
@@ -264,7 +267,7 @@ namespace hdi::dr {
       _pixelBVHRenderer.destr();
       _fieldBvh.destr();
     }
-    _fieldRenderer.destr();
+
     glDeleteBuffers(_buffers.size(), _buffers.data());
     glDeleteTextures(_textures.size(), _textures.data());
     glDeleteFramebuffers(1, &_voxelFbo);
@@ -272,11 +275,11 @@ namespace hdi::dr {
     for (auto& program : _programs) {
       program.destroy();
     }
+
     DSTR_TIMERS();
     ASSERT_GL("Field3dCompute::destr()");
     _isInit = false;
   }
-
 
   /**
    * Field3dCompute::compute()
@@ -288,9 +291,6 @@ namespace hdi::dr {
   void Field3dCompute::compute(uvec dims, unsigned iteration, unsigned n,
                                 GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
                                 Bounds bounds) {
-    vec minBounds = bounds.min;
-    vec range = bounds.range();
-
     // Rescale field texture as dimensions change
     if (_dims != dims) {
       _dims = dims;
@@ -564,7 +564,8 @@ namespace hdi::dr {
     glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
     glDispatchComputeIndirect(0);
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-    
+
+    ASSERT_GL("Field3dCompute::compute::field()");
     TOCK_TIMER(TIMR_FIELD);
   }
 
@@ -623,7 +624,8 @@ namespace hdi::dr {
     glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
     glDispatchComputeIndirect(0);
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
-
+    
+    ASSERT_GL("Field3dCompute::compute::field()");
     TOCK_TIMER(TIMR_FIELD);
   }
 

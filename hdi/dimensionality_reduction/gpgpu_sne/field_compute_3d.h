@@ -147,11 +147,6 @@ namespace hdi::dr {
       Length 
     };
 
-    bool _isInit;
-    uvec _dims;
-    TsneParameters _params;
-    utils::AbstractLog* _logger;
-
     // BVH components
     EmbeddingBVH<3> _embeddingBvh;
     FieldBVH<3> _fieldBvh;
@@ -167,6 +162,10 @@ namespace hdi::dr {
     dbg::PixelBVHRenderer<3> _pixelBVHRenderer;
 
     // Misc
+    bool _isInit;
+    uvec _dims;
+    TsneParameters _params;
+    utils::AbstractLog* _logger;
     bool _useVoxelGrid;
     bool _usePointBvh;
     bool _usePixelBvh;

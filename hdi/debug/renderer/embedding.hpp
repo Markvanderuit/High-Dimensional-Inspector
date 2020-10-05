@@ -28,7 +28,7 @@ namespace hdi::dbg {
 
     // ImGui default settings
     bool _draw = true;
-    bool _drawLabels = false;
+    bool _drawLabels = true;
     float _pointSize = 4.f;
     float _pointOpacity = 1.f;
   };

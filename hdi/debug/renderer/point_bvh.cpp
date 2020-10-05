@@ -1,6 +1,6 @@
 #include <iostream>
 #include <imgui.h>
-#include "hdi/debug/renderer/bvh.hpp"
+#include "hdi/debug/renderer/point_bvh.hpp"
 
 #define GLSL(name, version, shader) \
   static const char * name = \
@@ -28,7 +28,6 @@ GLSL(flags_comp, 450,
   layout(binding = 2, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
   layout(binding = 3, std430) restrict readonly buffer PosBuffer { vec3 pos; };
   layout(binding = 4, std430) restrict writeonly buffer FlagsBuffer { float flagsBuffer[]; };
-  layout(binding = 5, std430) restrict writeonly buffer LineBuffer { vec3 lineBuffer[]; };
 
   layout(location = 0) uniform uint nNodes;
   layout(location = 1) uniform uint kNode;
@@ -50,8 +49,13 @@ GLSL(flags_comp, 450,
     vec3 b = normalize(abs(t) * vec3(-1, -1, 1));
     vec3 c = diam - b * dot(diam, b);
 
+    const float pTheta = 1.f - dot(b, normalize(b * length(t) + 0.5f * c));
+    // const float pTheta = 1.f - dot(normalize(t), normalize(t + 0.5f * c));
+
     // Approx if...
-    float appr = dot(c, c) / t2; 
+    const float appr = (pTheta * pTheta); 
+
+    // const float appr = dot(c, c) / t2; 
     if (node.w < 2.f || appr < theta2) {
       return appr / theta2;
     } else {
@@ -83,12 +87,8 @@ GLSL(flags_comp, 450,
     
     if (flag > 0.f && !parentFlag) {
       flagsBuffer[i] = flag;
-      lineBuffer[2 * i] = pos;
-      lineBuffer[2 * i + 1] = (nodeBuffer[i].xyz - bounds.min) * bounds.invRange;
     } else {
       flagsBuffer[i] = 0.f;
-      lineBuffer[2 * i] = vec3(100000);
-      lineBuffer[2 * i + 1] = vec3(100000);
     }
   }
 );
@@ -210,37 +210,39 @@ GLSL(focus_frag, 450,
   }
 );
 
-std::array<glm::vec4, 8> cubeVertices = {
-  glm::vec4(-0.5, -0.5, -0.5, 0.f),  // 0
-  glm::vec4(0.5, -0.5, -0.5, 0.f),   // 1
-  glm::vec4(0.5, 0.5, -0.5, 0.f),    // 2
-  glm::vec4(-0.5, 0.5, -0.5, 0.f),   // 3
-  glm::vec4(-0.5, -0.5, 0.5, 0.f),   // 4
-  glm::vec4(0.5, -0.5, 0.5, 0.f),    // 5
-  glm::vec4(0.5, 0.5, 0.5, 0.f),     // 6
-  glm::vec4(-0.5, 0.5, 0.5, 0.f),    // 7
-};
+namespace {
+  std::array<glm::vec4, 8> cubeVertices = {
+    glm::vec4(-0.5, -0.5, -0.5, 0.f),  // 0
+    glm::vec4(0.5, -0.5, -0.5, 0.f),   // 1
+    glm::vec4(0.5, 0.5, -0.5, 0.f),    // 2
+    glm::vec4(-0.5, 0.5, -0.5, 0.f),   // 3
+    glm::vec4(-0.5, -0.5, 0.5, 0.f),   // 4
+    glm::vec4(0.5, -0.5, 0.5, 0.f),    // 5
+    glm::vec4(0.5, 0.5, 0.5, 0.f),     // 6
+    glm::vec4(-0.5, 0.5, 0.5, 0.f),    // 7
+  };
 
-std::array<unsigned, 24> cubeIndices = {
-  0, 1,  1, 2,  2, 3,  3, 0,    // bottom
-  0, 4,  1, 5,  2, 6,  3, 7,    // sides
-  4, 5,  5, 6,  6, 7,  7, 4     // top
-};
+  std::array<unsigned, 24> cubeIndices = {
+    0, 1,  1, 2,  2, 3,  3, 0,    // bottom
+    0, 4,  1, 5,  2, 6,  3, 7,    // sides
+    4, 5,  5, 6,  6, 7,  7, 4     // top
+  };
+}
 
 namespace hdi::dbg {
-  BvhRenderer::BvhRenderer()
+  PointBVHRenderer::PointBVHRenderer()
   : RenderComponent(1, false),
     _bvh(nullptr)
   { }
 
-  BvhRenderer::~BvhRenderer()
+  PointBVHRenderer::~PointBVHRenderer()
   {
     if (_isInit) {
       destr();
     }
   }
 
-  void BvhRenderer::init(const dr::BVH<3> &bvh, GLuint boundsBuffer)
+  void PointBVHRenderer::init(const dr::EmbeddingBVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
     if (!_isInit) {
@@ -259,13 +261,13 @@ namespace hdi::dbg {
       for (auto& program : _programs) {
         program.create();
       }
-      _programs[PROG_FLAGS].addShader(COMPUTE, flags_comp);
-      _programs[PROG_BVH_INSTANCED_DRAW].addShader(VERTEX, bvh_vert);
-      _programs[PROG_BVH_INSTANCED_DRAW].addShader(FRAGMENT, bvh_frag);
-      _programs[PROG_ORDER_DRAW].addShader(VERTEX, order_vert);
-      _programs[PROG_ORDER_DRAW].addShader(FRAGMENT, order_frag);
-      _programs[PROG_FOCUS_POS_DRAW].addShader(VERTEX, focus_vert);
-      _programs[PROG_FOCUS_POS_DRAW].addShader(FRAGMENT, focus_frag);
+      _programs(ProgramType::eFlags).addShader(COMPUTE, flags_comp);
+      _programs(ProgramType::eBvhDraw).addShader(VERTEX, bvh_vert);
+      _programs(ProgramType::eBvhDraw).addShader(FRAGMENT, bvh_frag);
+      _programs(ProgramType::eOrderDraw).addShader(VERTEX, order_vert);
+      _programs(ProgramType::eOrderDraw).addShader(FRAGMENT, order_frag);
+      _programs(ProgramType::eFocusPosDraw).addShader(VERTEX, focus_vert);
+      _programs(ProgramType::eFocusPosDraw).addShader(FRAGMENT, focus_frag);
       for (auto& program : _programs) {
         program.build();
       }
@@ -279,53 +281,47 @@ namespace hdi::dbg {
     glCreateVertexArrays(_vertexArrays.size(), _vertexArrays.data());
 
     // Specify buffers for cube data
-    glNamedBufferStorage(_buffers[BUFF_CUBE_VERT], 8 * sizeof(glm::vec4), cubeVertices.data(), GL_DYNAMIC_STORAGE_BIT);
-    glNamedBufferStorage(_buffers[BUFF_CUBE_IDX], 24 * sizeof(unsigned), cubeIndices.data(), GL_DYNAMIC_STORAGE_BIT);
-    glNamedBufferStorage(_buffers[BUFF_FLAGS], sizeof(float) * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eCubeVertices), 8 * sizeof(glm::vec4), cubeVertices.data(), GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eCubeIndices), 24 * sizeof(unsigned), cubeIndices.data(), GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eFlags), sizeof(float) * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
     glm::vec4 v(0.5);
-    glNamedBufferStorage(_buffers[BUFF_FOCUS_POS], sizeof(glm::vec4), &v[0],
+    glNamedBufferStorage(_buffers(BufferType::eFocusPosition), sizeof(glm::vec4), &v[0],
       GL_MAP_READ_BIT | GL_MAP_WRITE_BIT | GL_DYNAMIC_STORAGE_BIT
     );
-    glNamedBufferStorage(_buffers[BUFF_FOCUS_LINES], sizeof(glm::vec4) * 2 * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
     // Specify vertex array object for instanced draw
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 0, _buffers[BUFF_CUBE_VERT], 0, sizeof(glm::vec4));
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 1, buffers.minb, 0, sizeof(glm::vec4));
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 2, buffers.node1, 0, sizeof(glm::vec4));
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_CUBE], 3, _buffers[BUFF_FLAGS], 0, sizeof(float));
-    glVertexArrayElementBuffer(_vertexArrays[VRAO_CUBE], _buffers[BUFF_CUBE_IDX]);
-    glVertexArrayBindingDivisor(_vertexArrays[VRAO_CUBE], 0, 0);
-    glVertexArrayBindingDivisor(_vertexArrays[VRAO_CUBE], 1, 1);
-    glVertexArrayBindingDivisor(_vertexArrays[VRAO_CUBE], 2, 1);
-    glVertexArrayBindingDivisor(_vertexArrays[VRAO_CUBE], 3, 1);
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_CUBE], 0);
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_CUBE], 1);
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_CUBE], 2);
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_CUBE], 3);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_CUBE], 0, 4, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_CUBE], 1, 4, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_CUBE], 2, 4, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_CUBE], 3, 1, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 0, 0);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 1, 1);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 2, 2);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_CUBE], 3, 3);
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 0, _buffers(BufferType::eCubeVertices), 0, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 1, buffers.minb, 0, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 2, buffers.node1, 0, sizeof(glm::vec4));
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 3, _buffers(BufferType::eFlags), 0, sizeof(float));
+    glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eCube), _buffers(BufferType::eCubeIndices));
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 0, 0);
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 1, 1);
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 2, 1);
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 3, 1);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eCube), 0);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eCube), 1);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eCube), 2);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eCube), 3);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 0, 4, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 1, 4, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 2, 4, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 3, 1, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 0, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 1, 1);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 2, 2);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 3, 3);
 
     // Specify vertex array object for embedding positions
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_POINTS], 0, buffers.pos, 0, sizeof(glm::vec4));
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_POINTS], 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_POINTS], 0, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_POINTS], 0, 0);
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::ePoints), 0, buffers.pos, 0, sizeof(glm::vec4));
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::ePoints), 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::ePoints), 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::ePoints), 0, 0);
     
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_FOCUS_POS], 0, _buffers[BUFF_FOCUS_POS], 0, sizeof(glm::vec4));
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_FOCUS_POS], 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_FOCUS_POS], 0, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_FOCUS_POS], 0, 0);
-    
-    glVertexArrayVertexBuffer(_vertexArrays[VRAO_FOCUS_LINES], 0, _buffers[BUFF_FOCUS_LINES], 0, sizeof(glm::vec4));
-    glEnableVertexArrayAttrib(_vertexArrays[VRAO_FOCUS_LINES], 0);
-    glVertexArrayAttribFormat(_vertexArrays[VRAO_FOCUS_LINES], 0, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(_vertexArrays[VRAO_FOCUS_LINES], 0, 0);
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eFocusPos), 0, _buffers(BufferType::eFocusPosition), 0, sizeof(glm::vec4));
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eFocusPos), 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eFocusPos), 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eFocusPos), 0, 0);
 
     _nCube = layout.nNodes;
     _nPos = layout.nPos;
@@ -333,7 +329,7 @@ namespace hdi::dbg {
     _isInit = true;
   }
 
-  void BvhRenderer::destr()
+  void PointBVHRenderer::destr()
   {
     if (!_isInit) {
       return;
@@ -347,7 +343,7 @@ namespace hdi::dbg {
     RenderComponent::destr();
   }
 
-  void BvhRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
+  void PointBVHRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
   {
     if (!_isInit) {
       return;
@@ -356,36 +352,42 @@ namespace hdi::dbg {
       return;
     }
 
-    // Map focus position buffer for reading/writing so ImGUI components can touch it
-    float *ptr = (float *) glMapNamedBuffer(_buffers[BUFF_FOCUS_POS], GL_READ_WRITE);
     
-    ImGui::Begin("BVH Rendering");
+    ImGui::Begin("EmbeddingBVH Rendering");
     ImGui::Text("Z-Order Curve");
     ImGui::Checkbox("Draw##0", &_drawOrder);
-    ImGui::SliderFloat("Line width##0", &_orderLineWidth, 0.5f, 16.f, "%1.1f");
-    ImGui::SliderFloat("Line opacity##0", &_orderOpacity, 0.05f, 1.f, "%.2f");
+    if (_drawOrder) {
+      ImGui::SliderFloat("Line width##0", &_orderLineWidth, 0.5f, 16.f, "%1.1f");
+      ImGui::SliderFloat("Line opacity##0", &_orderOpacity, 0.05f, 1.f, "%.2f");
+    }
     ImGui::Separator();
     ImGui::Text("Tree bounding boxes");
     ImGui::Checkbox("Draw##1", &_drawCube);
-    ImGui::SliderFloat("Line width##1", &_cubeLineWidth, 0.5f, 16.f, "%1.1f");
-    ImGui::SliderFloat("Line opacity##1", &_cubeOpacity, 0.f, 1.f, "%.2f");
-    ImGui::SliderFloat("Theta##0", &_cubeTheta, 0.f, 1.f, "%.2f");
+    if (_drawCube) {
+      ImGui::SliderFloat("Line width##1", &_cubeLineWidth, 0.5f, 16.f, "%1.1f");
+      ImGui::SliderFloat("Line opacity##1", &_cubeOpacity, 0.f, 1.f, "%.2f");
+      ImGui::SliderFloat("Theta##0", &_cubeTheta, 0.f, 1.f, "%.2f");
+    }
     ImGui::Separator();
     ImGui::Text("Barnes-Hut approximation");
     ImGui::Checkbox("Draw##2", &_drawBarnesHut);
-    ImGui::SliderFloat("Line opacity##2", &_barnesHutOpacity, 0.f, 1.f, "%.2f");
-    ImGui::SliderFloat3("Position", ptr, 0.f, 1.f);
-    ImGui::SliderFloat("Theta##1", &_flagTheta, 0.f, 2.f);
+    if (_drawBarnesHut) {
+      // Map focus position buffer for reading/writing so ImGUI components can touch it
+      // Is it a bird? Is it a plane? No, it's a performance bottleneck!
+      float *ptr = (float *) glMapNamedBuffer(_buffers(BufferType::eFocusPosition), GL_READ_WRITE);
+      ImGui::SliderFloat("Line opacity##2", &_barnesHutOpacity, 0.f, 1.f, "%.2f");
+      ImGui::SliderFloat3("Position", ptr, 0.f, 1.f);
+      ImGui::SliderFloat("Theta##1", &_flagTheta, 0.f, 2.f);
+      glUnmapNamedBuffer(_buffers(BufferType::eFocusPosition));
+    }
     ImGui::End();
 
-    // Unmap focus position buffer
-    glUnmapNamedBuffer(_buffers[BUFF_FOCUS_POS]);
 
     if (_bvh && _drawBarnesHut) {
       const auto layout = _bvh->layout();
       const auto buffers = _bvh->buffers(); 
 
-      auto &program = _programs[PROG_FLAGS];
+      auto &program = _programs(ProgramType::eFlags);
       program.bind();
 
       // Set uniforms
@@ -397,9 +399,8 @@ namespace hdi::dbg {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.node1);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _boundsBuffer);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers[BUFF_FOCUS_POS]);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers[BUFF_FLAGS]);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers[BUFF_FOCUS_LINES]);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eFocusPosition));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eFlags));
 
       // Fire away
       glDispatchCompute(ceilDiv(layout.nNodes, 256u), 1, 1);
@@ -408,36 +409,24 @@ namespace hdi::dbg {
     }
 
     if (_drawBarnesHut) {
-      auto &program = _programs[PROG_FOCUS_POS_DRAW];
+      auto &program = _programs(ProgramType::eFocusPosDraw);
       program.bind();
       program.uniformMatrix4f("uTransform", &transform[0][0]);
       program.uniform1f("uOpacity", 1.f);
-      glBindVertexArray(_vertexArrays[VRAO_FOCUS_POS]);
+      glBindVertexArray(_vertexArrays(VertexArrayType::eFocusPos));
       glPointSize(32.f);
       glDrawArrays(GL_POINTS, 0, 1);
       program.release();
     }
 
-    /* {
-      const auto& layout = _bvh->layout();
-      auto &program = _programs[PROG_FOCUS_POS_DRAW];
-      program.bind();
-      program.uniformMatrix4f("uTransform", &transform[0][0]);
-      program.uniform1f("uOpacity", 0.25f);
-      glBindVertexArray(_vertexArrays[VRAO_FOCUS_LINES]);
-      glLineWidth(1.f);
-      glDrawArrays(GL_LINES, 0, layout.nNodes - layout.nLeaves);
-      program.release();
-    } */
-
     // Set opengl state for line drawing operation and perform draw
     if (_drawOrder) {      
-      auto &program = _programs[PROG_ORDER_DRAW];
+      auto &program = _programs(ProgramType::eOrderDraw);
       program.bind();
       program.uniformMatrix4f("uTransform", &transform[0][0]);
       program.uniform1f("uOpacity", _orderOpacity);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
-      glBindVertexArray(_vertexArrays[VRAO_POINTS]);
+      glBindVertexArray(_vertexArrays(VertexArrayType::ePoints));
       glLineWidth(_orderLineWidth);
       glDrawArrays(GL_LINE_STRIP, 0, _nPos);
       program.release();
@@ -445,14 +434,14 @@ namespace hdi::dbg {
     
     // Set opengl state for line drawing operation and perform draw
     if (_drawCube || _drawBarnesHut) {      
-      auto &program = _programs[PROG_BVH_INSTANCED_DRAW];
+      auto &program = _programs(ProgramType::eBvhDraw);
       program.bind();
       program.uniformMatrix4f("uTransform", &transform[0][0]);
       program.uniform1f("uCubeOpacity", _drawCube ? _cubeOpacity : 0.f);
       program.uniform1f("uBarnesHutOpacity", _drawBarnesHut ? _barnesHutOpacity : 0.f);
       program.uniform1f("uTheta", _cubeTheta);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
-      glBindVertexArray(_vertexArrays[VRAO_CUBE]);
+      glBindVertexArray(_vertexArrays(VertexArrayType::eCube));
       glLineWidth(_cubeLineWidth);
       glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, _nCube);
       program.release();

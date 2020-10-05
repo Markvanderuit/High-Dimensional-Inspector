@@ -113,7 +113,7 @@ namespace _3d {
 namespace hdi::dbg {
   template <unsigned D>
   EmbeddingRenderer<D>::EmbeddingRenderer()
-  : RenderComponent(10, false), _hasLabels(false), _drawLabels(false) { }
+  : RenderComponent(10, false), _hasLabels(false) { }
 
   template <unsigned D>
   EmbeddingRenderer<D>::~EmbeddingRenderer() {
@@ -164,6 +164,8 @@ namespace hdi::dbg {
         glEnableVertexArrayAttrib(_vertexArray, 1);
         glVertexArrayAttribIFormat(_vertexArray, 1, 1, GL_UNSIGNED_INT, 0);
         glVertexArrayAttribBinding(_vertexArray, 1, 1);
+      } else {
+        _hasLabels = false;
       }
     }
 
@@ -190,11 +192,15 @@ namespace hdi::dbg {
 
     ImGui::Begin("Embedding Rendering");
     ImGui::Checkbox("Draw", &_draw);
-    if (_hasLabels) {
-      ImGui::Checkbox("Draw labels", &_drawLabels);
+    if (_draw) {
+      if (_hasLabels) {
+        ImGui::Checkbox("Draw labels", &_drawLabels);
+      } else {
+        _drawLabels = false; // nope
+      }
+      ImGui::SliderFloat("Point size", &_pointSize, 0.5f, 16.f, "%1.1f");
+      ImGui::SliderFloat("Point opacity", &_pointOpacity, 0.05f, 1.f, "%.2f");
     }
-    ImGui::SliderFloat("Point size", &_pointSize, 0.5f, 16.f, "%1.1f");
-    ImGui::SliderFloat("Point opacity", &_pointOpacity, 0.05f, 1.f, "%.2f");
     ImGui::End();
     
     if (_draw) {
