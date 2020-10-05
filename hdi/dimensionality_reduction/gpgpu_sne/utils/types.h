@@ -43,6 +43,24 @@ namespace hdi {
     typedef unsigned uint;
     typedef data::Embedding<float> Embedding;
     typedef std::vector<data::MapMemEff<uint32_t, float>> SparseMatrix;
+    
+    // Rounded up division of T over T
+    template <typename genType> 
+    inline
+    genType ceilDiv(genType n, genType div) {
+      return (n + div - 1) / div;
+    }
+
+    // Product of a glm::vec<D, T>'s components
+    template <typename genType, uint D>
+    inline
+    genType product(glm::vec<D, genType, glm::aligned_highp> v) {
+      genType t = v[0];
+      for (uint i = 1; i < D; i++) {
+        t *= v[i];
+      }
+      return t;
+    }
 
     /**
      * Simple bounding box type for D dimensions.
@@ -80,8 +98,8 @@ namespace hdi {
                                                               const SparseMatrix &P) {
       LinearProbabilityMatrix LP;
       LP.indices.reserve(2 * embeddingPtr->numDataPoints());
-      LP.neighbours.reserve(500 * embeddingPtr->numDataPoints());
-      LP.probabilities.reserve(500 * embeddingPtr->numDataPoints());
+      LP.neighbours.reserve(128 * embeddingPtr->numDataPoints());
+      LP.probabilities.reserve(128 * embeddingPtr->numDataPoints());
 
       for (size_t i = 0; i < embeddingPtr->numDataPoints(); i++) {
         LP.indices.push_back(static_cast<int>(LP.neighbours.size()));
