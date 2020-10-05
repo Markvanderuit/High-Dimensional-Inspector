@@ -95,6 +95,125 @@ namespace hdi::dr::_2d {
     }
   );
 
+   /* SHADER_SRC(subdiv_src, 450,
+    layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+    // Buffer bindings
+    layout(binding = 0, std430) restrict readonly buffer Mort { uint mortonBuffer[]; };
+    layout(binding = 1, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
+    layout(binding = 2, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
+    layout(binding = 3, std430) restrict readonly buffer Subd0 { uint subdiv0Buffer[]; };
+    layout(binding = 4, std430) restrict readonly buffer SHea0 { uint subdiv0Head; };
+    layout(binding = 5, std430) restrict writeonly buffer Sub1 { uint subdiv1Buffer[]; };
+    layout(binding = 6, std430) restrict coherent buffer SHea1 { uint subdiv1Head; };
+    layout(binding = 7, std430) restrict writeonly buffer Leaf { uint leafBuffer[]; };
+    layout(binding = 8, std430) restrict coherent buffer LHead { uint leafHead; };
+
+    // Uniforms
+    layout(location = 0) uniform uint leafFanout;
+    layout(location = 1) uniform uint nodeFanout;
+    layout(location = 2) uniform bool isBottom;
+
+    // Constants
+    const uint logk = uint(log2(nodeFanout));
+    const uint t = gl_LocalInvocationID.x % nodeFanout;
+
+    uint findSplit(uint first, uint last) {
+      uint firstCode = mortonBuffer[first];
+      uint lastCode = mortonBuffer[last];
+      uint commonPrefix = findMSB(firstCode ^ lastCode);
+
+      // Initial guess for split position
+      uint split = first;
+      uint step = last - first;
+
+      // Perform a binary search to find the split position
+      do {
+        step = (step + 1) >> 1; // Decrease step size
+        uint _split = split + step; // Possible new split position
+
+        if (_split < last) {
+          uint splitCode = mortonBuffer[_split];
+          uint splitPrefix = findMSB(firstCode ^ splitCode);
+
+          // Accept newly proposed split for this iteration
+          if (splitPrefix < commonPrefix) {
+            split = _split;
+          }
+        }
+      } while (step > 1);
+
+      // split = first + (last - first) / 2; // blunt halfway split for testing
+
+      return split;
+    }
+
+    void main() {
+      // Check if invoc exceeds range of child nodes we want to compute
+      const uint _i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nodeFanout;
+      if (_i >= subdiv0Head) {
+        return;
+      }
+      const uint i = subdiv0Buffer[_i];
+
+      // Check if invoc exceeds range of child nodes we want to compute
+      // const uint i = rangeBegin 
+      //              + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
+      //              / nodeFanout;
+      // if (i > rangeEnd) {
+      //   return;
+      // }
+
+      // Load parent range
+      uint begin = uint(node1Buffer[i].w);
+      uint mass = uint(node0Buffer[i].w);
+
+      // Subdivide if the mass is large enough
+      if (mass <= leafFanout) {
+        begin = 0;
+        mass = 0;
+      } else {
+        // First, find split position based on morton codes
+        // Then set node ranges for left and right child based on split
+        // If a range is too small to split, it will be passed to the leftmost invocation only
+        uint end = begin + mass - 1;
+        for (uint j = nodeFanout; j > 1; j /= 2) {
+          bool isLeft = (t % j) < (j / 2);
+          if (mass > leafFanout) {
+            // Node is large enough, split it
+            uint split = findSplit(begin, end);
+            begin = isLeft ? begin : split + 1;
+            end = isLeft ? split : end;
+            mass = 1 + end - begin;
+          } else {
+            // Node is small enough, hand range only to leftmost invocation
+            if (!isLeft) {
+              begin = 0;
+              mass = 0;
+              break;
+            }
+          }
+        }
+      }
+
+      // Store node data (each invoc stores their own child node)
+      uint j = i * nodeFanout + 1 + t;
+      node0Buffer[j] = vec4(0, 0, 0, mass);
+      node1Buffer[j] = vec4(0, 0, 0, begin);
+      
+      if (mass > 0) {
+        if (isBottom || mass <= leafFanout) {
+          // Yeet node id on leaf queue if... well if they are a leaf node
+          leafBuffer[atomicAdd(leafHead, 1)] = j;
+        } else {
+          // Push on subdivision queue for further subdivision
+          subdiv1Buffer[atomicAdd(subdiv1Head, 1)] = j;
+        }
+      }
+    }
+  ); */
+
+  // Pre-workqueue subdiv
   SHADER_SRC(subdiv_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 

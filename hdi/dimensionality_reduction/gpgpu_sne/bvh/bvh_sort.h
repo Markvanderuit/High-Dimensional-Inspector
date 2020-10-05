@@ -45,9 +45,16 @@ namespace hdi {
       void init(GLuint keysUnsortedBuffer, 
                 GLuint keysSortedBuffer,
                 GLuint idxSortedBuffer, 
-                unsigned n, unsigned lvls);
+                unsigned maxn, unsigned maxlvls);
       void destr();
-      void compute();
+
+      void map();
+      void unmap();
+      void compute(unsigned n, unsigned lvls);
+
+      bool isMapped() const {
+        return _isMapped;
+      }
 
     private:
       enum class BufferType {
@@ -66,8 +73,9 @@ namespace hdi {
       };
 
       bool _isInit;
-      unsigned _nPos;
-      unsigned _nLvls;
+      bool _isMapped;
+      unsigned _maxn;
+      unsigned _maxlvls;
       size_t _tempSize;
       EnumArray<BufferType, void*> _buffers;
       EnumArray<InteropBufferType, InteropBuffer> _interops;

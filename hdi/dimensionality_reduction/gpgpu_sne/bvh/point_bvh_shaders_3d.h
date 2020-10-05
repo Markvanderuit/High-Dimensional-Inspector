@@ -248,7 +248,7 @@ namespace hdi::dr::_3d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = i / nodeFanout;
+        uint j = (i - 1) / nodeFanout;
         write(j, sharedNode[s]);
       }
     }

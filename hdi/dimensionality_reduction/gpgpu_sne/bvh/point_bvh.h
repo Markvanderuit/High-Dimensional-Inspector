@@ -40,7 +40,7 @@
 
 namespace hdi::dr {
   template <unsigned D>
-  class BVH {
+  class PointBVH {
   public:
     // Wrapper object to pass tree layout data to external code
     struct Layout {
@@ -76,21 +76,28 @@ namespace hdi::dr {
     };
 
   public:
-    BVH();
-    ~BVH();
+    PointBVH();
+    ~PointBVH();
 
     void init(const TsneParameters &params, // T-SNE params data wrapper
               const Layout &layout,         // Tree layout data wrapper
               GLuint posBuffer,             // Handle to embedding positions buffer
               GLuint boundsBuffer);         // Handle to embedding bounds buffer
     void destr();
-    void compute(bool rebuild,              // Rebuild full tree on iteration
+    void compute(bool rebuild,              // Rebuild full tree on iteration?
                  unsigned iteration,        // Iteration of gradient descent
                  GLuint posBuffer,          // Handle to embedding positions buffer
                  GLuint boundsBuffer);      // Handle to embedding bounds buffer
 
   private:
     enum class BufferType {
+      // Work queues
+/*       eSubdivQueue0,
+      eSubdivQueue1,
+      eSubdivQueueHead0,
+      eSubdivQueueHead1,
+      eSubdivQueueHeadInit, */
+
       // Internal tree data
       eMortonUnsorted,  // Unsorted morton codes
       eMortonSorted,    // Sorted morton codes

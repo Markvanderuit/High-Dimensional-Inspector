@@ -30,6 +30,7 @@
 
 #include <numeric>
 #include <vector>
+#define THRUST_IGNORE_CUB_VERSION_CHECK
 #include <cub/cub.cuh>
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_sort.h"
 
@@ -48,19 +49,19 @@ namespace hdi {
     void BVHSorter::init(GLuint keysUnsortedBuffer,
                             GLuint keysSortedBuffer, 
                             GLuint idxSortedBuffer, 
-                            unsigned n,
-                            unsigned lvls) {
-      _nPos = n;
-      _nLvls = lvls;
+                            unsigned maxn,
+                            unsigned maxlvls) {
+      _maxn = maxn;
+      _maxlvls = maxlvls;
 
       // Fire up cub::RadixSort to figure out temporary memory size in bytes
-      cub::DeviceRadixSort::SortPairs<uint, float4>(
-        nullptr, _tempSize, nullptr, nullptr, nullptr, nullptr, _nPos
+      cub::DeviceRadixSort::SortPairs<uint, uint>(
+        nullptr, _tempSize, nullptr, nullptr, nullptr, nullptr, _maxn
       );
       
       // Initialize buffers
       cudaMalloc(&_buffers(BufferType::eTemp), _tempSize);
-      cudaMalloc(&_buffers(BufferType::eIdxUnsorted), _nPos * sizeof(uint));
+      cudaMalloc(&_buffers(BufferType::eIdxUnsorted), _maxn * sizeof(uint));
 
       // Initialize interop resources
       _interops(InteropBufferType::eKeysUnsorted).init(keysUnsortedBuffer, InteropType::eReadOnly);
@@ -69,16 +70,20 @@ namespace hdi {
 
       // Fill unsorted indices buffer with an increasing range of sorted integers
       {
-        std::vector<uint> v(_nPos);
+        std::vector<uint> v(_maxn);
         std::iota(v.begin(), v.end(), 0u);
         cudaMemcpy(_buffers(BufferType::eIdxUnsorted),
           v.data(), sizeof(uint) * v.size(), cudaMemcpyHostToDevice);
       }
-
+      
+      _isMapped = false;
       _isInit = true;
     }
 
     void BVHSorter::destr() {
+      if (_isMapped) {
+        unmap();
+      }
       for (auto &interop : _interops) {
         interop.destr();
       }
@@ -88,12 +93,19 @@ namespace hdi {
       _isInit = false;
     }
 
-    void BVHSorter::compute() {
+    void BVHSorter::map() {
       mapResources(_interops.size(), _interops.data());
-      
+      _isMapped = true;
+    }
+
+    void BVHSorter::unmap() {
+      unmapResources(_interops.size(), _interops.data());
+      _isMapped = false;
+    }
+
+    void BVHSorter::compute(unsigned n, unsigned lvls) {
       const int msb = 30; // exclusive
-      const int lsb = msb - _nLvls;// (msb - 1) - _nLvls; // inclusive
-      
+      const int lsb = msb - lvls;// (msb - 1) - _nLvls; // inclusive
       cub::DeviceRadixSort::SortPairs<uint, uint>(
         (void *) _buffers(BufferType::eTemp), 
         _tempSize, 
@@ -101,11 +113,9 @@ namespace hdi {
         (uint *) _interops(InteropBufferType::eKeysSorted).ptr(),
         (uint *) _buffers(BufferType::eIdxUnsorted),
         (uint *) _interops(InteropBufferType::eIdxSorted).ptr(),
-        (int) _nPos, 
+        (int) n, 
         lsb, msb
       );
-
-      unmapResources(_interops.size(), _interops.data());
     }
   }
 }

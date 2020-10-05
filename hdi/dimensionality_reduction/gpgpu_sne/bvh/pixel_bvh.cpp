@@ -34,9 +34,10 @@
 #include <cmath>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_shaders_2d.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_shaders_3d.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/pixel_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/pixel_bvh_shaders_3d.h"
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 template <typename genType> 
 inline
@@ -46,23 +47,24 @@ genType ceilDiv(genType n, genType div) {
 
 namespace hdi::dr {
   template <unsigned D>
-  BVH<D>::BVH()
+  PixelBVH<D>::PixelBVH()
   : _isInit(false), _logger(nullptr) { }
 
   template <unsigned D>
-  BVH<D>::~BVH() {
+  PixelBVH<D>::~PixelBVH() {
     if (_isInit) {
       destr();
     }
   }
 
   template <unsigned D>
-  void BVH<D>::init(const TsneParameters &params,
-                          const BVH<D>::Layout &layout,
-                          GLuint posBuffer,
-                          GLuint boundsBuffer) {      
+  void PixelBVH<D>::init(const TsneParameters &params, 
+                         const PixelBVH<D>::Layout &layout,       
+                         GLuint pixelBuffer,         
+                         GLuint pixelHeadBuffer) {
     _params = params;
     _layout = layout;
+    _reservedNodes = _layout.nNodes;
 
     // Create program objects
     {
@@ -70,21 +72,12 @@ namespace hdi::dr {
         program.create();
       }
 
-      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _2d::subdiv_src);
-      _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _2d::divide_dispatch_src);
-
-      // Blargh, swap some shaders depending on embedding dimension being 2 or 3
-      if constexpr (D == 2) {
-        _programs(ProgramType::eMorton).addShader(COMPUTE, _2d::morton_src);
-        _programs(ProgramType::ePosSorted).addShader(COMPUTE, _2d::pos_sorted_src);
-        _programs(ProgramType::eLeaf).addShader(COMPUTE, _2d::leaf_src);
-        _programs(ProgramType::eBbox).addShader(COMPUTE, _2d::bbox_src);
-      } else if constexpr (D == 3) {
-        _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
-        _programs(ProgramType::ePosSorted).addShader(COMPUTE, _3d::pos_sorted_src);
-        _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
-        _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
-      }
+      _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
+      _programs(ProgramType::ePixelSorted).addShader(COMPUTE, _3d::pixel_sorted_src);
+      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _3d::subdiv_src);
+      _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _3d::divide_dispatch_src);
+      _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
+      _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
 
       for (auto &program : _programs) {
         program.build();
@@ -93,24 +86,18 @@ namespace hdi::dr {
 
     // Create buffer objects
     {
-      using vecd = glm::vec<D, float, glm::aligned_highp>; // 8 or 16 byte aligned vector type
-
-      // Root node data will have total mass (nPos) initialized for top node
-      std::vector<glm::vec4> nodeData(_layout.nNodes, glm::vec4(0));
-      nodeData[0].w = _layout.nPos;
       glm::uvec4 head(0);
-
       glCreateBuffers(_buffers.size(), _buffers.data());
-      glNamedBufferStorage(_buffers(BufferType::eMortonUnsorted), _layout.nPos * sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eMortonSorted), _layout.nPos * sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eIdxSorted), _layout.nPos * sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePosSorted), _layout.nPos * sizeof(vecd), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eMortonUnsorted), _layout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eMortonSorted), _layout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eIdxSorted), _layout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePixelSorted), _layout.nPixels * sizeof(uvec), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode0), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode1), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eField), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafFlag), _layout.nNodes * sizeof(uint), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafHead), sizeof(uint), &head[0], 0);
       glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), &head[0], 0);
-      glNamedBufferStorage(_buffers(BufferType::eNode0), _layout.nNodes * sizeof(glm::vec4), nodeData.data(), 0);
-      glNamedBufferStorage(_buffers(BufferType::eNode1), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eMinB), _layout.nNodes * sizeof(vecd), nullptr, 0);
     }
 
     // Pass stuff to sorter
@@ -118,84 +105,139 @@ namespace hdi::dr {
       _buffers(BufferType::eMortonUnsorted), 
       _buffers(BufferType::eMortonSorted), 
       _buffers(BufferType::eIdxSorted), 
-      _layout.nPos, 
+      _layout.nPixels, 
       _layout.nLvls * uint(std::log2(_layout.nodeFanout))
     );
 
     // Output tree info
-    utils::secureLogValue(_logger, "   BVHBuilder", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
+    utils::secureLogValue(_logger, "   PixelBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     utils::secureLogValue(_logger, "      fanout", _layout.nodeFanout);
-    utils::secureLogValue(_logger, "      nPos", _layout.nPos);
+    utils::secureLogValue(_logger, "      nPixels", _layout.nPixels);
     utils::secureLogValue(_logger, "      nLvls", _layout.nLvls);
     utils::secureLogValue(_logger, "      nNodes", _layout.nNodes);
 
     INIT_TIMERS();
-    ASSERT_GL("BVHBuilder::init()");
+    ASSERT_GL("PixelBVH::init()");
     _isInit = true;
   }
 
   template <unsigned D>
-  void BVH<D>::destr() {
+  void PixelBVH<D>::destr() {
     _sorter.destr();
     for (auto &program : _programs) {
       program.destroy();
     }
     glDeleteBuffers(_buffers.size(), _buffers.data());
     DSTR_TIMERS();
-    ASSERT_GL("BVHBuilder::destr()");
+    ASSERT_GL("PixelBVH::destr()");
     _isInit = false;
   }
 
   template <unsigned D>
-  void BVH<D>::compute(bool rebuild, 
-                       unsigned iteration,
-                       GLuint posBuffer,
-                       GLuint boundsBuffer) {
+  void PixelBVH<D>::compute(unsigned iteration,     
+                            const PixelBVH<D>::Layout &layout, 
+                            GLuint pixelBuffer,       
+                            GLuint pixelHeadBuffer,
+                            GLuint boundsBuffer) {
+    _layout = layout;
+
+    // Available memory for the tree becomes too small as the nr. of pixels to compute keeps
+    // growing aggressively throughout the gradient descent
+    if (_reservedNodes < _layout.nNodes) {
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+      utils::secureLogValue(_logger, "   Expanding PixelBVH on iter", std::to_string(iteration));
+
+      // New 'reserve' layout is nearest larger power of 2, so plenty of space for now
+      uvec newDims = glm::pow(vec(2), glm::ceil(glm::log(vec(_layout.dims)) / vec(glm::log(2)))); 
+      uint newPixels = newDims.x * newDims.y;
+      if constexpr (D == 3) {
+        newPixels *= newDims.z;
+      } 
+      PixelBVH<D>::Layout reserveLayout(newPixels, newDims, _layout.nodeFanout);
+
+      _reservedNodes = reserveLayout.nNodes;
+
+      // Delete buffers and clear out sorder
+      _sorter.destr();
+      glDeleteBuffers(_buffers.size(), _buffers.data());
+
+      // Allocate new buffers
+      glm::uvec4 head(0);
+      glCreateBuffers(_buffers.size(), _buffers.data());
+      glNamedBufferStorage(_buffers(BufferType::eMortonUnsorted), reserveLayout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eMortonSorted), reserveLayout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eIdxSorted), reserveLayout.nPixels * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePixelSorted), reserveLayout.nPixels * sizeof(uvec), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode0), reserveLayout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eNode1), reserveLayout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eField), reserveLayout.nNodes * sizeof(glm::vec4), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eLeafFlag), reserveLayout.nNodes * sizeof(uint), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eLeafHead), sizeof(uint), &head[0], 0);
+      glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), &head[0], 0);
+
+      // Set up new sorter using new buffers
+      _sorter.init(
+        _buffers(BufferType::eMortonUnsorted), 
+        _buffers(BufferType::eMortonSorted), 
+        _buffers(BufferType::eIdxSorted), 
+        reserveLayout.nPixels, 
+        reserveLayout.nLvls * uint(std::log2(reserveLayout.nodeFanout))
+      );
+      
+      utils::secureLogValue(_logger, "   Expanded PixelBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
+    }
+    
     // Generate morton codes
-    if (rebuild) {
+    {
       TICK_TIMER(TIMR_MORTON);
 
       auto &program = _programs(ProgramType::eMorton);
       program.bind();
-      program.uniform1ui("nPoints", _layout.nPos);
+      program.uniform1ui("nPixels", _layout.nPixels);
+      if constexpr (D == 2) {
+        program.uniform2ui("textureSize", _layout.dims.x, _layout.dims.y);
+      } else if constexpr (D == 3) {      
+        program.uniform3ui("textureSize", _layout.dims.x, _layout.dims.y, _layout.dims.z);
+      }
+      
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, pixelBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eMortonUnsorted));
 
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, posBuffer);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, boundsBuffer);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMortonUnsorted));
-
-      glDispatchCompute(ceilDiv(_layout.nPos, 256u), 1, 1);
+      glDispatchCompute(ceilDiv(_layout.nPixels, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
       TOCK_TIMER(TIMR_MORTON);
-      ASSERT_GL("BVHBuilder::compute::morton()");
-    } // rebuild
+      ASSERT_GL("PixelBVH::compute::morton()");
+    }
 
     // Delegate sorting of position indices over morton codes to the CUDA CUB library
     // This means we pay a cost for OpenGL-CUDA interopability, unfortunately.
     // Afterwards generate sorted list of positions based on sorted indices
-    if (rebuild) {
+    {
       TICK_TIMER(TIMR_SORT);
-      
-      _sorter.compute(); // ohboy
 
-      auto &program = _programs(ProgramType::ePosSorted);
+      _sorter.map();
+      _sorter.compute(_layout.nPixels, _layout.nLvls * uint(std::log2(_layout.nodeFanout)));
+      _sorter.unmap();
+
+      auto &program = _programs(ProgramType::ePixelSorted);
       program.bind();
-      program.uniform1ui("nPoints", _layout.nPos);
+      program.uniform1ui("nPixels", _layout.nPixels);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eIdxSorted));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, posBuffer);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::ePosSorted));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::ePixelSorted));
 
-      glDispatchCompute(ceilDiv(_layout.nPos, 256u), 1, 1);
+      glDispatchCompute(ceilDiv(_layout.nPixels, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
       TOCK_TIMER(TIMR_SORT);
-      ASSERT_GL("BVHBuilder::compute::posSorted()");
-    } // rebuild
+      ASSERT_GL("PixelBVH::compute::sort()");
+    }
 
-    // Perform subdivision based on generated morton codes
-    if (rebuild) {
-      TICK_TIMER(TIMR_SUBDIV); 
+    // Perform subdivision
+    {
+      TICK_TIMER(TIMR_SUBDIV);
 
       // Set leaf queue head to 0
       glClearNamedBufferData(_buffers(BufferType::eLeafHead), 
@@ -203,7 +245,7 @@ namespace hdi::dr {
 
       auto &program = _programs(ProgramType::eSubdiv);
       program.bind();
-      program.uniform1ui("leafFanout", _layout.leafFanout);
+      program.uniform1ui("nPixels", _layout.nPixels);
       program.uniform1ui("nodeFanout", _layout.nodeFanout);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
@@ -219,6 +261,7 @@ namespace hdi::dr {
         const uint end = begin + (1u << (logk * lvl)) - 1;
         const uint range = 1 + end - begin;
 
+        program.uniform1ui("isTop", lvl == 0);
         program.uniform1ui("isBottom", lvl == _layout.nLvls - 2); // All further subdivided nodes are leaves
         program.uniform1ui("rangeBegin", begin);
         program.uniform1ui("rangeEnd", end);
@@ -230,15 +273,15 @@ namespace hdi::dr {
       }
 
       TOCK_TIMER(TIMR_SUBDIV);
-      ASSERT_GL("BVHBuilder::compute::subdiv()");
-    } //
+      ASSERT_GL("PixelBVH::compute::subdiv()");
+    }
 
     // Compute leaf data
     {
       TICK_TIMER(TIMR_LEAF);
-
+      
       // Divide contents of BufferType::eLeafHead by workgroup size
-      if (rebuild) {
+      {
         auto &program = _programs(ProgramType::eDivideDispatch);
         program.bind();
         program.uniform1ui("div", 256);
@@ -247,29 +290,36 @@ namespace hdi::dr {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
         
         glDispatchCompute(1, 1, 1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      } // rebuild
+      }
       
       auto &program = _programs(ProgramType::eLeaf);
       program.bind();
       program.uniform1ui("nNodes", _layout.nNodes);
+      if constexpr (D == 2) {
+        program.uniform2ui("textureSize", _layout.dims.x, _layout.dims.y);
+      } else if constexpr (D == 3) {      
+        program.uniform3ui("textureSize", _layout.dims.x, _layout.dims.y, _layout.dims.z);
+      }
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::ePosSorted));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eField));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::ePixelSorted));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eLeafFlag));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eLeafHead));
-
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, boundsBuffer);
+  
       glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
+      glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+
       glDispatchComputeIndirect(0);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
       TOCK_TIMER(TIMR_LEAF);
-      ASSERT_GL("BVHBuilder::compute::leaf()");
+      ASSERT_GL("PixelBVH::compute::leaf()");
     }
 
-    // Compute auxiliary data, eg. bounding boxes and Barnes-Hut stuff
+    // Compute auxiliary data
     {
       TICK_TIMER(TIMR_BBOX);
       
@@ -279,7 +329,7 @@ namespace hdi::dr {
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eField));
 
       // Iterate through levels from bottom to top.
       const uint logk = std::log2(_layout.nodeFanout);
@@ -296,24 +346,26 @@ namespace hdi::dr {
 
         end = begin - 1;
       }
-      
+
       TOCK_TIMER(TIMR_BBOX);
-      ASSERT_GL("BVHBuilder::compute::bbox()");
+      ASSERT_GL("PointBVH::compute::bbox()");
     }
 
     // Output timer data on final iteration
     POLL_TIMERS();
     if (iteration == _params._iterations - 1) {
-      utils::secureLog(_logger, "\nBVH building");
+#ifdef GL_TIMERS_ENABLED
+      utils::secureLog(_logger, "\nPixelBVH building");
+#endif
       LOG_TIMER(_logger, TIMR_MORTON, "  Morton");
       LOG_TIMER(_logger, TIMR_SORT, "  Sorting");
       LOG_TIMER(_logger, TIMR_SUBDIV, "  Subdiv");
-      LOG_TIMER(_logger, TIMR_LEAF, "  Leaf")
-      LOG_TIMER(_logger, TIMR_BBOX, "  Bbox")
+      LOG_TIMER(_logger, TIMR_LEAF, "  Leaf");
+      LOG_TIMER(_logger, TIMR_BBOX, "  Bbox");
     }
   }
-
+  
   // Explicit template instantiations
-  template class BVH<2>;
-  template class BVH<3>;
+  template class PixelBVH<2>;
+  template class PixelBVH<3>;
 }
