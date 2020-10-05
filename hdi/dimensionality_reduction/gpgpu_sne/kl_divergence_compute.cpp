@@ -46,12 +46,6 @@ namespace hdi::dr {
   KlDivergenceCompute<D>::KlDivergenceCompute()
   : _logger(nullptr) { }
 
-  template
-  KlDivergenceCompute<2>::KlDivergenceCompute();
-
-  template
-  KlDivergenceCompute<3>::KlDivergenceCompute();
-
   template <unsigned D>
   float KlDivergenceCompute<D>::compute(const Embedding *embedding,
                                         const TsneParameters &params,
@@ -233,9 +227,7 @@ namespace hdi::dr {
     return kld;
   }
 
-  template
-  float KlDivergenceCompute<2>::compute(const Embedding*, const TsneParameters&, const SparseMatrix&);
-
-  template
-  float KlDivergenceCompute<3>::compute(const Embedding*, const TsneParameters&, const SparseMatrix&);
+  // Explicit template instantiations for 2 and 3 dimensions
+  template class KlDivergenceCompute<2>;
+  template class KlDivergenceCompute<3>;
 } // namespace hdi::dr
