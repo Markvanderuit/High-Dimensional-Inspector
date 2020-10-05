@@ -41,6 +41,14 @@
 #include "hdi/debug/renderer/embedding.hpp"
 
 namespace hdi::dr {
+  /**
+   * GpgpuSneCompute
+   * 
+   * Class which performs a single step of the tSNE minimization over a provided embedding fully on
+   * the GPU. The template parameter indicates support for D = 2 or D = 3 dimensional embeddings. 
+   * The class delegates some computation to the subclass Field2dCompute or Field3dCompute depending 
+   * on D. Rewritten based on previous version by N. Pezotti.
+   */
   template <unsigned D>
   class GpgpuSneCompute {
     typedef glm::vec<D, float, glm::aligned_highp> vec;
@@ -55,7 +63,7 @@ namespace hdi::dr {
               const TsneParameters &params,
               const SparseMatrix &P);
     void destr();
-    void compute(Embedding* embeddingPtr,
+    void compute(Embedding* embedding,
                  float exaggeration,
                  unsigned iteration,
                  float mult);
@@ -96,14 +104,6 @@ namespace hdi::dr {
       Length
     };
 
-    DECL_TIMERS(
-      TIMR_BOUNDS,
-      TIMR_SUM_Q,
-      TIMR_GRADIENTS,
-      TIMR_UPDATE,
-      TIMR_CENTER
-    );
-
     bool _isInit;
     Bounds _bounds;
     TsneParameters _params;
@@ -113,5 +113,14 @@ namespace hdi::dr {
     Field2dCompute _field2dCompute;
     Field3dCompute _field3dCompute;
     dbg::EmbeddingRenderer<D> _embeddingRenderer;
+
+    DECL_TIMERS(
+      TIMR_BOUNDS,
+      TIMR_SUM_Q,
+      TIMR_F_ATTR,
+      TIMR_GRADIENTS,
+      TIMR_UPDATE,
+      TIMR_CENTER
+    );
   };
 }
