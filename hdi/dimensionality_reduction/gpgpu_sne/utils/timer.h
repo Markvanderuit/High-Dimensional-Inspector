@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <deque>
 #include <numeric>
@@ -39,7 +40,6 @@
 #define GL_TIMERS_ENABLED // Enable/disable GL timers globally
 
 namespace hdi::dr {
-#ifdef GL_TIMERS_ENABLED
   class GlTimer {
   public:
     GlTimer()
@@ -52,41 +52,38 @@ namespace hdi::dr {
     }
 
     void init() {
-      glCreateQueries(GL_TIME_ELAPSED, 1, &_handle);
+      glCreateQueries(GL_TIME_ELAPSED, _handles.size(), _handles.data());
       _values.fill(0);
       _iteration = 0;
       _isInit = true;
     }
 
     void dstr() {
-      glDeleteQueries(1, &_handle);
+      glDeleteQueries(_handles.size(), _handles.data());
       _values.fill(0);
       _iteration = 0;
       _isInit = false;
     }
 
     void tick() {
-      glBeginQuery(GL_TIME_ELAPSED, _handle);
+      // Start front timer
+      glBeginQuery(GL_TIME_ELAPSED, _handles[0]);
     }
     
     void tock() {
       glEndQuery(GL_TIME_ELAPSED);
     }
 
-    bool poll() {
-      int i = 0;
-      glGetQueryObjectiv(_handle, GL_QUERY_RESULT_AVAILABLE, &i);
-      if (!i) {
-        return GL_FALSE;
-      }
-      
-      glGetQueryObjecti64v(_handle, GL_QUERY_RESULT, &_values[TIMR_LAST_QUERY]);
+    void poll() {
+      // Poll back timer
+      glGetQueryObjecti64v(_handles[1], GL_QUERY_RESULT, &_values[TIMR_LAST_QUERY]);
       _values[TIMR_TOTAL] += _values[TIMR_LAST_QUERY];
       _values[TIMR_AVERAGE] = _values[TIMR_AVERAGE] 
                              + (_values[TIMR_LAST_QUERY] - _values[TIMR_AVERAGE]) 
                              / (++_iteration);
 
-      return GL_TRUE;
+      // Swap front and back timers
+      std::swap(_handles[0], _handles[1]);
     }
 
     double lastMillis() const {
@@ -124,6 +121,7 @@ namespace hdi::dr {
     };
 
     bool _isInit;
+    std::array<GLuint, 2> _handles;
     GLuint _handle;
     unsigned _iteration;
     std::array<GLint64, ValueTypeLength> _values;
@@ -135,7 +133,8 @@ namespace hdi::dr {
       GlTimerTypeLength \
     }; \
     std::array<GlTimer, GlTimerTypeLength> glTimers;
-  
+
+#ifdef GL_TIMERS_ENABLED
   #define INIT_TIMERS() \
     for (auto &t : glTimers) t.init();
 
@@ -149,17 +148,7 @@ namespace hdi::dr {
     glTimers[name].tock();
 
   #define POLL_TIMERS() \
-    { \
-      std::deque<int> t(GlTimerTypeLength); \
-      std::iota(t.begin(), t.end(), 0); \
-      while (!t.empty()) { \
-        const int _t = t.front(); \
-        t.pop_front(); \
-        if (!glTimers[_t].poll()) { \
-          t.push_back(_t); \
-        } \
-      } \
-    }
+    for (auto &t : glTimers) t.poll();
 
 #ifdef _WIN32
   #define LOG_TIMER(logger, name, str) \
@@ -175,12 +164,11 @@ namespace hdi::dr {
       );
 #endif
 #else
-  #define DECL_TIMERS(...)
   #define INIT_TIMERS()
   #define DSTR_TIMERS()
   #define POLL_TIMERS()
-  #define TICK_TIMERS(name)
-  #define TOCK_TIMERS(name)
+  #define TICK_TIMER(name)
+  #define TOCK_TIMER(name)
   #define LOG_TIMER(logger, name, str)
 #endif
 }
