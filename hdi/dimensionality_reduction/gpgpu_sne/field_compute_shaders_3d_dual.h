@@ -239,9 +239,9 @@ GLSL(field_bvh_dual_src, 450,
 );
 
 GLSL(field_bvh_leaf_src, 450,
-  \#extension GL_NV_shader_atomic_float : require // atomicAdd(f32) support
-  \#extension GL_KHR_shader_subgroup_clustered : require // subgroupClusteredAdd(...) support
-  \#extension GL_KHR_shader_subgroup_shuffle : require // subgroupShuffle(...) support
+  FLUX_GL_VERBATIM_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
   
   // Wrapper structure for pair queue data
   struct Pair {
