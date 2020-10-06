@@ -29,6 +29,9 @@
  */
 
 #pragma once
+
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim_glsl.h"
+
 #define GLSL(name, version, shader) \
   static const char * name = \
   "#version " #version "\n" #shader
@@ -280,7 +283,7 @@ GLSL(field_bvh_src, 450,
 );
 
 GLSL(field_bvh_wide_src, 450, 
-  #extension GL_KHR_shader_subgroup_clustered : require\n
+  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require )
 
   // Wrapper structure for bounds data
   struct Bounds {

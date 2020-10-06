@@ -175,8 +175,8 @@ namespace hdi::dr::_2d {
   );
 
   SHADER_SRC(positive_forces_src, 450,
-    #extension GL_KHR_shader_subgroup_ballot : require\n      // subgroupBroadcast(...) support
-    #extension GL_KHR_shader_subgroup_arithmetic : require\n  // subgroupAdd(...) support
+    FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_ballot : require )     // subgroupBroadcast(...) support
+    FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_arithmetic : require ) // subgroupAdd(...) support
 
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
