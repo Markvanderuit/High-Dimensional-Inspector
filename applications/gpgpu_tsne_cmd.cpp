@@ -32,7 +32,7 @@
 
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/log_helper_functions.h"
-#include "hdi/utils/dataset_utils.h"
+#include "hdi/data/empty_data.h"
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/debug/utils/window.hpp"
 #include "hdi/debug/utils/input.hpp"
@@ -52,6 +52,7 @@
 #include <string>
 
 typedef float scalar_type;
+typedef unsigned uint;
 
 // Required CLI parameters
 std::string inputFileName;
