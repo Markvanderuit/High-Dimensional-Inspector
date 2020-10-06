@@ -37,11 +37,11 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
-#include "hdi/data/pixel_data.h"
-#include "hdi/data/image_data.h"
+// #include "hdi/data/pixel_data.h"
+// #include "hdi/data/image_data.h"
 #include "hdi/data/empty_data.h"
 #include "hdi/data/text_data.h"
-#include "hdi/data/voxel_data.h"
+// #include "hdi/data/voxel_data.h"
 #include "vector_utils.h"
 #include "hdi/utils/abstract_log.h"
 #include "hdi/utils/log_helper_functions.h"

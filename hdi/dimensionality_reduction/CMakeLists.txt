@@ -23,7 +23,7 @@ file(GLOB sources
 
 add_library(hdidimensionalityreduction ${headers} ${sources})
 target_include_directories(hdidebug PUBLIC ${CMAKE_SOURCE_DIR})
-# target_compile_features(hdidimensionalityreduction PUBLIC cuda_std_14)
+target_compile_features(hdidimensionalityreduction PUBLIC cuda_std_17)
 target_link_libraries(hdidimensionalityreduction
   hdiutils 
   hdidebug 
