@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.16)
  
 function(addProject Name Sources)
   add_executable(${Name} ${Sources})

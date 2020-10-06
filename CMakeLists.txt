@@ -1,7 +1,7 @@
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.16)
 
 # Create a C++/CUDA project
-project(HighDimInspector LANGUAGES CXX CUDA)
+project(HighDimInspector LANGUAGES C CXX CUDA)
 
 # CRoaring
 # Create lib from amalganation files
@@ -79,12 +79,6 @@ target_include_directories(cub INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 add_library(cuda_helper INTERFACE)
 target_include_directories(cuda_helper INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cuda/include)
 
-# QT5
-# Leverage find_package to find required components
-find_package(Qt5 REQUIRED Core Widgets)
-if(HDI_BUILD_VISUALIZATION OR HDI_BUILD_CLI)
-  find_package(Qt5 REQUIRED Gui OpenGL)
-endif()
 
 # MSVC
 # Disable some warnings (yeah yeah I know)
