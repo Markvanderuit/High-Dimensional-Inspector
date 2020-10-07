@@ -40,8 +40,8 @@
 namespace hdi::dr {
   template <unsigned D>
   class KlDivergenceCompute {
-    typedef glm::vec<D, float, glm::aligned_highp> vec;
-    typedef glm::vec<D, uint, glm::aligned_highp> uvec;
+    using vec = dr::AlignedVec<D, float>;
+    using uvec = dr::AlignedVec<D, uint>;
   
   public:
     KlDivergenceCompute();

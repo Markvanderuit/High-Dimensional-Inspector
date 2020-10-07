@@ -95,7 +95,7 @@ namespace hdi::dr {
 
     // Create buffer objects
     {
-      using vecd = glm::vec<D, float, glm::aligned_highp>; // 8 or 16 byte aligned vector type
+      using vecd = dr::AlignedVec<D, float>;
 
       // Root node data will have total mass (nPos) initialized for top node
       std::vector<glm::vec4> nodeData(_layout.nNodes, glm::vec4(0));
@@ -113,13 +113,6 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eNode0), _layout.nNodes * sizeof(glm::vec4), nodeData.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::eNode1), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eMinB), _layout.nNodes * sizeof(vecd), nullptr, 0);
-
-/*       uint _head = 1;
-      glNamedBufferStorage(_buffers(BufferType::eSubdivQueue0), _layout.nPos * sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eSubdivQueue1), _layout.nPos * sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eSubdivQueueHead0), sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eSubdivQueueHead1), sizeof(uint), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eSubdivQueueHeadInit), sizeof(uint), &_head, 0); */
     }
 
     // Pass stuff to sorter

@@ -143,8 +143,10 @@ namespace hdi::dr {
 
     // Initialize field computation subcomponent
     if constexpr (D == 2) {
+      _field2dCompute.setLogger(_logger);
       _field2dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
     } else if constexpr (D == 3) {
+      _field3dCompute.setLogger(_logger);
       _field3dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
     }
 
@@ -160,7 +162,6 @@ namespace hdi::dr {
     _isInit = true;
     std::cerr << "GpgpuSneCompute::init()" << std::endl;
   }
-
 
   /**
    * GpgpuSneCompute::destr()
@@ -238,7 +239,7 @@ namespace hdi::dr {
       // Determine field texture dimensions
       vec range = _bounds.range();
       uvec dims = doAdaptiveResolution
-                ? glm::max(uvec(range * pixelRatio), uvec(minFieldSize))
+                ? dr::max(uvec(range * pixelRatio), uvec(minFieldSize))
                 : uvec(fixedFieldSize);
 
       // Delegate to subclass depending on dimension of embedding

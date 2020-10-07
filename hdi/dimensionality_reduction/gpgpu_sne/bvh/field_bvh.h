@@ -41,17 +41,17 @@
 namespace hdi::dr {
   template <unsigned D>
   class FieldBVH {
-    typedef glm::vec<D, float, glm::aligned_highp> vec;
-    typedef glm::vec<D, uint, glm::aligned_highp> uvec;
+    using vec = dr::AlignedVec<D, float>;
+    using uvec = dr::AlignedVec<D, uint>;
 
   public:
     // Wrapper object to pass tree layout data to external code
     struct Layout {
       uint nPixels;       // Nr of pixels flagged for computation
-      uvec dims;          // Total image resolution
+      uvec dims;          // Dimensional field resolution
       uint nNodes;        // Nr of tree nodes
       uint nLvls;         // Nr of tree levels
-      uint nodeFanout;    // Tree width, 8 is a good tradeoff for memory usage and BH-approximation.
+      uint nodeFanout;    // Fan-out, 8 is a good tradeoff for 3d
 
       Layout()
       : nPixels(0), dims(0), nNodes(0), nLvls(0), nodeFanout(0) { }

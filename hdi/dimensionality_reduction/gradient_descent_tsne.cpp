@@ -96,9 +96,11 @@ namespace hdi::dr {
     utils::secureLog(_logger, "Initializing gpu components...");
     switch (_params._embedding_dimensionality) {
       case 2:
+        _gpgpu_2d_sne_compute.setLogger(_logger);
         _gpgpu_2d_sne_compute.init(_embeddingPtr, _params, _P);
         break;
       case 3:
+        _gpgpu_3d_sne_compute.setLogger(_logger);
         _gpgpu_3d_sne_compute.init(_embeddingPtr, _params, _P);
         break;
       default:

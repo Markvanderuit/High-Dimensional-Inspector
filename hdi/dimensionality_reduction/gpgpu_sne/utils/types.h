@@ -31,10 +31,8 @@
 #pragma once
 
 #include <vector>
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#define GLM_FORCE_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
-#include <glm/gtc/type_aligned.hpp>
+#include <glm/gtx/string_cast.hpp>
 #include "hdi/data/embedding.h"
 #include "hdi/data/map_mem_eff.h"
 
@@ -43,8 +41,47 @@ namespace hdi {
     typedef unsigned uint;
     typedef data::Embedding<float> Embedding;
     typedef std::vector<data::MapMemEff<uint32_t, float>> SparseMatrix;
-    
-    // Rounded up division of T over T
+
+    namespace detail {
+      constexpr unsigned std430_align(unsigned D) {
+        return D == 4 ? 16
+             : D == 3 ? 16
+             : D == 2 ? 8
+             : 4;
+      }
+    }
+
+    template <unsigned D, typename genType>
+    struct alignas(detail::std430_align(D)) AlignedVec : glm::vec<D, genType> {
+      using glm::vec<D, genType>::vec;
+    };
+
+    template< unsigned D, typename genType >
+    genType dot(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
+      return dot(static_cast<glm::vec<D, genType>>(x), static_cast<glm::vec<D, genType>>(y));
+    }
+
+    template< unsigned D, typename genType >
+    AlignedVec<D, genType> normalize(AlignedVec<D, genType> x) {
+      return glm::normalize(static_cast<glm::vec<D, genType>>(x));
+    }
+
+    template< unsigned D, typename genType >
+    AlignedVec<D, genType> max(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
+      return glm::max(static_cast<glm::vec<D, genType>>(x), static_cast<glm::vec<D, genType>>(y));
+    }
+
+    template< unsigned D, typename genType >
+    AlignedVec<D, genType> min(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
+      return glm::min(static_cast<glm::vec<D, genType>>(x), static_cast<glm::vec<D, genType>>(y));
+    }
+
+    template< unsigned D, typename genType >
+    std::string to_string(AlignedVec<D, genType> x) {
+      return glm::to_string(static_cast<glm::vec<D, genType>>(x));
+    }
+
+    // Rounded up division of n by div
     template <typename genType> 
     inline
     genType ceilDiv(genType n, genType div) {
@@ -54,7 +91,7 @@ namespace hdi {
     // Product of a glm::vec<D, T>'s components
     template <typename genType, uint D>
     inline
-    genType product(glm::vec<D, genType, glm::aligned_highp> v) {
+    genType product(glm::vec<D, genType> v) {
       genType t = v[0];
       for (uint i = 1; i < D; i++) {
         t *= v[i];
@@ -68,7 +105,7 @@ namespace hdi {
     template <unsigned D>
     class Bounds {
     private:
-      typedef glm::vec<D, float, glm::aligned_highp> vec;
+      using vec = AlignedVec<D, float>;
 
     public:
       vec min, max;

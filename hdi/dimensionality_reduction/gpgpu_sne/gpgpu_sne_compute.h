@@ -51,9 +51,9 @@ namespace hdi::dr {
    */
   template <unsigned D>
   class GpgpuSneCompute {
-    typedef glm::vec<D, float, glm::aligned_highp> vec;
-    typedef glm::vec<D, uint, glm::aligned_highp> uvec;
-    typedef Bounds<D> Bounds;
+    using Bounds = Bounds<D>;
+    using vec = dr::AlignedVec<D, float>;
+    using uvec = dr::AlignedVec<D, uint>;
 
   public:
     GpgpuSneCompute();
@@ -70,8 +70,6 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog *logger) {
       _logger = logger;
-      _field2dCompute.setLogger(logger);
-      _field3dCompute.setLogger(logger);
     }
 
   private:

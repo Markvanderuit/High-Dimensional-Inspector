@@ -1,6 +1,5 @@
 #include <iostream>
 #include <imgui.h>
-#define GLM_FORCE_ALIGNED_GENTYPES
 #include "hdi/debug/renderer/pixel_bvh.hpp"
 
 #define GLSL(name, version, shader) \
@@ -273,7 +272,7 @@ namespace hdi::dbg {
     
     // Query bvh for layout specs and buffer handles
     const auto layout = bvh.layout();
-    const auto buffers = bvh.buffers(); 
+    const auto buffers = bvh.buffers();
 
     // Create and build shader programs
     try {
