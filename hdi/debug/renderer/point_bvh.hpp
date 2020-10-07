@@ -1,10 +1,9 @@
 #pragma once
 
 #include <array>
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
 

@@ -1,11 +1,8 @@
+#include <iostream>
+#include <imgui.h>
 #include "hdi/debug/renderer/embedding.hpp"
 #include "hdi/debug/utils/window.hpp"
-#include <imgui.h>
-#include <iostream>
-
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace _2d {
   GLSL(vert, 450,

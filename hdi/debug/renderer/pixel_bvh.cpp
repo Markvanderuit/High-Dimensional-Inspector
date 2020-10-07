@@ -1,16 +1,7 @@
 #include <iostream>
 #include <imgui.h>
 #include "hdi/debug/renderer/pixel_bvh.hpp"
-
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
-
-template <typename Int> 
-inline
-Int ceilDiv(Int n, Int div) {
-  return (n + div - 1) / div;
-}
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 constexpr unsigned margin = 0u;
 
@@ -406,7 +397,7 @@ namespace hdi::dbg {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eFlags));
 
       // Fire away
-      glDispatchCompute(ceilDiv(layout.nNodes, 256u), 1, 1);
+      glDispatchCompute(dr::ceilDiv(layout.nNodes, 256u), 1, 1);
       
       program.release();
     }
@@ -506,8 +497,8 @@ namespace hdi::dbg {
         glBindTextureUnit(0, _textures(TextureType::eField));
         glBindImageTexture(0, _textures(TextureType::eOutput), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-        glDispatchCompute(ceilDiv(static_cast<unsigned>(_outputDims.x - margin), 16u), 
-                          ceilDiv(static_cast<unsigned>(_outputDims.y - margin), 16u), 
+        glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_outputDims.x - margin), 16u), 
+                          dr::ceilDiv(static_cast<unsigned>(_outputDims.y - margin), 16u), 
                           1);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
       }

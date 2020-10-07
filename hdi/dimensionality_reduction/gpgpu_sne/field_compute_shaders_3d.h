@@ -29,7 +29,8 @@
  */
 
 #pragma once
-#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d_dual.h"
+
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(grid_vert_src, 450,
   layout(location = 0) in vec3 inVertex;
@@ -327,7 +328,7 @@ GLSL(field_bvh_src, 450,
 );
 
 GLSL(field_bvh_wide_src, 450,
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
 
   // Wrapper structure for bounds data
   struct Bounds {

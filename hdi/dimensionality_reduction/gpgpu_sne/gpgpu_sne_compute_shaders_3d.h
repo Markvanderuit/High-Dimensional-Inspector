@@ -30,12 +30,10 @@
 
 #pragma once
 
-#define SHADER_SRC(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace hdi::dr::_3d {
-  SHADER_SRC(bounds_src, 450,
+  GLSL(bounds_src, 450,
     layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Pos { vec3 positions[]; };
     layout(binding = 1, std430) restrict buffer BoundsReduce {
@@ -117,7 +115,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(sumq_src, 450,
+  GLSL(sumq_src, 450,
     layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Value { vec4 Values[]; };
     layout(binding = 1, std430) restrict buffer SumReduce { float SumReduceAdd[128]; };
@@ -174,9 +172,9 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(positive_forces_src, 450,
-    FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_ballot : require )     // subgroupBroadcast(...) support
-    FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_arithmetic : require ) // subgroupAdd(...) support
+  GLSL(positive_forces_src, 450,
+    GLSL_PROTECT( #extension GL_KHR_shader_subgroup_ballot : require )
+    GLSL_PROTECT( #extension GL_KHR_shader_subgroup_arithmetic : require )
 
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -231,7 +229,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(gradients_src, 450,
+  GLSL(gradients_src, 450,
     // Wrapper structure for sum of Q data
     struct SumQ {
       float z;
@@ -263,7 +261,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(update_src, 450,
+  GLSL(update_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict buffer Pos { vec3 Positions[]; };
     layout(binding = 1, std430) restrict readonly buffer Grad { vec3 Gradients[]; };
@@ -316,7 +314,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(center_src, 450,
+  GLSL(center_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict buffer Pos { vec3 Positions[]; };
     layout(binding = 1, std430) restrict readonly buffer Bounds { 

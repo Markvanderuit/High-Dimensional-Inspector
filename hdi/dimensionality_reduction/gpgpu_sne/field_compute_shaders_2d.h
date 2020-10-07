@@ -30,11 +30,7 @@
 
 #pragma once
 
-#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim_glsl.h"
-
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(stencil_vert_src, 450,
   layout(location = 0) in vec2 point;
@@ -283,7 +279,7 @@ GLSL(field_bvh_src, 450,
 );
 
 GLSL(field_bvh_wide_src, 450, 
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require )
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require )
 
   // Wrapper structure for bounds data
   struct Bounds {

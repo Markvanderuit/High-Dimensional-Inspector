@@ -1,16 +1,7 @@
 #include <iostream>
 #include <imgui.h>
 #include "hdi/debug/renderer/point_bvh.hpp"
-
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
-
-template <typename Int> 
-inline
-Int ceilDiv(Int n, Int div) {
-  return (n + div - 1) / div;
-}
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(flags_comp, 450,
   // Wrapper structure for BoundsBuffer data
@@ -403,7 +394,7 @@ namespace hdi::dbg {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eFlags));
 
       // Fire away
-      glDispatchCompute(ceilDiv(layout.nNodes, 256u), 1, 1);
+      glDispatchCompute(dr::ceilDiv(layout.nNodes, 256u), 1, 1);
       
       program.release();
     }

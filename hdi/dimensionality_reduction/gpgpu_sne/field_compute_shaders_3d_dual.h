@@ -29,9 +29,8 @@
  */
 
 #pragma once
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(bvh_dual_dispatch_src, 450,
   layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -45,9 +44,9 @@ GLSL(bvh_dual_dispatch_src, 450,
 );
 
 GLSL(field_bvh_dual_src, 450,
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
+  GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
 
   // Wrapper structure for pair queue data
   struct Pair {
@@ -239,9 +238,9 @@ GLSL(field_bvh_dual_src, 450,
 );
 
 GLSL(field_bvh_leaf_src, 450,
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
+  GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
   
   // Wrapper structure for pair queue data
   struct Pair {
@@ -323,9 +322,9 @@ GLSL(field_bvh_leaf_src, 450,
 );
 
 GLSL(iterate_src, 450,
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
-  FLUX_GL_VERBATIM_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
+  GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
 
   // Return types for approx(...) function below
   #define DEAD 0\n // Empty node(s), truncate early

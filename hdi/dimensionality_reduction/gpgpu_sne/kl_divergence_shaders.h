@@ -30,13 +30,11 @@
 
 #pragma once
 
-#define SHADER_SRC(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace hdi::dr {
   namespace _2d {
-    SHADER_SRC(qij_src, 450,
+    GLSL(qij_src, 450,
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
       layout(binding = 0, std430) restrict readonly buffer Pos { vec2 posBuffer[]; };
       layout(binding = 1, std430) restrict writeonly buffer Qij { float qijBuffer[]; };
@@ -81,7 +79,7 @@ namespace hdi::dr {
       }
     );
 
-    SHADER_SRC(reduce_src, 450,
+    GLSL(reduce_src, 450,
       layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
       layout(binding = 0, std430) restrict readonly buffer Input { float inputBuffer[]; };
       layout(binding = 1, std430) restrict buffer Intermediate { float intermediateBuffer[256]; };
@@ -133,7 +131,7 @@ namespace hdi::dr {
       }
     );
 
-    SHADER_SRC(kl_src, 450,
+    GLSL(kl_src, 450,
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
       layout(binding = 0, std430) restrict readonly buffer Posi { vec2 posBuffer[]; };
       layout(binding = 1, std430) restrict readonly buffer SumQ { float sumQBuffer; };
@@ -193,7 +191,7 @@ namespace hdi::dr {
   } // namespace _2d
 
   namespace _3d {
-    SHADER_SRC(qij_src, 450,
+    GLSL(qij_src, 450,
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
       layout(binding = 0, std430) restrict readonly buffer Pos { vec3 posBuffer[]; };
       layout(binding = 1, std430) restrict writeonly buffer Qij { float qijBuffer[]; };
@@ -238,7 +236,7 @@ namespace hdi::dr {
       }
     );
 
-    SHADER_SRC(kl_src, 450,
+    GLSL(kl_src, 450,
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
       layout(binding = 0, std430) restrict readonly buffer Posi { vec3 posBuffer[]; };
       layout(binding = 1, std430) restrict readonly buffer SumQ { float sumQBuffer; };

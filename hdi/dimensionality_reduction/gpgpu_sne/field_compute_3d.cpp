@@ -35,6 +35,7 @@
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d_dual.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
@@ -43,7 +44,6 @@
 // #define SKIP_SMALL_GRID   // Skip computation of active pixels for low resolution fields
 // #define DELAY_BVH_REBUILD    // Refit BVH for rebuildDelay iterations
 // #define DELAY_BVH_TRAVERSAL  // Only partially redo dual hierarchy cut for rebuildDelay iterations
-
 
 namespace hdi::dr {
   // Magic numbers

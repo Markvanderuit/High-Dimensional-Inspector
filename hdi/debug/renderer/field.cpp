@@ -1,15 +1,6 @@
 #include <iostream>
 #include "hdi/debug/renderer/field.hpp"
-
-#define GLSL(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
-
-template <typename Int> 
-inline
-Int ceilDiv(Int n, Int div) {
-  return (n + div - 1) / div;
-}
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace _2d {
   GLSL(convert_src, 450, 
@@ -167,8 +158,8 @@ namespace hdi::dbg {
       if constexpr (D == 3) {
         _program.uniform1f("depthValue", _depthValue);
       }
-      glDispatchCompute(ceilDiv(static_cast<unsigned>(_dims.x - margin), 16u), 
-                        ceilDiv(static_cast<unsigned>(_dims.y - margin), 16u), 
+      glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_dims.x - margin), 16u), 
+                        dr::ceilDiv(static_cast<unsigned>(_dims.y - margin), 16u), 
                         1);
       glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
     }
