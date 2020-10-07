@@ -9,13 +9,13 @@
 
 namespace hdi::dbg {
   template <unsigned D>
-  class PixelBVHRenderer : private RenderComponent {
+  class FieldBVHRenderer : private RenderComponent {
   private:
     typedef unsigned uint;
 
   public:
-    PixelBVHRenderer();
-    ~PixelBVHRenderer();
+    FieldBVHRenderer();
+    ~FieldBVHRenderer();
 
     void init(const dr::FieldBVH<3> &bvh, GLuint boundsBuffer);
     void destr();

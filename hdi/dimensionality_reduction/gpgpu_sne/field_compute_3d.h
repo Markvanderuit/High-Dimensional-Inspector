@@ -40,8 +40,8 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
 #include "hdi/debug/renderer/field.hpp"
-#include "hdi/debug/renderer/point_bvh.hpp" 
-#include "hdi/debug/renderer/pixel_bvh.hpp" 
+#include "hdi/debug/renderer/embedding_bvh.hpp" 
+#include "hdi/debug/renderer/field_bvh.hpp" 
 
 namespace hdi::dr {
   /**
@@ -156,8 +156,8 @@ namespace hdi::dr {
     
     // Subcomponents for the debug renderer
     dbg::FieldRenderer<3> _fieldRenderer;
-    dbg::PointBVHRenderer _pointBVHRenderer;
-    dbg::PixelBVHRenderer<3> _pixelBVHRenderer;
+    dbg::EmbeddingBVHRenderer _embeddingBVHRenderer;
+    dbg::FieldBVHRenderer<3> _fieldBVHRenderer;
 
     // Misc
     bool _isInit;

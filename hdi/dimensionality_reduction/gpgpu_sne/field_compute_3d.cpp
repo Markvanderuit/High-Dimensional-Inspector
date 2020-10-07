@@ -176,14 +176,14 @@ namespace hdi::dr {
     if (_usePointBvh || _usePixelBvh) {
       _embeddingBvh.setLogger(_logger);
       _embeddingBvh.init(params, EmbeddingBVH<3>::Layout(n, 8, 4), position_buff, bounds_buff);
-      _pointBVHRenderer.init(_embeddingBvh, bounds_buff);
+      _embeddingBVHRenderer.init(_embeddingBvh, bounds_buff);
     }
 
     if (_usePixelBvh) {
       // Init pixel BVH for a estimated larger field texture, so it doesn't resize too often.
       _fieldBvh.setLogger(_logger);     
       _fieldBvh.init(params, FieldBVH<3>::Layout(pixelBvhSize, 8), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
-      _pixelBVHRenderer.init(_fieldBvh, bounds_buff);
+      _fieldBVHRenderer.init(_fieldBvh, bounds_buff);
       _rebuildDelayIters = 0;
 
       // Hey look it's the downside of dual hierarchy traversals. Your VRAM is glorped.
@@ -262,11 +262,11 @@ namespace hdi::dr {
 
     // Destroy BVH subcomponents
     if (_usePointBvh) {
-      _pointBVHRenderer.destr();
+      _embeddingBVHRenderer.destr();
       _embeddingBvh.destr();
     }
     if (_usePixelBvh) {
-      _pixelBVHRenderer.destr();
+      _fieldBVHRenderer.destr();
       _fieldBvh.destr();
     }
 

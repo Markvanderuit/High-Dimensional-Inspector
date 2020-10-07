@@ -8,10 +8,10 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
 
 namespace hdi::dbg {
-  class PointBVHRenderer : private RenderComponent {
+  class EmbeddingBVHRenderer : private RenderComponent {
   public:
-    PointBVHRenderer();
-    ~PointBVHRenderer();
+    EmbeddingBVHRenderer();
+    ~EmbeddingBVHRenderer();
 
     void init(const dr::EmbeddingBVH<3> &bvh, GLuint boundsBuffer);
     void destr();

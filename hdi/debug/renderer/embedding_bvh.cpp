@@ -1,6 +1,6 @@
 #include <iostream>
 #include <imgui.h>
-#include "hdi/debug/renderer/point_bvh.hpp"
+#include "hdi/debug/renderer/embedding_bvh.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(flags_comp, 450,
@@ -221,19 +221,19 @@ namespace {
 }
 
 namespace hdi::dbg {
-  PointBVHRenderer::PointBVHRenderer()
+  EmbeddingBVHRenderer::EmbeddingBVHRenderer()
   : RenderComponent(1, false),
     _bvh(nullptr)
   { }
 
-  PointBVHRenderer::~PointBVHRenderer()
+  EmbeddingBVHRenderer::~EmbeddingBVHRenderer()
   {
     if (_isInit) {
       destr();
     }
   }
 
-  void PointBVHRenderer::init(const dr::EmbeddingBVH<3> &bvh, GLuint boundsBuffer)
+  void EmbeddingBVHRenderer::init(const dr::EmbeddingBVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
     if (!_isInit) {
@@ -320,7 +320,7 @@ namespace hdi::dbg {
     _isInit = true;
   }
 
-  void PointBVHRenderer::destr()
+  void EmbeddingBVHRenderer::destr()
   {
     if (!_isInit) {
       return;
@@ -334,7 +334,7 @@ namespace hdi::dbg {
     RenderComponent::destr();
   }
 
-  void PointBVHRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
+  void EmbeddingBVHRenderer::render(glm::mat4 transform, glm::ivec4 viewport)
   {
     if (!_isInit) {
       return;

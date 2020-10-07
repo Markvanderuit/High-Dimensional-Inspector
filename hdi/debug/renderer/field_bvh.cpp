@@ -1,6 +1,6 @@
 #include <iostream>
 #include <imgui.h>
-#include "hdi/debug/renderer/pixel_bvh.hpp"
+#include "hdi/debug/renderer/field_bvh.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(flags_comp, 450,
@@ -235,13 +235,13 @@ namespace {
 
 namespace hdi::dbg {
   template <unsigned D>
-  PixelBVHRenderer<D>::PixelBVHRenderer()
+  FieldBVHRenderer<D>::FieldBVHRenderer()
   : RenderComponent(5, false),
     _bvh(nullptr)
   { }
 
   template <unsigned D>
-  PixelBVHRenderer<D>::~PixelBVHRenderer()
+  FieldBVHRenderer<D>::~FieldBVHRenderer()
   {
     if (_isInit) {
       destr();
@@ -249,7 +249,7 @@ namespace hdi::dbg {
   }
 
   template <unsigned D>
-  void PixelBVHRenderer<D>::init(const dr::FieldBVH<3> &bvh, GLuint boundsBuffer)
+  void FieldBVHRenderer<D>::init(const dr::FieldBVH<3> &bvh, GLuint boundsBuffer)
   {
     RenderComponent::init();
     if (!_isInit) {
@@ -330,7 +330,7 @@ namespace hdi::dbg {
   }
 
   template <unsigned D>
-  void PixelBVHRenderer<D>::destr()
+  void FieldBVHRenderer<D>::destr()
   {
     if (!_isInit) {
       return;
@@ -346,7 +346,7 @@ namespace hdi::dbg {
   }
 
   template <unsigned D>
-  void PixelBVHRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport)
+  void FieldBVHRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport)
   {
     if (!_isInit) {
       return;
@@ -507,6 +507,6 @@ namespace hdi::dbg {
   }
 
   // Explicit template instantiations for 2 and 3 dimensions
-  template class PixelBVHRenderer<2>;
-  template class PixelBVHRenderer<3>;
+  template class FieldBVHRenderer<2>;
+  template class FieldBVHRenderer<3>;
 } // hdi::dbg
