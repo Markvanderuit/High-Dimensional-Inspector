@@ -35,12 +35,6 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute_shaders_3d.h"
 
-template <typename genType> 
-inline
-genType ceilDiv(genType n, genType div) {
-  return (n + div - 1) / div;
-}
-
 // Magic numbers for the field computation
 constexpr bool doAdaptiveResolution = true;
 constexpr unsigned minFieldSize = 5;                // 5 is default
@@ -204,6 +198,8 @@ namespace hdi::dr {
                                    unsigned iteration,
                                    float mult)
   {
+    ASSERT_GL("GpgpuSneCompute::compute::begin()");
+
     const unsigned int n = embedding->numDataPoints();
 
     // Compute embedding bounds
@@ -416,7 +412,7 @@ namespace hdi::dr {
 #endif
     }
 
-    ASSERT_GL("GpgpuSneCompute::compute()");
+    ASSERT_GL("GpgpuSneCompute::compute::end()");
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

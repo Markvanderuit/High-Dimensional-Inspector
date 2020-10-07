@@ -52,19 +52,13 @@ namespace hdi {
     }
 
     template <unsigned D, typename genType>
-    struct alignas(detail::std430_align(D)) AlignedVec : glm::vec<D, genType> {
+    struct alignas(detail::std430_align(D)) AlignedVec : public glm::vec<D, genType> {
       using glm::vec<D, genType>::vec;
+
+      AlignedVec<D, genType>(glm::vec<D, genType> other)
+      : glm::vec<D, genType>(other)
+      { }
     };
-
-    template< unsigned D, typename genType >
-    genType dot(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
-      return dot(static_cast<glm::vec<D, genType>>(x), static_cast<glm::vec<D, genType>>(y));
-    }
-
-    template< unsigned D, typename genType >
-    AlignedVec<D, genType> normalize(AlignedVec<D, genType> x) {
-      return glm::normalize(static_cast<glm::vec<D, genType>>(x));
-    }
 
     template< unsigned D, typename genType >
     AlignedVec<D, genType> max(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
@@ -81,6 +75,15 @@ namespace hdi {
       return glm::to_string(static_cast<glm::vec<D, genType>>(x));
     }
 
+    template< unsigned D, typename genType >
+    genType product(AlignedVec<D, genType> x) {
+      genType t = x[0];
+      for (uint i = 1; i < D; i++) {
+        t *= x[i];
+      }
+      return t;
+    }
+
     // Rounded up division of n by div
     template <typename genType> 
     inline
@@ -88,22 +91,11 @@ namespace hdi {
       return (n + div - 1) / div;
     }
 
-    // Product of a glm::vec<D, T>'s components
-    template <typename genType, uint D>
-    inline
-    genType product(glm::vec<D, genType> v) {
-      genType t = v[0];
-      for (uint i = 1; i < D; i++) {
-        t *= v[i];
-      }
-      return t;
-    }
-
     /**
      * Simple bounding box type for D dimensions.
      */
     template <unsigned D>
-    class Bounds {
+    class AlignedBounds {
     private:
       using vec = AlignedVec<D, float>;
 

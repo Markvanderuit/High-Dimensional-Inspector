@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include "hdi/debug/renderer/embedding.hpp"
 #include "hdi/debug/utils/window.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace _2d {
@@ -183,6 +184,8 @@ namespace hdi::dbg {
 
   template <unsigned D>
   void EmbeddingRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport) {
+    ASSERT_GL("EmbeddingRenderer::render::begin()");
+
     if (!_isInit) {
       return;
     }
@@ -211,6 +214,7 @@ namespace hdi::dbg {
       glDrawArrays(GL_POINTS, 0, _n);
       _program.release();
     }
+    ASSERT_GL("EmbeddingRenderer::render::end()");
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

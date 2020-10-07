@@ -53,7 +53,7 @@ namespace hdi::dr {
    * in O(p log N) time, dual tree approximation in O(log P log N) time.
    */
   class Field3dCompute {
-    using Bounds = Bounds<3>;
+    using Bounds = AlignedBounds<3>;
     using vec = dr::AlignedVec<3, float>;
     using uvec = dr::AlignedVec<3, uint>;
 

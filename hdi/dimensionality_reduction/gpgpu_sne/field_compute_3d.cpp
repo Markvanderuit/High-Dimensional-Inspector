@@ -54,7 +54,7 @@ namespace hdi::dr {
   constexpr uint pairsCacheBufferSize = 8 * 1024 * 1024;    // Initial cache queue size in Mb. There is one such queue.
   constexpr uint pairsApproxBufferSize = 8 * 1024 * 1024;   // Initial accept queue size in Mb. There is one such queue.
   constexpr uint pairsLeafBufferSize = 64 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
-  constexpr glm::uvec3 pixelBvhSize(128);               // Initial pixelBVH field dims. Expansion isn't cheap.
+  constexpr AlignedVec<3, unsigned> pixelBvhSize(128);               // Initial pixelBVH field dims. Expansion isn't cheap.
 
   // Incrementing bit flags for fast voxel grid computation
   constexpr auto cellData = []() {  

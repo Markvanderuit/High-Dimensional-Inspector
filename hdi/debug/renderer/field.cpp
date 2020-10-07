@@ -1,5 +1,6 @@
 #include <iostream>
 #include "hdi/debug/renderer/field.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace _2d {
@@ -77,7 +78,6 @@ namespace _3d {
   );
 } // _3d
 
-constexpr unsigned margin = 64u;
 
 namespace hdi::dbg {
   template <unsigned D>
@@ -130,6 +130,8 @@ namespace hdi::dbg {
 
   template <unsigned D>
   void FieldRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport) {
+    ASSERT_GL("FieldRenderer::render::begin()");
+
     if (!_isInit || !_fieldTexture || !glIsTexture(*_fieldTexture)) {
       return;
     }
@@ -146,7 +148,7 @@ namespace hdi::dbg {
       // Re-initialize texture
       glDeleteTextures(1, &_outputTexture);
       glCreateTextures(GL_TEXTURE_2D, 1, &_outputTexture);
-      glTextureStorage2D(_outputTexture, 1, GL_RGBA32F, _dims.x - margin, _dims.y - margin);
+      glTextureStorage2D(_outputTexture, 1, GL_RGBA32F, _dims.x, _dims.y);
     }
 
     // Resample input texture
@@ -154,18 +156,20 @@ namespace hdi::dbg {
       _program.bind();
       glBindTextureUnit(0, *_fieldTexture);
       glBindImageTexture(0, _outputTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-      _program.uniform2ui("outputSize", _dims.x - margin, _dims.y - margin);
+      _program.uniform2ui("outputSize", _dims.x, _dims.y);
       if constexpr (D == 3) {
         _program.uniform1f("depthValue", _depthValue);
       }
-      glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_dims.x - margin), 16u), 
-                        dr::ceilDiv(static_cast<unsigned>(_dims.y - margin), 16u), 
+      glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_dims.x), 16u), 
+                        dr::ceilDiv(static_cast<unsigned>(_dims.y), 16u), 
                         1);
       glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
     }
 
-    ImGui::Image((void *) (intptr_t) _outputTexture, ImVec2(_dims.x - margin, _dims.y - margin));
+    ImGui::Image((void *) (intptr_t) _outputTexture, ImVec2(_dims.x, _dims.y));
     ImGui::End();
+
+    ASSERT_GL("FieldRenderer::render::end()");
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

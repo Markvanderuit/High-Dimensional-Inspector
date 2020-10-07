@@ -3,25 +3,6 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 
-/**
- * Trackball math based on:
- * - https://github.com/sanko/fltk-2.0.x/blob/master/test/trackball.c
- * and
- * - https://www.khronos.org/opengl/wiki/Object_Mouse_Trackball
- */
-
-float projectToSphere(float r, glm::vec2 pos) {
-  float d = glm::length(pos);
-  if (d < r * 0.70710678118654752440) {
-    // Inside sphere code
-    return glm::sqrt(r * r - d * d);
-  } else {
-    // On hyperbola code
-    float t = r / 1.41421356237309504880;
-    return t * t / d;
-  }
-}
-
 namespace hdi::dbg {
   Trackball::Trackball()
   : _r(1),
@@ -35,8 +16,8 @@ namespace hdi::dbg {
     if (_isTracking && _prevPos != _currPos) {
       // Compute simplified plane rotation
       glm::vec2 v = _currPos - _prevPos;
-      glm::mat4 rx = glm::rotate(v.x, glm::vec3(0, 1, 0));
-      glm::mat4 ry = glm::rotate(v.y, glm::vec3(1, 0, 0));
+      glm::mat4 rx = glm::rotate(8.f * v.x, glm::vec3(0, 1, 0));
+      glm::mat4 ry = glm::rotate(8.f * v.y, glm::vec3(1, 0, 0));
 
       // Update lookat matrix
       _r = ry * rx * _r;

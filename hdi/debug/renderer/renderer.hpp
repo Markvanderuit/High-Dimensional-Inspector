@@ -19,15 +19,17 @@ namespace hdi::dbg {
     virtual void render(glm::mat4 transform, glm::ivec4 viewport);
     
     // For sorted set insertion
-    friend bool cmpRenderComponent(RenderComponent *a, RenderComponent *b) {
-      return a->_priority < b->_priority && a != b;
-    };
+    friend bool cmpRenderComponent(RenderComponent *a, RenderComponent *b);
 
   protected:
     bool _isInit;
 
   private:
     int _priority;
+  };
+
+  inline bool cmpRenderComponent(RenderComponent *a, RenderComponent *b) {
+    return a->_priority < b->_priority && a != b;
   };
 
   class RenderManager {
@@ -61,7 +63,7 @@ namespace hdi::dbg {
     GLuint _framebufferColorTexture;
     GLuint _framebufferDepthTexture;
     glm::ivec2 _framebufferSize;
-    std::set<RenderComponent *, decltype(cmpRenderComponent)*> _components;
+    std::set<RenderComponent *, decltype(&cmpRenderComponent)> _components;
 
     static RenderManager *_currentManager;
   };

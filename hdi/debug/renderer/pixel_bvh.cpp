@@ -3,8 +3,6 @@
 #include "hdi/debug/renderer/pixel_bvh.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
-constexpr unsigned margin = 0u;
-
 GLSL(flags_comp, 450,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
   
@@ -442,7 +440,7 @@ namespace hdi::dbg {
         _outputDims = ImVec2(outputDims.x, outputDims.x);
         glDeleteTextures(1, &_textures(TextureType::eOutput));
         glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eOutput));
-        glTextureStorage2D(_textures(TextureType::eOutput), 1, GL_RGBA32F, _outputDims.x - margin, _outputDims.y - margin);
+        glTextureStorage2D(_textures(TextureType::eOutput), 1, GL_RGBA32F, _outputDims.x, _outputDims.y);
       }
 
 
@@ -492,17 +490,17 @@ namespace hdi::dbg {
         // Bind program and uniforms
         auto &program = _programs(ProgramType::eFieldResample);
         program.bind();
-        program.uniform2ui("outputSize", _outputDims.x - margin, _outputDims.y - margin);
+        program.uniform2ui("outputSize", _outputDims.x, _outputDims.y);
 
         glBindTextureUnit(0, _textures(TextureType::eField));
         glBindImageTexture(0, _textures(TextureType::eOutput), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-        glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_outputDims.x - margin), 16u), 
-                          dr::ceilDiv(static_cast<unsigned>(_outputDims.y - margin), 16u), 
+        glDispatchCompute(dr::ceilDiv(static_cast<unsigned>(_outputDims.x), 16u), 
+                          dr::ceilDiv(static_cast<unsigned>(_outputDims.y), 16u), 
                           1);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
       }
-      ImGui::Image((void *) (intptr_t) _textures(TextureType::eOutput), ImVec2(_outputDims.x - margin, _outputDims.y - margin));
+      ImGui::Image((void *) (intptr_t) _textures(TextureType::eOutput), ImVec2(_outputDims.x, _outputDims.y));
     }
 
     ImGui::End();

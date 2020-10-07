@@ -51,7 +51,7 @@ namespace hdi::dr {
    */
   template <unsigned D>
   class GpgpuSneCompute {
-    using Bounds = Bounds<D>;
+    using Bounds = AlignedBounds<D>;
     using vec = dr::AlignedVec<D, float>;
     using uvec = dr::AlignedVec<D, uint>;
 

@@ -50,7 +50,7 @@ namespace hdi::dr {
    * in O(p log N) time. Dual tree approximation is not currently available.
    */
   class Field2dCompute {
-    using Bounds = Bounds<2>;
+    using Bounds = AlignedBounds<2>;
     using vec = dr::AlignedVec<2, float>;
     using uvec = dr::AlignedVec<2, uint>;
 
