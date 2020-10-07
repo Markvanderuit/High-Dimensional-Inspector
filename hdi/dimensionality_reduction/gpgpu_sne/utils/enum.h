@@ -50,12 +50,12 @@ namespace hdi {
     public:
       constexpr inline
       const Ty& operator()(ETy e) const {
-        return operator[](underlying<ETy>(e));
+        return this->operator[](underlying<ETy>(e));
       }
 
       constexpr inline
       Ty& operator()(ETy e) {
-        return operator[](underlying<ETy>(e));
+        return this->operator[](underlying<ETy>(e));
       }
     };
 
