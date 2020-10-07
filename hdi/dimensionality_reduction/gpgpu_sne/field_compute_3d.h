@@ -53,9 +53,9 @@ namespace hdi::dr {
    * in O(p log N) time, dual tree approximation in O(log P log N) time.
    */
   class Field3dCompute {
-    typedef Bounds<3> Bounds;
-    typedef glm::vec<3, float, glm::aligned_highp> vec;
-    typedef glm::vec<3, uint, glm::aligned_highp> uvec;
+    using Bounds = Bounds<3>;
+    using vec = dr::AlignedVec<3, float>;
+    using uvec = dr::AlignedVec<3, uint>;
 
   public:
     Field3dCompute();
@@ -75,9 +75,7 @@ namespace hdi::dr {
                  Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
-      _logger = logger; 
-      _embeddingBvh.setLogger(logger);
-      _fieldBvh.setLogger(logger);
+      _logger = logger;  
     }
 
   private:

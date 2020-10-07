@@ -50,9 +50,9 @@ namespace hdi::dr {
    * in O(p log N) time. Dual tree approximation is not currently available.
    */
   class Field2dCompute {
-    typedef Bounds<2> Bounds;
-    typedef glm::vec<2, float, glm::aligned_highp> vec;
-    typedef glm::vec<2, uint, glm::aligned_highp> uvec;
+    using Bounds = Bounds<2>;
+    using vec = dr::AlignedVec<2, float>;
+    using uvec = dr::AlignedVec<2, uint>;
 
   public:
     Field2dCompute();
@@ -73,7 +73,6 @@ namespace hdi::dr {
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
-      _bvh.setLogger(logger);
     }
 
   private:

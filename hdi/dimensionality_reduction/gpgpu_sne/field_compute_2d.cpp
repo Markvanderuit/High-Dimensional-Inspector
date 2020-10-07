@@ -148,10 +148,11 @@ namespace hdi::dr {
     // Initialize BVH over embedding. Different width depending on traversal type, 16
     // works well for subgroups, 4 works well for 2 dimensions.
     if (_useBvh) {
+      _bvh.setLogger(_logger);
 #ifdef USE_WIDE_BVH
-    _bvh.init(params, EmbeddingBVH<2>::Layout(n, 16, 4), position_buff, bounds_buff);
+      _bvh.init(params, EmbeddingBVH<2>::Layout(n, 16, 4), position_buff, bounds_buff);
 #else
-    _bvh.init(params, EmbeddingBVH<2>::Layout(n, 4, 4), position_buff, bounds_buff);
+      _bvh.init(params, EmbeddingBVH<2>::Layout(n, 4, 4), position_buff, bounds_buff);
 #endif // USE_WIDE_BVH
     }
 
@@ -201,7 +202,7 @@ namespace hdi::dr {
     // Rescale textures if necessary
     if (_dims != dims) {
       _dims = dims;
-      utils::secureLogValue(_logger, "  Resizing field to", glm::to_string(_dims));
+      utils::secureLogValue(_logger, "  Resizing field to", dr::to_string(_dims));
 
       glDeleteTextures(1, &_textures(TextureType::eField));
       glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eField));

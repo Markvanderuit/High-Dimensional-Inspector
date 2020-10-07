@@ -174,12 +174,14 @@ namespace hdi::dr {
     }
 
     if (_usePointBvh || _usePixelBvh) {
+      _embeddingBvh.setLogger(_logger);
       _embeddingBvh.init(params, EmbeddingBVH<3>::Layout(n, 8, 4), position_buff, bounds_buff);
       _pointBVHRenderer.init(_embeddingBvh, bounds_buff);
     }
 
     if (_usePixelBvh) {
       // Init pixel BVH for a estimated larger field texture, so it doesn't resize too often.
+      _fieldBvh.setLogger(_logger);     
       _fieldBvh.init(params, FieldBVH<3>::Layout(pixelBvhSize, 8), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
       _pixelBVHRenderer.init(_fieldBvh, bounds_buff);
       _rebuildDelayIters = 0;
@@ -294,7 +296,7 @@ namespace hdi::dr {
     // Rescale field texture as dimensions change
     if (_dims != dims) {
       _dims = dims;
-      utils::secureLogValue(_logger, "  Resizing field to", glm::to_string(_dims));
+      utils::secureLogValue(_logger, "  Resizing field to", dr::to_string(_dims));
 
       glDeleteTextures(1, &_textures(TextureType::eField));
       glCreateTextures(GL_TEXTURE_3D, 1, &_textures(TextureType::eField));
