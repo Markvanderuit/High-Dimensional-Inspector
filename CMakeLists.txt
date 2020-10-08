@@ -79,7 +79,6 @@ target_include_directories(cub INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 add_library(cuda_helper INTERFACE)
 target_include_directories(cuda_helper INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cuda/include)
 
-
 # MSVC
 # Disable some warnings (yeah yeah I know)
 if(MSVC)

@@ -244,16 +244,14 @@ namespace hdi::dr {
           dims, iteration, n,
           _buffers(BufferType::ePosition),
           _buffers(BufferType::eBounds),
-          _buffers(BufferType::eInterpFields),
-          _bounds
+          _buffers(BufferType::eInterpFields)
         );
       } else if constexpr (D == 3) {
         _field3dCompute.compute(
           dims, iteration, n,
           _buffers(BufferType::ePosition),
           _buffers(BufferType::eBounds),
-          _buffers(BufferType::eInterpFields),
-          _bounds
+          _buffers(BufferType::eInterpFields)
         );
       }
     }

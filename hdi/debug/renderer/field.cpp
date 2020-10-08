@@ -21,36 +21,16 @@ namespace _2d {
       vec4 field = texture(inputSampler, (vec2(i) + 0.5) / vec2(outputSize));
 
       // Write to output texture
-      imageStore(outputImage, ivec2(i), vec4(normalize(field.yz), 0, 1));
+      vec3 v = vec3(0.5f);
+      if (field != vec4(0)) {
+        v += vec3(0.5 * normalize(field.yz), 0);
+      }
+      imageStore(outputImage, ivec2(i), vec4(v, 1));
     }
   );
 } // _2d
 
 namespace _3d {
-  /* GLSL(max_min_src, 450,
-    layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-    layout(binding = 0) uniform sampler3D inputSampler;
-    layout(binding = 0, std430) restrict coherent buffer MinMaxV {
-      float minv[4];
-      float maxv[4];
-    };
-    layout(location = 0) uniform uvec2 outputSize;
-    layout(location = 1) uniform float depthValue;
-
-    shared vec4 mins[16 * 16];
-    shared vec4 maxs[16 * 16];
-
-    void main() {
-      // Check that invocation is inside input texture bounds
-      const uvec2 i = gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy;
-      if (min(i, outputSize - 1) != i) {
-        return;
-      }
-
-
-    }
-  ); */
-
   GLSL(convert_src, 450, 
     layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
     layout(binding = 0) uniform sampler3D inputSampler;

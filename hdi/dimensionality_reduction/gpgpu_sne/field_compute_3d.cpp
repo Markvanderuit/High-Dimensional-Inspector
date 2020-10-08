@@ -40,7 +40,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
-// #define USE_WIDE_BVH      // Toggle partial warp traversal of a wide BVH, only for single tree traversal
 // #define SKIP_SMALL_GRID   // Skip computation of active pixels for tiny fields, only for voxel grid computation
 #define DO_BVH_REFIT      // Only rebuild the embedding hierarchy every x iterations, or when runtime is exceeded
 
@@ -99,7 +98,7 @@ namespace hdi::dr {
                             unsigned n) {
     _params = params;
     _useEmbeddingBvh = _params._theta > 0.0;
-    _useFieldBvh = _params._thetaDual > 0.0;
+    _useFieldBvh = _params._thetaDual > 0.0 || _useEmbeddingBvh;
     _useVoxelGrid = !_useEmbeddingBvh && !_useFieldBvh;
 
     // Build shader programs
@@ -361,6 +360,7 @@ namespace hdi::dr {
     queryField(n, positionBuffer, boundsBuffer, interpBuffer);
 
     POLL_TIMERS();  
+    
     if (iteration >= _params._iterations - 1) {
       // Output timings after final run
   #ifdef GL_TIMERS_ENABLED

@@ -91,13 +91,6 @@ namespace hdi::dr {
 
   private:
     enum class BufferType {
-      // Work queues
-/*       eSubdivQueue0,
-      eSubdivQueue1,
-      eSubdivQueueHead0,
-      eSubdivQueueHead1,
-      eSubdivQueueHeadInit, */
-
       // Internal tree data
       eMortonUnsorted,  // Unsorted morton codes
       eMortonSorted,    // Sorted morton codes
