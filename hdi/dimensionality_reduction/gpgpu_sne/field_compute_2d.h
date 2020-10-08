@@ -68,8 +68,7 @@ namespace hdi::dr {
                  unsigned n,
                  GLuint position_buff, 
                  GLuint bounds_buff, 
-                 GLuint interp_buff,
-                 Bounds bounds);
+                 GLuint interp_buff);
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
@@ -123,9 +122,7 @@ namespace hdi::dr {
     bool _useBvh;
     GLuint _stencilVao;
     GLuint _stencilFbo;
-    double _lastRebuildTime;
-    uint _nRebuildIters;
-    bool _rebuildBvhOnIter;
+    uint _bvhRebuildIters;
 
   private:
     // Functions called by Field2dCompute::compute()

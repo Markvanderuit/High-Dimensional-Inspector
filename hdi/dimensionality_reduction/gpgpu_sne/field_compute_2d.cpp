@@ -42,7 +42,8 @@
 
 namespace hdi::dr {
   // Magic numbers
-  constexpr float pointSize = 3.f; // Point size for stencil
+  constexpr float pointSize = 3.f;      // Point size for stencil
+  constexpr uint bvhRebuildIters = 4;   // Nr. of iterations where the embedding hierarchy is refitted
 
   /**
    * Field2dCompute::Field2dCompute()
@@ -54,9 +55,7 @@ namespace hdi::dr {
     _dims(0), 
     _logger(nullptr),
     _useBvh(false),
-    _rebuildBvhOnIter(true),
-    _nRebuildIters(0),
-    _lastRebuildTime(0.0) { }
+    _bvhRebuildIters(0) { }
 
   /**
    * Field2dCompute::~Field2dCompute()
@@ -122,7 +121,8 @@ namespace hdi::dr {
     glNamedBufferStorage(_buffers(BufferType::ePixelsHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
     glNamedBufferStorage(_buffers(BufferType::ePixelsHeadReadback), sizeof(uint), glm::value_ptr(dispatch), GL_CLIENT_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eDispatch), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
-
+    
+    // Specify needed objects if the stencil approach is used for pixel flagging, i.e. no hierarchies used
     if (!_useBvh) {
       // Specify framebuffer
       glNamedFramebufferTexture(_stencilFbo, GL_COLOR_ATTACHMENT0, _textures(TextureType::eStencil), 0);
@@ -145,7 +145,7 @@ namespace hdi::dr {
     glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    // Initialize BVH over embedding. Different width depending on traversal type, 16
+    // Initialize hierarchy over embedding. Different width depending on traversal type, 16
     // works well for subgroups, 4 works well for 2 dimensions.
     if (_useBvh) {
       _bvh.setLogger(_logger);
@@ -197,8 +197,7 @@ namespace hdi::dr {
    * sampled results in interp_buff.
    */
   void Field2dCompute::compute(uvec dims, unsigned iteration, unsigned n,
-                               GLuint position_buff, GLuint bounds_buff, GLuint interp_buff,
-                               Bounds bounds) {
+                               GLuint position_buff, GLuint bounds_buff, GLuint interp_buff) {
     // Rescale textures if necessary
     if (_dims != dims) {
       _dims = dims;
@@ -230,7 +229,14 @@ namespace hdi::dr {
 
     // Build BVH structure over embedding
     if (_useBvh) {
-      _bvh.compute(_rebuildBvhOnIter, iteration, position_buff, bounds_buff);
+      _bvh.compute(_bvhRebuildIters == 0, iteration, position_buff, bounds_buff);
+
+      // Rebuild BVH fully only once every X iterations
+      if (iteration <= _params._remove_exaggeration_iter || _bvhRebuildIters >= bvhRebuildIters) {
+        _bvhRebuildIters = 0;
+      } else {
+        _bvhRebuildIters++;
+      }
     }
     
     // Generate list of pixels in the field that require computation
@@ -255,34 +261,23 @@ namespace hdi::dr {
     // Query field texture at all embedding positions
     queryField(n, position_buff, bounds_buff, interp_buff);
     
-    // Update timers, log values on final iteration
     POLL_TIMERS();
-    utils::secureLogValue(_logger, \
-      std::string("  Field") + " average (\xE6s)", \
-      std::to_string(glTimers[TIMR_FIELD].lastMicros()) \
-    );
+    
     if (iteration == _params._iterations - 1) {
+      // Output timings after final run
       utils::secureLog(_logger, "\nField computation");
       LOG_TIMER(_logger, TIMR_STENCIL, "  Stencil");
       LOG_TIMER(_logger, TIMR_FIELD, "  Field");
       LOG_TIMER(_logger, TIMR_INTERP, "  Interp");
-    }
-
-    // Rebuild BVH once field computation time diverges from the last one by a certain value
-    if (_useBvh) {
-      const uint maxIters = 6;
-      const double threshold = 0.01;// 0.0075; // how the @#@$@ do I determine this well
-      if (_rebuildBvhOnIter && iteration >= _params._remove_exaggeration_iter) {
-        _lastRebuildTime = glTimers[TIMR_FIELD].lastMicros();
-        _nRebuildIters = 0;
-        _rebuildBvhOnIter = false;
-      } else if (_lastRebuildTime > 0.0) {
-        const double difference = std::abs(glTimers[TIMR_FIELD].lastMicros() - _lastRebuildTime) 
-                                / _lastRebuildTime;
-        if (difference >= threshold || ++_nRebuildIters >= maxIters) {
-          _rebuildBvhOnIter = true;
-        }
-      }
+    } else {
+      // Output nice message during runtime
+      utils::secureLogValue(_logger, \
+        std::string("  Field"), \
+        std::string("iter ") + std::to_string(iteration) 
+        + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
+        + std::string(" - ") + std::to_string(glTimers[TIMR_FIELD].lastMicros())
+        + std::string(" \xE6s")
+      );
     }
   }
 
@@ -346,6 +341,11 @@ namespace hdi::dr {
       // Cleanup
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
+
+    // Copy nr of flagged pixels from device to host-side buffer for cheaper readback later
+    glCopyNamedBufferSubData(_buffers(BufferType::ePixelsHead), 
+                              _buffers(BufferType::ePixelsHeadReadback), 
+                              0, 0, sizeof(uint));
 
     ASSERT_GL("Field2dCompute::compute::stencil()");
     TOCK_TIMER(TIMR_STENCIL);
