@@ -45,33 +45,34 @@
 
 namespace hdi::dr {
   /**
-   * Field3dCompute
+   * Field3dComputeExp
    * 
    * Class which computes the scalar and vector field components required for the tSNE 
    * minimization fully on the GPU. Manages subclasses and subcomponents such as tree
-   * structures. Can perform full computatsion in O(p N) time, single hierarchy approximation
-   * in O(p log N) time, dual hierarchy approximation in O(log P log N) time.
+   * structures. Can perform full computation in O(p N) time, single tree approximation
+   * in O(p log N) time, dual tree approximation in O(log P log N) time.
    */
-  class Field3dCompute {
+  class Field3dComputeExp {
     using Bounds = AlignedBounds<3>;
     using vec = dr::AlignedVec<3, float>;
     using uvec = dr::AlignedVec<3, uint>;
 
   public:
-    Field3dCompute();
-    ~Field3dCompute();
+    Field3dComputeExp();
+    ~Field3dComputeExp();
     
     void init(const TsneParameters& params,
-                    GLuint positionBuffer,
-                    GLuint boundsBuffer,
+                    GLuint position_buff,
+                    GLuint bounds_buff,
                     unsigned n);
     void destr();
     void compute(uvec dims, 
                  unsigned iteration, 
                  unsigned n,
-                 GLuint positionBuffer, 
-                 GLuint boundsBuffer,  
-                 GLuint interpBuffer);
+                 GLuint position_buff, 
+                 GLuint bounds_buff,  
+                 GLuint interp_buff,
+                 Bounds bounds);
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger;  
@@ -94,13 +95,23 @@ namespace hdi::dr {
       ePairsLeaf,
       ePairsLeafHead,
 
-      // Queues + heads for list of node pairs for iterative traversal of hierarchy
+      // Queues + heads for list of node pairs for iterative hierarchy traversal
       ePairsInput,
       ePairsOutput,
       ePairsInputHead,
       ePairsOutputHead,
       ePairsInputHeadReadback,
       ePairsOutputHeadReadback,
+
+      // Queue + head for list of node pairs for iterative hierarchy traversal
+      // at a certain levelm in the dual hierarchy, from which we can restart
+      ePairsCache,
+      ePairsCacheHead,
+      
+      // Queue + head for list of node pairs which were accepted as approximations
+      // in the top few levels of the dual hierarchy
+      ePairsApprox,
+      ePairsApproxHead,
 
       Length
     };
@@ -112,13 +123,15 @@ namespace hdi::dr {
       eInterp,
       eField,
 
-      // Single hierarchy programs
+      // Single tree programs
       eFlagBvh,
       eFieldBvh,
 
-      // Dual hierarchy programs
+      // Dual tree programs
       eFieldDual,
+      eFieldDualDispatch,
       eLeaf,
+      eIterate,
       ePush,
 
       Length
@@ -152,16 +165,19 @@ namespace hdi::dr {
     TsneParameters _params;
     utils::AbstractLog* _logger;
     bool _useVoxelGrid;
-    bool _useEmbeddingBvh;
-    bool _useFieldBvh;
+    bool _usePointBvh;
+    bool _usePixelBvh;
     GLuint _voxelVao;
     GLuint _voxelFbo;
-    uint _bvhRebuildIters;
+    bool _rebuildBvhOnIter;
+    uint _nRebuildIters;
+    double _lastRebuildTime;
     uint _startLvl;
     size_t _pairsInitSize;
+    uint _rebuildDelayIters;
     
   private:
-    // Functions called by Field3dCompute::compute()
+    // Functions called by Field3dComputeExp::compute()
     void compactField(unsigned n,
                       GLuint positionsBuffer, 
                       GLuint boundsBuffer);
@@ -174,6 +190,10 @@ namespace hdi::dr {
                          GLuint positionsBuffer,
                          GLuint boundsBuffer);
     void computeFieldDualBvh(unsigned n,
+                             unsigned iteration,
+                             GLuint positionsBuffer,
+                             GLuint boundsBuffer);
+    void computeFieldDualBvhPartial(unsigned n,
                              unsigned iteration,
                              GLuint positionsBuffer,
                              GLuint boundsBuffer);
