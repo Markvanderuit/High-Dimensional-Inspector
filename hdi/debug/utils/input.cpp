@@ -9,6 +9,10 @@
 
 static void keyboardCallback(GLFWwindow* window, int key, int scan_code, int action, int mods)
 {
+  if (key == GLFW_KEY_ESCAPE) {
+    std::exit(0);
+  }
+
   // ImGui captures keyboard input, do not forward
   if (ImGui::GetIO().WantCaptureKeyboard) {
     return;
