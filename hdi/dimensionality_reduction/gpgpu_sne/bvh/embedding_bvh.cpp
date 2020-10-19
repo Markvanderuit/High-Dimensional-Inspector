@@ -120,8 +120,7 @@ namespace hdi::dr {
       _buffers(BufferType::eMortonUnsorted), 
       _buffers(BufferType::eMortonSorted), 
       _buffers(BufferType::eIdxSorted), 
-      _layout.nPos, 
-      _layout.nLvls * uint(std::log2(_layout.nodeFanout))
+      _layout.nPos
     );
 
     // Output tree info
@@ -178,9 +177,7 @@ namespace hdi::dr {
     if (rebuild) {
       TICK_TIMER(TIMR_SORT);
       
-      _sorter.map();
-      _sorter.compute(_layout.nPos, _layout.nLvls * uint(std::log2(_layout.nodeFanout))); // ohboy
-      _sorter.unmap();
+      _sorter.sort(_layout.nPos, _layout.nLvls * uint(std::log2(_layout.nodeFanout))); // ohboy
       
       auto &program = _programs(ProgramType::ePosSorted);
       program.bind();

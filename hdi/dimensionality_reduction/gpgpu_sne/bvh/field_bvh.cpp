@@ -105,8 +105,7 @@ namespace hdi::dr {
       _buffers(BufferType::eMortonUnsorted), 
       _buffers(BufferType::eMortonSorted), 
       _buffers(BufferType::eIdxSorted), 
-      _layout.nPixels, 
-      _layout.nLvls * uint(std::log2(_layout.nodeFanout))
+      _layout.nPixels
     );
 
     // Output tree info
@@ -180,8 +179,7 @@ namespace hdi::dr {
         _buffers(BufferType::eMortonUnsorted), 
         _buffers(BufferType::eMortonSorted), 
         _buffers(BufferType::eIdxSorted), 
-        reserveLayout.nPixels, 
-        reserveLayout.nLvls * uint(std::log2(reserveLayout.nodeFanout))
+        reserveLayout.nPixels
       );
       
       utils::secureLogValue(_logger, "   Expanded FieldBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
@@ -216,9 +214,7 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_SORT);
 
-      _sorter.map();
-      _sorter.compute(_layout.nPixels, _layout.nLvls * uint(std::log2(_layout.nodeFanout)));
-      _sorter.unmap();
+      _sorter.sort(_layout.nPixels, _layout.nLvls * uint(std::log2(_layout.nodeFanout)));
 
       auto &program = _programs(ProgramType::ePixelSorted);
       program.bind();

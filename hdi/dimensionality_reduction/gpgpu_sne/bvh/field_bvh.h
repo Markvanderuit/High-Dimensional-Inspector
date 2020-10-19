@@ -36,7 +36,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/bvh_sort.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cub_interop.h"
 
 namespace hdi::dr {
   template <unsigned D>
@@ -136,7 +136,7 @@ namespace hdi::dr {
     Layout _layout;
     uint _reservedNodes;
     TsneParameters _params;
-    BVHSorter _sorter;
+    InteropPairSorter _sorter;
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
     utils::AbstractLog* _logger;
