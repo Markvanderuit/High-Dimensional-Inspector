@@ -30,8 +30,8 @@
 
 #include <numeric>
 #include <cub/cub.cuh>
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/interop.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cub_interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/cub_interop.h"
 
 namespace hdi {
   namespace dr {

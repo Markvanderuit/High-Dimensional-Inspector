@@ -29,8 +29,8 @@
  */
 
 #include <vector>
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/assert.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/assert.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/interop.h"
 #include <cuda_gl_interop.h> // include last to prevent double OpenGL includes from GLFW/QT
 
 typedef unsigned uint;
@@ -63,23 +63,23 @@ typedef unsigned uint;
           flag = cudaGraphicsRegisterFlagsWriteDiscard;  
           break;
       };
-      cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, flag);
+      ASSERT_CU(cudaGraphicsGLRegisterBuffer(&_cuHandle, _glHandle, flag));
       _isInit = true;
     }
 
     void InteropBuffer::destr() {
-      cudaGraphicsUnregisterResource(_cuHandle);
+      ASSERT_CU(cudaGraphicsUnregisterResource(_cuHandle));
       _isInit = false;
     }
 
     void InteropBuffer::map() {
-      cudaGraphicsMapResources(1, &_cuHandle);
-      cudaGraphicsResourceGetMappedPointer(&_cuPtr, nullptr, _cuHandle);
+      ASSERT_CU(cudaGraphicsMapResources(1, &_cuHandle));
+      ASSERT_CU(cudaGraphicsResourceGetMappedPointer(&_cuPtr, nullptr, _cuHandle));
       _isMapped = true;
     }
     
     void InteropBuffer::unmap() {
-      cudaGraphicsUnmapResources(1, &_cuHandle);
+      ASSERT_CU(cudaGraphicsUnmapResources(1, &_cuHandle));
       _isMapped = false;
     }
     
@@ -95,16 +95,16 @@ typedef unsigned uint;
       }
 
       // Map all resources
-      cudaGraphicsMapResources((int) count, handles.data());
+      ASSERT_CU(cudaGraphicsMapResources((int) count, handles.data()));
 
       // Generate mapped pointers for each resource
       for (size_t i = 0; i < count; i++) {
         resources[i]._cuHandle = handles[i];
-        cudaGraphicsResourceGetMappedPointer(
+        ASSERT_CU(cudaGraphicsResourceGetMappedPointer(
           &resources[i]._cuPtr,
           nullptr,
           resources[i]._cuHandle
-        );
+        ));
         resources[i]._isMapped = true;
       }
     }
@@ -117,7 +117,7 @@ typedef unsigned uint;
       }
 
       // Unmap all resources
-      cudaGraphicsUnmapResources((int) count, handles.data());
+      ASSERT_CU(cudaGraphicsUnmapResources((int) count, handles.data()));
       for (size_t i = 0; i < count; i++) {
         resources[i]._cuHandle = handles[i];
         resources[i]._cuPtr = nullptr;

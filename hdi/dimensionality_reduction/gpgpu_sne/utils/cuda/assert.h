@@ -28,62 +28,51 @@
  * OF SUCH DAMAGE.
  */
 
- #include <cuda_runtime.h>
- #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/timer.h"
+#pragma once
 
- namespace hdi {
-   namespace dr {
-     namespace bvh {
-      CuTimer::CuTimer()
-      : _isInit(false)
-      { }
+#include <cstdlib>
+#include <cuda_runtime.h>
+#include <iostream>
+#include <sstream>
 
-      void CuTimer::init()
-      {
-        _msPoll = 0.f;
-        _msAvg = 0.f;
-        _iter = 0;
-
-        cudaEventCreate((cudaEvent_t *) &_start);
-        cudaEventCreate((cudaEvent_t *) &_stop);
-
-        _isInit = true;
-      }
-
-      void CuTimer::destr()
-      {
-        _msPoll = 0.f;
-        _msAvg = 0.f;
-        _iter = 0;
-
-        cudaEventDestroy((cudaEvent_t) _start);
-        cudaEventDestroy((cudaEvent_t) _stop);
-
-        _isInit = false;
-      }
-
-      void CuTimer::tick()
-      {
-        cudaEventRecord((cudaEvent_t) _start);
-      }
-
-      void CuTimer::tock()
-      {
-        cudaEventRecord((cudaEvent_t) _stop);
-      }
-
-      void CuTimer::poll()
-      {
-        // Query elapsed time
-        cudaEventSynchronize((cudaEvent_t) _stop);
-        cudaEventElapsedTime(&_msPoll, 
-                             (cudaEvent_t) _start, 
-                             (cudaEvent_t) _stop);
-                             
-        // Update average time
-        _msAvg = _msAvg + (_msPoll - _msAvg) / (++_iter);
+namespace hdi {
+  namespace dr {
+    inline 
+    void assertCuDetail(cudaError_t err, const char *file, int line, bool abort=true) {
+      if (err != cudaSuccess) {
+        std::stringstream ss;
+        ss << "CUDA error\n"
+          << "  code     " << err << " (" << cudaGetErrorString(err) << ")\n"
+          << "  file     " << file << '\n'
+          << "  line     " << line;
+        std::cerr << ss.str() << std::endl;
+        if (abort) {
+          std::exit(EXIT_FAILURE);
+        }
       }
     }
+
+    #define ASSERT_CU(err) { assertCuDetail(err, __FILE__, __LINE__); }
+
+    inline
+    void memoryCuDetail(const char *file, int line) {
+      std::size_t free, total;
+      cudaMemGetInfo(&free, &total);
+
+      // Adjust for megabytes
+      free /= 1000'000;
+      total /= 1000'000;
+
+      float percFree = 100.f * (static_cast<float>(free) / static_cast<float>(total));
+
+      std::stringstream ss;
+      ss << "CUDA memory\n"
+          << "  free     " << free << "mb / " << total << "mb (" << percFree << "%)\n"
+          << "  loc      " << file << '\n'
+          << "  line     " << line;
+      std::cout << ss.str() << std::endl;
+    }
+    
+    #define MEMORY_CU() { memoryCuDetail(__FILE__, __LINE__); }
   }
 }
-

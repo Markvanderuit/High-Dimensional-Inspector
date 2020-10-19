@@ -30,55 +30,61 @@
 
 #pragma once
 
+#include <vector>
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/interop.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/utils/timer.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/timer.h"
 
 namespace hdi {
   namespace dr {
-    class BVHSorter {
+    class CUBInterop {
+      using uint = unsigned;
+
     public:
-      BVHSorter();
-      ~BVHSorter();
+      CUBInterop();
+      ~CUBInterop();
 
-      // void init(GLuint unsortedKeysBuffer, GLuint sortedIdxBuffer, unsigned n, unsigned bits);
-      void init(GLuint keysUnsortedBuffer, 
-                GLuint keysSortedBuffer,
-                GLuint idxSortedBuffer, 
-                unsigned maxn, unsigned maxlvls);
       void destr();
-
       void map();
       void unmap();
-      void compute(unsigned n, unsigned lvls);
 
-      bool isMapped() const {
-        return _isMapped;
-      }
-
-    private:
-      enum class BufferType {
-        eTemp,
-        eIdxUnsorted,
-
-        Length
-      };
-
-      enum class InteropBufferType {
-        eKeysUnsorted,
-        eKeysSorted,
-        eIdxSorted,
-
-        Length
-      };
+    protected:
+      void init();
 
       bool _isInit;
       bool _isMapped;
-      unsigned _maxn;
-      unsigned _maxlvls;
-      size_t _tempSize;
-      EnumArray<BufferType, void*> _buffers;
-      EnumArray<InteropBufferType, InteropBuffer> _interops;
+      size_t _tempSize; // All CUB primitives require this parameter
+      std::vector<void *> _buffers;
+      std::vector<InteropBuffer> _interops;
+    };
+
+    class InteropPairSorter : public CUBInterop {
+      using uint = unsigned;
+
+    public:
+      // Specify keysOut as sorted version of keysIn
+      // additionally return a "sort order" in valuesOut
+      // Max nr of sortable elements must be specified beforehand
+      void init(GLuint keysIn,
+                GLuint keysOut,
+                GLuint valuesOut,
+                uint maxn);
+
+      void sort(uint n, uint bits);
+    };
+
+    class InteropPrefixScanner : public CUBInterop {
+    using uint = unsigned;
+
+    public:
+      // Specify valuesOut as scanned result over valuesIn
+      // Max nr of scannable elements must be specified beforehand
+      void init(GLuint valuesIn, 
+                GLuint valuesOut,
+                uint n);
+                       
+      void inclusiveScan(uint n);
+      void exclusiveScan(uint n);
     };
   }
 }
