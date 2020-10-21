@@ -36,7 +36,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cub_interop.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/cub_interop.h"
 
 namespace hdi::dr {
   template <unsigned D>
