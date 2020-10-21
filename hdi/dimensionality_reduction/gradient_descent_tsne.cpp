@@ -53,9 +53,10 @@ namespace hdi::dr {
     }
   }
 
-  void GradientDescentTSNE::init(const SparseMatrix& P,
-                                    Embedding* embeddingPtr,
-                                    TsneParameters params)
+  void GradientDescentTSNE::init(const SparseMatrix& P, 
+                                const GpgpuHdCompute::Buffers& distribution,
+                                Embedding* embeddingPtr,
+                                TsneParameters params)
   {
     utils::secureLog(_logger, "Initializing tSNE...");
     _embeddingPtr = embeddingPtr;
@@ -63,10 +64,40 @@ namespace hdi::dr {
     _iteration = 0;
     _P = P;
 
+    // // TODO Linearize probability matrix
+    // GpgpuHdCompute::Buffers buffers;
+    // { 
+    //   const uint n = params._n;
+    //   const uint k = params._perplexity * 3 + 1;
+      
+    //   std::vector<uint> layouts(n * 2, 0);
+    //   std::vector<uint> neighbours;
+    //   std::vector<float> similarities;
+    //   neighbours.reserve(n * k);
+    //   similarities.reserve(n * k);
+    //   for (uint i = 0; i < n; i++) {
+    //     layouts[2 * i] = neighbours.size();
+
+    //     for (const auto &p_ij : P[i]) {
+    //       neighbours.push_back(p_ij.first);
+    //       similarities.push_back(p_ij.second);
+    //     }
+
+    //     layouts[2 * i + 1] = P[i].size();
+    //   }
+
+    //   glCreateBuffers(1, &buffers.layoutBuffer);
+    //   glCreateBuffers(1, &buffers.neighboursBuffer);
+    //   glCreateBuffers(1, &buffers.similaritiesBuffer);
+    //   glNamedBufferStorage(buffers.layoutBuffer, layouts.size() * sizeof(uint), layouts.data(), 0);
+    //   glNamedBufferStorage(buffers.neighboursBuffer, neighbours.size() * sizeof(uint), neighbours.data(), 0);
+    //   glNamedBufferStorage(buffers.similaritiesBuffer, similarities.size() * sizeof(float), similarities.data(), 0);
+    // }
+
     // Initialize the embedding to random positions
     utils::secureLog(_logger, "Initializing embedding...");
     {
-      const unsigned n = P.size();
+      const unsigned n = _params._n; // P.size();
       _embeddingPtr->resize(
         _params._embedding_dimensionality, 
         n, 
@@ -97,11 +128,11 @@ namespace hdi::dr {
     switch (_params._embedding_dimensionality) {
       case 2:
         _gpgpu_2d_sne_compute.setLogger(_logger);
-        _gpgpu_2d_sne_compute.init(_embeddingPtr, _params, _P);
+        _gpgpu_2d_sne_compute.init(_embeddingPtr, distribution, _params);
         break;
       case 3:
         _gpgpu_3d_sne_compute.setLogger(_logger);
-        _gpgpu_3d_sne_compute.init(_embeddingPtr, _params, _P);
+        _gpgpu_3d_sne_compute.init(_embeddingPtr, distribution, _params);
         break;
       default:
         break;

@@ -41,6 +41,7 @@ namespace hdi {
       TsneParameters() :
         _seed(-1),
         _rngRange(0.1f),
+        _n(0),
         _embedding_dimensionality(2),
         _iterations(1000),
         _minimum_gain(0.1),
@@ -58,6 +59,7 @@ namespace hdi {
 
       int _seed;
       float _rngRange;
+      int _n;
       int _embedding_dimensionality;
       int _iterations;
 

@@ -197,14 +197,19 @@ namespace hdi{
               (*distribution_iter) = 0;
               continue;
             }
-            double v = exp(-beta * (*distance_iter));
+            // double v = exp(-beta * (*distance_iter));
+            double v = std::exp(-beta * (*distance_iter));
             sigma = std::sqrt(1/(2*beta));
             //double v = exp(- (*distance_iter) / (2*sigma*sigma));
-            (*distribution_iter) = static_cast<typename Vector::value_type>(v);
+            (*distribution_iter) = v;// static_cast<typename Vector::value_type>(v);
             sum_distribution += v;
           }
-
         }
+        // // TODO HERE
+        // if (iter + 1 >= max_iterations) {
+        //   found = true;
+        //   break;
+        // }
 
         double H = .0; //entropy
         {

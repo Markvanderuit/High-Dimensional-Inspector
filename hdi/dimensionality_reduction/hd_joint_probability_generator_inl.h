@@ -42,6 +42,8 @@
 #include <chrono>
 #include <unordered_set>
 #include <numeric>
+#include <faiss/gpu/StandardGpuResources.h>
+#include <faiss/gpu/GpuIndexIVFFlat.h>
 
 #ifdef __USE_GCD__
 #include <dispatch/dispatch.h>
@@ -123,10 +125,75 @@ namespace hdi{
 
       std::vector<scalar_type>  distances_squared;
       std::vector<int>      indices;
+      
 
-      computeHighDimensionalDistances(high_dimensional_data, num_dim, num_dps, distances_squared, indices, params);
+      { // TODO Remove FAISS test
+        using uint = unsigned;
+        const uint n = num_dps;
+        const uint d = num_dim;
+        const uint k = 3 * static_cast<uint>(params._perplexity) + 1;
+        const float *points = high_dimensional_data;
+
+        distances_squared.resize(n * k);
+        std::vector<faiss::Index::idx_t> faissIndices(n * k);
+
+        {
+          // utils::ScopedTimer<float, utils::Seconds> timer(_time_knn);
+          utils::secureLog(_logger, "Performing FAISS test");
+        
+          // Nr. of inverted lists used by FAISS. O(sqrt(n)) is apparently reasonable
+          // src: https://github.com/facebookresearch/faiss/issues/112
+          uint nLists = 4 * static_cast<uint>(std::sqrt(n)); 
+
+          // Use a single GPU device. For now, just grab device 0 and pray
+          faiss::gpu::StandardGpuResources faissResources;
+          faiss::gpu::GpuIndexIVFFlatConfig faissConfig;
+          faissConfig.device = 0;
+          faissConfig.indicesOptions = faiss::gpu::INDICES_32_BIT;
+          faissConfig.flatConfig.useFloat16 = true;
+        
+          // Construct search index
+          // Inverted file flat list gives accurate results at significant memory overhead.
+          faiss::gpu::GpuIndexIVFFlat faissIndex(
+            &faissResources,
+            d, 
+            nLists,
+            faiss::METRIC_L2, 
+            faissConfig
+          );
+          faissIndex.setNumProbes(12);
+          faissIndex.train(n, points);
+          faissIndex.add(n, points);
+
+          // Perform actual search
+          // Store results device cide in cuKnnSquaredDistances, cuKnnIndices, as the
+          // rest of construction is performed on device as well.
+          faissIndex.search(
+            n,
+            points,
+            k,
+            distances_squared.data(),
+            faissIndices.data()
+          );
+        
+          // Tell FAISS to bugger off
+          faissIndex.reset();
+          faissIndex.reclaimMemory();
+        }
+
+        // Cast data
+        indices = std::vector<int>(std::begin(faissIndices), std::end(faissIndices));
+      } // TODO Remove FAISS test
+      const unsigned nn = params._perplexity*params._perplexity_multiplier + 1;
       computeGaussianDistributions(distances_squared,indices,distribution,params);
       symmetrize(distribution);
+
+      std::cout << "CPU" << '\n';
+      unsigned i = 0;
+      for (auto &p_ij : distribution[0]) {
+        std::cout << i << '\t' << p_ij.first << '\t' << p_ij.second << '\n';
+        i++;
+      }
     }
 
     template <typename scalar, typename sparse_scalar_matrix>
@@ -161,7 +228,7 @@ namespace hdi{
       flann::Matrix<scalar_type> query  (high_dimensional_data,num_dps,num_dim);
 
       flann::Index<flann::L2<scalar_type> > index(dataset, flann::KDTreeIndexParams(params._num_trees));
-      const unsigned int nn = params._perplexity*params._perplexity_multiplier + 1;
+      const unsigned int nn = params._perplexity * params._perplexity_multiplier + 1;
       distances_squared.resize(num_dps*nn);
       indices.resize(num_dps*nn);
       {
@@ -185,19 +252,11 @@ namespace hdi{
       const int n = distribution.size();
 
       const unsigned int nn = params._perplexity*params._perplexity_multiplier + 1;
-#ifdef __USE_GCD__
-        __block scalar_vector_type temp_vector(distances_squared.size(),0);
-#else
-        scalar_vector_type temp_vector(distances_squared.size(),0);
-#endif //__USE_GCD__
+
+      scalar_vector_type temp_vector(distances_squared.size(),0);
       
-#ifdef __USE_GCD__
-      std::cout << "GCD dispatch, hd_joint_probability_generator 193.\n";
-      dispatch_apply(n, dispatch_get_global_queue(0, 0), ^(size_t j) {
-#else
       #pragma omp parallel for
       for(int j = 0; j < n; ++j){
-#endif //__USE_GCD__
         const auto sigma =  utils::computeGaussianDistributionWithFixedPerplexity<scalar_vector_type>(
                   distances_squared.begin() + j*nn, //check squared
                   distances_squared.begin() + (j + 1)*nn,
@@ -209,9 +268,6 @@ namespace hdi{
                   0
                 );
       }
-#ifdef __USE_GCD__
-      );
-#endif
 
       for(int j = 0; j < n; ++j){
         for(int k = 1; k < nn; ++k){
@@ -227,29 +283,21 @@ namespace hdi{
       utils::secureLog(_logger,"Computing joint-probability distribution...");
 
       const unsigned int nn = params._perplexity*params._perplexity_multiplier + 1;
-      const int n = indices.size()/nn;
+      const int n = indices.size() / nn;
       
-#ifdef __USE_GCD__
-      std::cout << "GCD dispatch, hd_joint_probability_generator 232.\n";
-      dispatch_apply(n, dispatch_get_global_queue(0, 0), ^(size_t j) {
-#else
       #pragma omp parallel for
       for(int j = 0; j < n; ++j){
-#endif //__USE_GCD__
         const auto sigma =  utils::computeGaussianDistributionWithFixedPerplexity<scalar_vector_type>(
                   distances_squared.begin() + j*nn, //check squared
                   distances_squared.begin() + (j + 1)*nn,
                   probabilities.begin() + j*nn,
                   probabilities.begin() + (j + 1)*nn,
                   params._perplexity,
-                  200,
+                  200,  // 200
                   1e-5,
                   0
                 );
       }
-#ifdef __USE_GCD__
-      );
-#endif
     }
 
     template <typename scalar, typename sparse_scalar_matrix>
@@ -258,7 +306,7 @@ namespace hdi{
       for(int j = 0; j < n; ++j){
         for(auto& e: distribution[j]){
           const unsigned int i = e.first;
-          scalar new_val = (distribution[j][i]+distribution[i][j])*0.5;
+          scalar new_val = 0.5 * (distribution[j][i] + distribution[i][j]);
           distribution[j][i] = new_val;
           distribution[i][j] = new_val;
         }
@@ -271,21 +319,14 @@ namespace hdi{
       utils::secureLog(_logger,"Computing joint-probability distribution...");
       const int n = num_dps;
       const unsigned int nn = num_dps;
-#ifdef __USE_GCD__
-      __block scalar_vector_type temp_vector(num_dps*num_dps,0);
-#else
+
       scalar_vector_type temp_vector(num_dps*num_dps,0);
-#endif //__USE_GCD__
+
       distribution.clear();
       distribution.resize(n);
 
-#ifdef __USE_GCD__
-      std::cout << "GCD dispatch, hd_joint_probability_generator 193.\n";
-      dispatch_apply(n, dispatch_get_global_queue(0, 0), ^(size_t j) {
-#else
       #pragma omp parallel for
       for(int j = 0; j < n; ++j){
-#endif //__USE_GCD__
         const auto sigma =  utils::computeGaussianDistributionWithFixedPerplexity<scalar_vector_type>(
                   squared_distance_matrix.begin() + j*nn, //check squared
                   squared_distance_matrix.begin() + (j + 1)*nn,
@@ -297,9 +338,6 @@ namespace hdi{
                   j
                 );
       }
-#ifdef __USE_GCD__
-      );
-#endif
 
       for(int j = 0; j < n; ++j){
         for(int k = 0; k < nn; ++k){

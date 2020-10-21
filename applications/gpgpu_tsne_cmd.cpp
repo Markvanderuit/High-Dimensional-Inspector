@@ -39,16 +39,14 @@
 #include "hdi/debug/renderer/renderer.hpp"
 #include "hdi/data/embedding.h"
 #include "hdi/data/panel_data.h"
-#include "hdi/data/io.h"
 #include "hdi/dimensionality_reduction/gradient_descent_tsne.h"
 #include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/kl_divergence_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 #include <cxxopts/cxxopts.hpp>
 #include <cstdlib>
-#include <iostream>
 #include <fstream>
-#include <memory>
 #include <string>
 
 typedef float scalar_type;
@@ -207,6 +205,7 @@ int main(int argc, char *argv[]) {
     // Set tsne parameters
     tsne_params._seed = 1;
     tsne_params._perplexity = static_cast<double>(perplexity);
+    tsne_params._n = num_data_points;
     tsne_params._embedding_dimensionality = embedding_dimensions;
     tsne_params._iterations = iterations;
     tsne_params._mom_switching_iter = exaggeration_iter;
@@ -231,30 +230,6 @@ int main(int argc, char *argv[]) {
       loadData(panelData, labelData, inputFileName, num_data_points, num_dimensions);
     }
 
-    if (cacheFile.is_open()) { 
-      // There IS a cache file already, load just that
-      hdi::utils::secureLog(&log, "Loading joint probability distribution from cache file...");
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
-      hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
-    } else { 
-      // No cache file, build probability distr from scratch
-      hdi::utils::secureLog(&log, "Computing joint probability distribution...");
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
-
-      // Compute joint probability distribution
-      prob_gen.setLogger(&log);
-      prob_gen_param._perplexity = perplexity;
-      prob_gen.computeJointProbabilityDistribution(panelData.getData().data(),
-                                                   panelData.numDimensions(),
-                                                   panelData.numDataPoints(),
-                                                   distributions,
-                                                   prob_gen_param);
-      
-      // Store probability distribution in cache file
-      std::ofstream outputFile(cacheFileName, std::ios::binary);
-      hdi::data::IO::saveSparseMatrix(distributions, outputFile);
-    }
-
     // Create an opengl context/window
     hdi::dbg::Window window;
     if (doVisualisation) {
@@ -277,11 +252,50 @@ int main(int argc, char *argv[]) {
       renderManager.init(embedding_dimensions, labelData);
     }
 
+    // Compute high-dimensional joint similarity distribution
+    /* hdi::dr::GpgpuHdCompute hdCompute;
+    {
+      hdCompute.setLogger(&log);
+      hdCompute.init(tsne_params);
+      hdCompute.compute(panelData);
+    } */
+    hdi::dr::GpgpuHdCompute hdCompute;
+
+    // Load or compute joint probability distribution
+    if (cacheFile.is_open()) { 
+      // // There IS a cache file already, load just that
+      // hdi::utils::secureLog(&log, "Loading joint probability distribution from cache file...");
+      // hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+      // hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
+    } else { 
+      // No cache file, build probability distr from scratch
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+
+      { // Faiss scope
+        hdCompute.setLogger(&log);
+        hdCompute.init(tsne_params);
+        hdCompute.compute(panelData);
+      } // Faiss scope
+
+      // hdi::utils::secureLog(&log, "Computing joint probability distribution...");
+      // prob_gen.setLogger(&log);
+      // prob_gen_param._perplexity = perplexity;
+      // prob_gen.computeJointProbabilityDistribution(panelData.getData().data(),
+      //                                              panelData.numDimensions(),
+      //                                              panelData.numDataPoints(),
+      //                                              distributions,
+      //                                              prob_gen_param);
+      
+      // Store probability distribution in cache file
+      // std::ofstream outputFile(cacheFileName, std::ios::binary);
+      // hdi::data::IO::saveSparseMatrix(distributions, outputFile);
+    }
+
     // Init T-SNE algorithm and perform minimization
     hdi::dr::GradientDescentTSNE tSNE;
     {
       tSNE.setLogger(&log);
-      tSNE.init(distributions, &embedding, tsne_params);
+      tSNE.init(distributions, hdCompute.buffers(), &embedding, tsne_params);
       hdi::utils::secureLog(&log, "Computing gradient descent...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
       if (doVisualisation) {
@@ -312,9 +326,9 @@ int main(int argc, char *argv[]) {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
       float KL = 0.f;
       if (embedding_dimensions == 2) {
-        KL = hdi::dr::KlDivergenceCompute<2>().compute(&embedding, tsne_params, distributions);
+        KL = hdi::dr::KlDivergenceCompute<2>().compute(&embedding, hdCompute.buffers(), tsne_params);
       } else if (embedding_dimensions == 3) {
-        KL = hdi::dr::KlDivergenceCompute<3>().compute(&embedding, tsne_params, distributions);
+        KL = hdi::dr::KlDivergenceCompute<3>().compute(&embedding, hdCompute.buffers(), tsne_params);
       }
       hdi::utils::secureLogValue(&log, "  KL Divergence", KL);
       hdi::utils::secureLog(&log, "");
@@ -334,6 +348,9 @@ int main(int argc, char *argv[]) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
     }
+
+    // Kill hdCompute
+    hdCompute.destr();
 
     // Output embedding file
     hdi::utils::secureLog(&log, "Writing embedding to file...");

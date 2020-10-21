@@ -39,6 +39,7 @@
 #include "hdi/data/map_mem_eff.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 
 namespace hdi::dr {
   class GradientDescentTSNE {
@@ -51,6 +52,7 @@ namespace hdi::dr {
 
     // Lifetime management
     void init(const SparseMatrix& P,
+              const GpgpuHdCompute::Buffers& distribution,
               Embedding* embeddingPtr,
               TsneParameters params);
     void destr();
