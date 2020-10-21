@@ -155,7 +155,8 @@ GLSL(field_bvh_dual_src, 450,
       eCanSubdiv = ++eLvl < eLvls - 1 && eNode.extent > kLeaf;
     }
 
-    // Test for a dead end in the tree to avoid inaccuracies when computing forces
+    // Test for a dead end in the hierarchy, but keep
+    // invocation alive for now
     vec4 field = vec4(0);
     if (eNode.extent != 0 && fNode.extent != 0) {
       // Compute distance between nodes
@@ -210,7 +211,7 @@ GLSL(field_bvh_dual_src, 450,
       atomicAdd(fFieldBuffer[addr.w], field.w);
     } else if (!fDidSubdiv) {
       // All threads can enter this so the subgroup can be used without inactive invocations
-      // When the embedding tree is subdivided, kNode invocations can write to the same field node
+      // When the embedding hierarchy is subdivided, kNode invocations can write to the same field node
       field = subgroupClusteredAdd(field, kNode);
       if (thread < 4 && field != vec4(0)) {
         atomicAdd(fFieldBuffer[4 * pair.f + thread], field[thread]);

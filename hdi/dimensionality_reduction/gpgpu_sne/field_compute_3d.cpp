@@ -98,7 +98,7 @@ namespace hdi::dr {
                             unsigned n) {
     _params = params;
     _useEmbeddingBvh = _params._theta > 0.0;
-    _useFieldBvh = _params._thetaDual > 0.0 || _useEmbeddingBvh;
+    _useFieldBvh = _params._thetaDual > 0.0;
     _useVoxelGrid = !_useEmbeddingBvh && !_useFieldBvh;
 
     // Build shader programs

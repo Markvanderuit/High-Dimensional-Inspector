@@ -38,6 +38,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 #include "hdi/debug/renderer/embedding.hpp"
 
 namespace hdi::dr {
@@ -60,8 +61,8 @@ namespace hdi::dr {
     ~GpgpuSneCompute();
 
     void init(const Embedding *embedding,
-              const TsneParameters &params,
-              const SparseMatrix &P);
+              const GpgpuHdCompute::Buffers distribution,
+              const TsneParameters &params);
     void destr();
     void compute(Embedding* embedding,
                  float exaggeration,
@@ -80,9 +81,6 @@ namespace hdi::dr {
       eSumQ,
       eSumQReduceAdd,
       eInterpFields,
-      eNeighbours,
-      eProbabilities,
-      eIndices,
       ePositiveForces,
       eGradients,
       ePrevGradients,
@@ -108,6 +106,7 @@ namespace hdi::dr {
     utils::AbstractLog *_logger;
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
+    GpgpuHdCompute::Buffers _distribution;
     Field2dCompute _field2dCompute;
     Field3dCompute _field3dCompute;
     dbg::EmbeddingRenderer<D> _embeddingRenderer;

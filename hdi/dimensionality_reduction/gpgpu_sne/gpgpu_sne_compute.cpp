@@ -74,9 +74,10 @@ namespace hdi::dr {
    */
   template <unsigned D>
   void GpgpuSneCompute<D>::init(const Embedding *embedding,
-                                const TsneParameters &params,
-                                const SparseMatrix &P)
+                                const GpgpuHdCompute::Buffers distribution,
+                                const TsneParameters &params)
   {
+    _distribution = distribution;
     _params = params;
 
     // Initialize shader program objects
@@ -105,13 +106,13 @@ namespace hdi::dr {
       for (auto &program : _programs) {
         program.build();
       }
+      ASSERT_GL("GpgpuSneCompute::init::programs()");
     }
     
     // Initialize buffer objects
     {
       const unsigned n = embedding->numDataPoints();
       const auto *data = embedding->getContainer().data();
-      const LinearProbabilityMatrix LP = linearizeProbabilityMatrix(embedding, P);
       const unsigned _D = (D > 2) ? 4 : D; // aligned D
       const std::vector<float> zeroes(_D * n, 0);
       const std::vector<float> ones(_D * n, 1);
@@ -123,14 +124,10 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eSumQ), 2 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eSumQReduceAdd), 128 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eInterpFields), n * 4 * sizeof(float), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::eNeighbours), LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data(), 0);
-      glNamedBufferStorage(_buffers(BufferType::eProbabilities), LP.probabilities.size() * sizeof(float), LP.probabilities.data(), 0);
-      glNamedBufferStorage(_buffers(BufferType::eIndices), LP.indices.size() * sizeof(int), LP.indices.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::ePositiveForces), n * sizeof(vec), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eGradients), n * sizeof(vec), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePrevGradients), n * sizeof(vec), zeroes.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::eGain), n * sizeof(vec), ones.data(), 0);
-
       ASSERT_GL("GpgpuSneCompute::init::buffers()");
       utils::secureLogValue(_logger, "   GpgpuSne", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     }
@@ -154,7 +151,6 @@ namespace hdi::dr {
     INIT_TIMERS();
     ASSERT_GL("GpgpuSneCompute::init()");
     _isInit = true;
-    std::cerr << "GpgpuSneCompute::init()" << std::endl;
   }
 
   /**
@@ -293,12 +289,12 @@ namespace hdi::dr {
       program.uniform1f("invPos", 1.f / static_cast<float>(n));
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePosition));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNeighbours));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eProbabilities));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eIndices));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _distribution.layoutBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _distribution.neighboursBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _distribution.similaritiesBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::ePositiveForces));
 
-      glDispatchCompute(ceilDiv(n, 256u / 32u), 1, 1);
+      glDispatchCompute(ceilDiv(n, 256u / 32u), 1, 1); // divide by subgroup size
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
       ASSERT_GL("GpgpuSneCompute::compute::pos_forces()");

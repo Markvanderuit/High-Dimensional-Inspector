@@ -175,15 +175,20 @@ namespace hdi::dr::_2d {
   GLSL(positive_forces_src, 450,
     GLSL_PROTECT( #extension GL_KHR_shader_subgroup_ballot : require )
     GLSL_PROTECT( #extension GL_KHR_shader_subgroup_arithmetic : require )
+
+    struct Layout {
+      uint offset;
+      uint size;
+    };
     
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
     // Buffer bindings
-    layout(binding = 0, std430) restrict readonly buffer Posit { vec2 positionsBuffer[]; };
-    layout(binding = 1, std430) restrict readonly buffer Neigh { uint neighboursBuffer[]; };
-    layout(binding = 2, std430) restrict readonly buffer Simil { float similaritiesBuffer[]; };
-    layout(binding = 3, std430) restrict readonly buffer Indic { int indicesBuffer[]; };
-    layout(binding = 4, std430) restrict writeonly buffer Attr { vec2 attrForcesBuffer[]; };
+    layout(binding = 0, std430) restrict readonly buffer Posi { vec2 positionsBuffer[]; };
+    layout(binding = 1, std430) restrict readonly buffer Layo { Layout layoutsBuffer[]; };
+    layout(binding = 2, std430) restrict readonly buffer Neig { uint neighboursBuffer[]; };
+    layout(binding = 3, std430) restrict readonly buffer Simi { float similaritiesBuffer[]; };
+    layout(binding = 4, std430) restrict writeonly buffer Att { vec2 attrForcesBuffer[]; };
 
     // Uniform values
     layout(location = 0) uniform uint nPos;
@@ -192,33 +197,25 @@ namespace hdi::dr::_2d {
     // Shorthand subgroup constants
     const uint thread = gl_SubgroupInvocationID;
     const uint nThreads = gl_SubgroupSize;
-
-    const uint groupSize = gl_WorkGroupSize.x;
-    const uint halfGroupSize = groupSize / 2;
-    shared vec2 reduction_array[halfGroupSize];
-
+    
     void main () {
       const uint i = (gl_WorkGroupSize.x * gl_WorkGroupID.x + gl_LocalInvocationID.x) / nThreads;
       if (i >= nPos) {
         return;
       }
 
-      // Load position of current embedding point
+      // Load data for subgroup
       const vec2 position = subgroupBroadcastFirst(thread < 1 ? positionsBuffer[i] : vec2(0));
 
-      // Load k nearest neighbours range data for current embedding point
-      const uint _i = thread < 2 ? indicesBuffer[i * 2 + thread] : 0u;
-      const uint begin = subgroupBroadcast(_i, 0u);
-      const uint extent = subgroupBroadcast(_i, 1u);
-
       // Sum attractive force over k nearest neighbours using subgroup
+      Layout l = layoutsBuffer[i];
       vec2 attrForce = vec2(0);
-      for (uint j = begin + thread; j < begin + extent; j += nThreads) {
+      for (uint ij = l.offset + thread; ij < l.offset + l.size; ij += nThreads) {
         // Calculate difference between the two positions
-        const vec2 diff = position - positionsBuffer[neighboursBuffer[j]]; // youch, bottleneck!
+        const vec2 diff = position - positionsBuffer[neighboursBuffer[ij]];
 
-        // High/low dimensional similarity measures of the two points
-        const float p_ij = similaritiesBuffer[j];
+        // High/low dimensional similarity measures of i and j
+        const float p_ij = similaritiesBuffer[ij];
         const float q_ij = 1.f / (1.f + dot(diff, diff));
 
         // Calculate the attractive force
