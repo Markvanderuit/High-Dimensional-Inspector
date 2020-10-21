@@ -48,8 +48,8 @@ namespace hdi::dr {
 
   template <unsigned D>
   float KlDivergenceCompute<D>::compute(const Embedding *embedding,
-                                        const TsneParameters &params,
-                                        const SparseMatrix &P) {
+                                        const GpgpuHdCompute::Buffers distribution,
+                                        const TsneParameters &params) {
     const unsigned n = embedding->numDataPoints();
 
     // Create shader program objects
@@ -76,22 +76,12 @@ namespace hdi::dr {
     // Create shader storage buffer objects
     {
       const auto *data = embedding->getContainer().data();
-      const LinearProbabilityMatrix LP = linearizeProbabilityMatrix(embedding, P);
       const unsigned _D = (D > 2) ? 4 : D; // aligned D
 
       glCreateBuffers(_buffers.size(), _buffers.data());
-
-      // Embedding data
-      glNamedBufferStorage(_buffers(BufferType::ePositions), n * sizeof(vec), data, 0);
-      glNamedBufferStorage(_buffers(BufferType::eNeighbours), LP.neighbours.size() * sizeof(uint32_t), LP.neighbours.data(), 0);
-      glNamedBufferStorage(_buffers(BufferType::eProbabilities), LP.probabilities.size() * sizeof(float), LP.probabilities.data(), 0);
-      glNamedBufferStorage(_buffers(BufferType::eIndices), LP.indices.size() * sizeof(int), LP.indices.data(), 0);
-      
-      // Intermediate data
+      glNamedBufferStorage(_buffers(BufferType::ePositions), n * sizeof(vec), data, 0);      
       glNamedBufferStorage(_buffers(BufferType::eQij), n * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eKlc), n * sizeof(float), nullptr, 0);
-
-      // Reduce data and final result
       glNamedBufferStorage(_buffers(BufferType::eReduceIntermediate), 256 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eReduceFinal), sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
@@ -158,9 +148,9 @@ namespace hdi::dr {
       
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePositions));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eReduceFinal));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eNeighbours));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eProbabilities));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eIndices));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, distribution.layoutBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, distribution.neighboursBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, distribution.similaritiesBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eKlc));
 
       const uint step = 1024;

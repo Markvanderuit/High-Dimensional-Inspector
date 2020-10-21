@@ -132,13 +132,22 @@ namespace hdi::dr {
     );
 
     GLSL(kl_src, 450,
+      struct Layout {
+        uint offset;
+        uint size;
+      };
+
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+      // Buffer bindings
       layout(binding = 0, std430) restrict readonly buffer Posi { vec2 posBuffer[]; };
       layout(binding = 1, std430) restrict readonly buffer SumQ { float sumQBuffer; };
-      layout(binding = 2, std430) restrict readonly buffer Neig { uint neighbsBuffer[]; };
-      layout(binding = 3, std430) restrict readonly buffer Prob { float probsBuffer[]; };
-      layout(binding = 4, std430) restrict readonly buffer Indi { int indsBuffer[]; };
+      layout(binding = 2, std430) restrict readonly buffer Layo { Layout layoutsBuffer[]; };
+      layout(binding = 3, std430) restrict readonly buffer Neig { uint neighboursBuffer[]; };
+      layout(binding = 4, std430) restrict readonly buffer Simi { float similaritiesBuffer[]; };
       layout(binding = 5, std430) restrict writeonly buffer KLD { float klBuffer[]; };
+
+      // Uniform values
       layout(location = 0) uniform uint nPoints;
       layout(location = 1) uniform uint begin;
 
@@ -153,20 +162,30 @@ namespace hdi::dr {
         // Load buffer data
         float invSumQ = 1.0 / sumQBuffer;
         vec2 pos = posBuffer[gid];
-        int idx = indsBuffer[gid * 2 + 0];
-        int nIdx = indsBuffer[gid * 2 + 1];
+        Layout l = layoutsBuffer[gid];
 
         // Sum over nearest neighbours data with a full workgroup
         float klc = 0.0;
-        for (uint i = lid; i < nIdx; i += groupSize) {
-          float p_ij = probsBuffer[idx + i] / (2.0 * float(nPoints)); // TODO why over 2N?
-          if (p_ij != 0.f) {
-            vec2 t = pos - posBuffer[neighbsBuffer[idx + i]];
-            float q_ij = 1.0 / (1.0 + dot(t, t));
-            float v = p_ij / (q_ij * invSumQ);
-            klc += p_ij * log(v);
+        for (uint k = l.offset + lid; k < l.offset + l.size; k += groupSize) {
+          const float p_ij = similaritiesBuffer[k] / (2.f * float(nPoints));
+          if (p_ij == 0.f) {
+            continue;
           }
+          vec2 t = pos - posBuffer[neighboursBuffer[k]];
+          float q_ij = 1.0 / (1.0 + dot(t, t));
+          float v = p_ij / (q_ij * invSumQ);
+          klc += p_ij * log(v);
         }
+
+        // for (uint i = lid; i < nIdx; i += groupSize) {
+        //   float p_ij = probsBuffer[idx + i] / (2.0 * float(nPoints)); // TODO why over 2N?
+        //   if (p_ij != 0.f) {
+        //     vec2 t = pos - posBuffer[neighbsBuffer[idx + i]];
+        //     float q_ij = 1.0 / (1.0 + dot(t, t));
+        //     float v = p_ij / (q_ij * invSumQ);
+        //     klc += p_ij * log(v);
+        //   }
+        // }
 
         // Reduce add to a single value
         if (lid >= halfGroupSize) {
@@ -237,13 +256,22 @@ namespace hdi::dr {
     );
 
     GLSL(kl_src, 450,
+      struct Layout {
+        uint offset;
+        uint size;
+      };
+
       layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+      // Buffer bindings
       layout(binding = 0, std430) restrict readonly buffer Posi { vec3 posBuffer[]; };
       layout(binding = 1, std430) restrict readonly buffer SumQ { float sumQBuffer; };
-      layout(binding = 2, std430) restrict readonly buffer Neig { uint neighbsBuffer[]; };
-      layout(binding = 3, std430) restrict readonly buffer Prob { float probsBuffer[]; };
-      layout(binding = 4, std430) restrict readonly buffer Indi { int indsBuffer[]; };
+      layout(binding = 2, std430) restrict readonly buffer Layo { Layout layoutsBuffer[]; };
+      layout(binding = 3, std430) restrict readonly buffer Neig { uint neighboursBuffer[]; };
+      layout(binding = 4, std430) restrict readonly buffer Simi { float similaritiesBuffer[]; };
       layout(binding = 5, std430) restrict writeonly buffer KLD { float klBuffer[]; };
+
+      // Uniform values
       layout(location = 0) uniform uint nPoints;
       layout(location = 1) uniform uint begin;
 
@@ -258,19 +286,19 @@ namespace hdi::dr {
         // Load buffer data
         float invSumQ = 1.0 / sumQBuffer;
         vec3 pos = posBuffer[gid];
-        int idx = indsBuffer[gid * 2 + 0];
-        int nIdx = indsBuffer[gid * 2 + 1];
+        Layout l = layoutsBuffer[gid];
 
         // Sum over nearest neighbours data with a full workgroup
         float klc = 0.0;
-        for (uint i = lid; i < nIdx; i += groupSize) {
-          float p_ij = probsBuffer[idx + i] / (2.0 * float(nPoints)); // TODO why over 2N?
-          if (p_ij != 0.f) {
-            vec3 t = pos - posBuffer[neighbsBuffer[idx + i]];
-            float q_ij = 1.0 / (1.0 + dot(t, t));
-            float v = p_ij / (q_ij * invSumQ);
-            klc += p_ij * log(v);
+        for (uint k = l.offset + lid; k < l.offset + l.size; k += groupSize) {
+          const float p_ij = similaritiesBuffer[k] / (2.f * float(nPoints));
+          if (p_ij == 0.f) {
+            continue;
           }
+          vec3 t = pos - posBuffer[neighboursBuffer[k]];
+          float q_ij = 1.0 / (1.0 + dot(t, t));
+          float v = p_ij / (q_ij * invSumQ);
+          klc += p_ij * log(v);
         }
 
         // Reduce add to a single value

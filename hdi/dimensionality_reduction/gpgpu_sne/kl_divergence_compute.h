@@ -36,8 +36,16 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 
 namespace hdi::dr {
+  /**
+   * GpgpuKlCompute
+   * 
+   * Class which computes KL-divergence over a provided embedding, and representative high-dimensional
+   * joint similarity distribution for the original high-dimensional input data. Rewritten based on 
+   * CPU code by N. Pezotti.
+   */
   template <unsigned D>
   class KlDivergenceCompute {
     using vec = dr::AlignedVec<D, float>;
@@ -47,8 +55,8 @@ namespace hdi::dr {
     KlDivergenceCompute();
 
     float compute(const Embedding *embedding,
-                  const TsneParameters &params,
-                  const SparseMatrix &P);
+                  const GpgpuHdCompute::Buffers distribution,
+                  const TsneParameters &params);
   
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger;
@@ -61,9 +69,6 @@ namespace hdi::dr {
       eKlc,
       eReduceIntermediate,
       eReduceFinal,
-      eNeighbours,
-      eProbabilities,
-      eIndices,
 
       Length
     };
