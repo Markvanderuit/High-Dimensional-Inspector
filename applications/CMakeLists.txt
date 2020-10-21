@@ -20,3 +20,11 @@ endfunction()
 addProject(gpgpu_tsne_cmd gpgpu_tsne_cmd.cpp)
 addProject(bh_tsne_cmd bh_tsne_cmd.cpp)
 addProject(simulation_generator_cmd simulation_generator_cmd.cpp)
+
+# Copy over libopenblas shared libraries for FAISS dependency (ugh) 
+if (MSVC)
+  add_custom_command(TARGET gpgpu_tsne_cmd POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      ${CMAKE_SOURCE_DIR}/third_party/openblas/Win/bin
+      $<TARGET_FILE_DIR:gpgpu_tsne_cmd>)
+endif()

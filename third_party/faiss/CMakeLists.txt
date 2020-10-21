@@ -55,12 +55,8 @@ file(GLOB gpufaiss_sources
 add_library(faiss STATIC ${faiss_sources})
 target_link_libraries(faiss openblas)
 target_include_directories(faiss PUBLIC include)
-set_property(TARGET faiss PROPERTY CUDA_ARCHITECTURES 52 75)
 
 # Specify gpuFAISS library
 add_library(gpufaiss STATIC ${gpufaiss_sources})
 target_link_libraries(gpufaiss faiss cublas)
 target_include_directories(gpufaiss PUBLIC include)
-set_property(TARGET gpufaiss PROPERTY CUDA_ARCHITECTURES 52 75)
-
-

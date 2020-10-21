@@ -3,17 +3,31 @@ cmake_minimum_required (VERSION 3.16)
 # Create a C++/CUDA project
 project(HighDimInspector LANGUAGES C CXX CUDA)
 
-# CRoaring
-# Create lib from amalganation files
-add_library(roaring STATIC
-  ${PROJECT_SOURCE_DIR}/third_party/roaring/src/roaring.c
-)
-target_include_directories(roaring PUBLIC
-  ${PROJECT_SOURCE_DIR}/third_party/roaring/include
-)
+# Disable some MSVC warnings (yeah yeah yeah... I know)
+if(MSVC)
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
+endif()
+
+# Set default cuda architectures globally
+if(NOT DEFINED ${CMAKE_CUDA_ARCHITECTURES})
+    set(CMAKE_CUDA_ARCHITECTURES 52 75)
+    message(STATUS "CUDA architectures set to ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
+# Add third party libraries
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/openblas)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cub)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cxxopts)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/roaring)
 
 # FLANN
-# Leverage find_package on Mac/Linux/Unix
+# Leverage find_package on Linux
 # Use the included lib on Windows
 if(MSVC)
   add_library(flann::flann_import STATIC IMPORTED)
@@ -36,54 +50,12 @@ else()
   find_package(FLANN REQUIRED)
 endif()
 
-# Imgui
-# Add Imgui library, might be useful for debugging
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
-
-# OpenMP
-# Add support, if it is available
+# Add OpenMP support
 find_package(OpenMP)
 if(OPENMP_FOUND)
   message(STATUS "OpenMP found")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-endif()
-
-# GLAD
-# Add glad library
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad)
-
-# GLFW
-# Add support for GLFW, if necessary. Docs/tests/examples are trimmed from src
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
-
-# GLM
-# Add glm library (is only an alias)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
-
-# CXXOpts
-# Add cxxopts library (only an alias)
-add_library(cxxopts INTERFACE)
-target_include_directories(cxxopts INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cxxopts/include)
-
-# CUB
-# Add CUB library, for CUDA radix sort implementation
-add_library(cub INTERFACE)
-target_include_directories(cub INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cub/include)
-
-# CUDA helper
-# Add CUDA helper headers, for basic math functions
-add_library(cuda_helper INTERFACE)
-target_include_directories(cuda_helper INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cuda/include)
-
-# MSVC
-# Disable some warnings (yeah yeah I know)
-if(MSVC)
-  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4018 /wd4244 /wd4305 /wd4267 /wd4661")
 endif()
 
 # Add core libraries
@@ -94,9 +66,3 @@ add_subdirectory(hdi/dimensionality_reduction)
 
 # Add command line tools
 add_subdirectory(applications)
-
-# Install
-# We don't want to install in the default location, just use ./bin for now
-# if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-#   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "..." FORCE)
-# endif()

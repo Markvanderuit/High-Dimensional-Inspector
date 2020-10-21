@@ -7,9 +7,9 @@ file(GLOB headers
   gpgpu_sne/sort/*.h 
   gpgpu_sne/bvh/*.h
   gpgpu_sne/utils/*.h
+  gpgpu_sne/utils/cuda/*.h
   gpgpu_sne/*.hpp
   gpgpu_sne/bvh/*.hpp
-  gpgpu_sne/utils/*.hpp
 )
 
 file(GLOB sources
@@ -17,29 +17,23 @@ file(GLOB sources
   gpgpu_sne/*.cpp 
   gpgpu_sne/bvh/*.cpp 
   gpgpu_sne/utils/*.cpp 
+  gpgpu_sne/*.cu 
+  gpgpu_sne/utils/*.cu 
+  gpgpu_sne/utils/cuda/*.cu 
   gpgpu_sne/bvh/*.cu
-  gpgpu_sne/bvh/utils/*.cu
 )
 
 add_library(hdidimensionalityreduction ${headers} ${sources})
-target_include_directories(hdidebug PUBLIC ${CMAKE_SOURCE_DIR})
+target_include_directories(hdidimensionalityreduction PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_features(hdidimensionalityreduction PUBLIC cuda_std_17)
 target_link_libraries(hdidimensionalityreduction
   hdiutils 
   hdidebug 
   hdidata 
   cub 
-  cuda_helper 
   flann::flann 
   glm
-)
-set_target_properties(hdidimensionalityreduction PROPERTIES
-  CUDA_ARCHITECTURES 35 52 75)
-target_compile_options(hdidimensionalityreduction PUBLIC 
-  "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:
-    --use_fast_math 
-    -O3
-  >"
+  gpufaiss
 )
 
 install (TARGETS hdidimensionalityreduction DESTINATION bin)
