@@ -31,9 +31,9 @@ target_link_libraries(hdidimensionalityreduction
   hdidebug 
   hdidata 
   cub 
-  flann::flann 
   glm
   gpufaiss
+  flann::flann 
 )
 
 install (TARGETS hdidimensionalityreduction DESTINATION bin)

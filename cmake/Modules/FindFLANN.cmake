@@ -84,7 +84,7 @@ if(flann_FOUND)
   unset(flann_FOUND)
   set(FLANN_FOUND ON)
   # Create interface library that effectively becomes an alias for the appropriate (static/dynamic) imported FLANN target
-  add_library(flann::flann INTERFACE IMPORTED)
+  add_library(flann::flann INTERFACE IMPORTED GLOBAL)
   if(FLANN_USE_STATIC)
     set_property(TARGET flann::flann APPEND PROPERTY INTERFACE_LINK_LIBRARIES flann::flann_cpp_s)
   else()
@@ -164,7 +164,7 @@ find_package_handle_standard_args(
 )
 
 if(FLANN_FOUND)
-  add_library(flann::flann ${FLANN_LIBRARY_TYPE} IMPORTED)
+  add_library(flann::flann ${FLANN_LIBRARY_TYPE} IMPORTED GLOBAL)
   set_target_properties(flann::flann PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${FLANN_INCLUDE_DIR}")
   set_target_properties(flann::flann PROPERTIES INTERFACE_COMPILE_DEFINITIONS "${PC_FLANN_CFLAGS_OTHER}")
   set_property(TARGET flann::flann APPEND PROPERTY IMPORTED_CONFIGURATIONS "RELEASE")

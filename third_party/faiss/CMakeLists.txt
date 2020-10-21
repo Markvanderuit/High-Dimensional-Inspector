@@ -58,5 +58,6 @@ target_include_directories(faiss PUBLIC include)
 
 # Specify gpuFAISS library
 add_library(gpufaiss STATIC ${gpufaiss_sources})
-target_link_libraries(gpufaiss faiss cublas)
+target_link_libraries(gpufaiss faiss CUDA::cudart CUDA::cublas)
 target_include_directories(gpufaiss PUBLIC include)
+# target_include_directories(gpufaiss PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})

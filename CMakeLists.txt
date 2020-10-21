@@ -18,6 +18,9 @@ if(NOT DEFINED ${CMAKE_CUDA_ARCHITECTURES})
     message(STATUS "CUDA architectures set to ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
 
+# Find CUDA Toolkit to avoid issues with the default language integration
+find_package(CUDAToolkit)
+
 # Add third party libraries
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/flann)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/openblas)
