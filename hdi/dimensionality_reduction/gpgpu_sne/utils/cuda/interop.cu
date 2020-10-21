@@ -68,6 +68,10 @@ typedef unsigned uint;
     }
 
     void InteropBuffer::destr() {
+      if (!_isInit) {
+        return;
+      }
+      
       ASSERT_CU(cudaGraphicsUnregisterResource(_cuHandle));
       _isInit = false;
     }
