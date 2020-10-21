@@ -96,7 +96,7 @@ namespace hdi {
       E_PAIR_SORTER_TEMP            = 0,
       E_PAIR_SORTER_VALUES_IN       = 1,
 
-      E_PAIR_SORTER_BUFFER_LENGTH  = 2
+      E_PAIR_SORTER_BUFFER_LENGTH   = 2
     };
 
     enum InteropPairSorterInteropTypes {
@@ -135,13 +135,14 @@ namespace hdi {
     }
 
     void InteropPairSorter::sort(uint n, uint bits) {
+      // Outside code did not map interops for use beforehand
       const bool doMapping = !_isMapped;
-      const int msb = 30;
-      const int lsb = msb - bits;
-      
       if (doMapping) {
         map();
       }
+
+      const int msb = 30;
+      const int lsb = msb - bits;
 
       cub::DeviceRadixSort::SortPairs<uint, uint>(
         (void *) _buffers[E_PAIR_SORTER_TEMP],
@@ -152,6 +153,56 @@ namespace hdi {
         (uint *) _interops[E_PAIR_SORTER_VALUES_OUT].ptr(),
         (int) n,
         lsb, msb
+      );
+
+      if (doMapping) {
+        unmap();
+      }
+    }
+
+    enum InteropInclusiveScannerBufferTypes {
+      E_INCLUSIVE_SCANNER_TEMP            = 0,
+
+      E_INCLUSIVE_SCANNER_BUFFER_LENGTH   = 1
+    };
+
+    enum InteropInclusiveScannerInteropTypes {
+      E_INCLUSIVE_SCANNER_VALUES_IN       = 0,
+      E_INCLUSIVE_SCANNER_VALUES_OUT      = 1,
+      
+      E_INCLUSIVE_SCANNER_INTEROP_LENGTH  = 2
+    };
+    
+    void InteropInclusiveScanner::init(GLuint valuesIn, GLuint valuesOut, uint maxn)
+    {
+      CUBInterop::init();
+      
+      // Calling DeviceScan::InclusiveSum without parameters returns the required temp
+      // memory size in tempSize
+      cub::DeviceScan::InclusiveSum<uint *, uint *>(nullptr, _tempSize, nullptr, nullptr, maxn);
+
+      // Initialize buffers and interops
+      _buffers.resize(E_INCLUSIVE_SCANNER_BUFFER_LENGTH);
+      _interops.resize(E_INCLUSIVE_SCANNER_INTEROP_LENGTH);
+      cudaMalloc(&_buffers[E_INCLUSIVE_SCANNER_TEMP], _tempSize);
+      _interops[E_INCLUSIVE_SCANNER_VALUES_IN].init(valuesIn, InteropType::eReadOnly);
+      _interops[E_INCLUSIVE_SCANNER_VALUES_OUT].init(valuesOut, InteropType::eWriteDiscard);
+    }
+             
+    void InteropInclusiveScanner::inclusiveScan(uint n)
+    {
+      // Outside code did not map interops for use beforehand
+      const bool doMapping = !_isMapped;
+      if (doMapping) {
+        map();
+      }
+
+      cub::DeviceScan::InclusiveSum<uint *, uint *>(
+        (void *) _buffers[E_INCLUSIVE_SCANNER_TEMP],
+        _tempSize,
+        (uint *) _interops[E_INCLUSIVE_SCANNER_VALUES_IN].ptr(),
+        (uint *) _interops[E_INCLUSIVE_SCANNER_VALUES_OUT].ptr(),
+        n
       );
 
       if (doMapping) {

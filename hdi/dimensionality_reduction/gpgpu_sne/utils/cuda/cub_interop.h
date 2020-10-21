@@ -73,7 +73,7 @@ namespace hdi {
       void sort(uint n, uint bits);
     };
 
-    class InteropPrefixScanner : public CUBInterop {
+    class InteropInclusiveScanner : public CUBInterop {
     using uint = unsigned;
 
     public:
@@ -81,10 +81,9 @@ namespace hdi {
       // Max nr of scannable elements must be specified beforehand
       void init(GLuint valuesIn, 
                 GLuint valuesOut,
-                uint n);
+                uint maxn);
                        
       void inclusiveScan(uint n);
-      void exclusiveScan(uint n);
     };
   }
 }
