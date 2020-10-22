@@ -18,7 +18,6 @@ function(addProject Name Sources)
 endfunction()
 
 addProject(gpgpu_tsne_cmd gpgpu_tsne_cmd.cpp)
-addProject(bh_tsne_cmd bh_tsne_cmd.cpp)
 addProject(simulation_generator_cmd simulation_generator_cmd.cpp)
 
 # Copy over libopenblas shared libraries for FAISS dependency (ugh) 

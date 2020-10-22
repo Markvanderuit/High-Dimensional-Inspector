@@ -30,46 +30,39 @@
 *
 */
 
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <cxxopts/cxxopts.hpp>
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/log_helper_functions.h"
-#include "hdi/data/empty_data.h"
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/debug/utils/window.hpp"
 #include "hdi/debug/utils/input.hpp"
 #include "hdi/debug/renderer/renderer.hpp"
-#include "hdi/data/embedding.h"
 #include "hdi/data/panel_data.h"
-#include "hdi/dimensionality_reduction/gradient_descent_tsne.h"
-#include "hdi/dimensionality_reduction/hd_joint_probability_generator.h"
+#include "hdi/data/empty_data.h"
+#include "hdi/dimensionality_reduction/gpgpu_tsne.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/kl_divergence_compute.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
-#include <cxxopts/cxxopts.hpp>
-#include <cstdlib>
-#include <fstream>
-#include <string>
 
-typedef float scalar_type;
-typedef unsigned uint;
+using uint = unsigned;
 
 // Required CLI parameters
 std::string inputFileName;
 std::string outputFileName;
-unsigned num_data_points;
-unsigned num_dimensions;
+uint n;
+uint nHighDimensions;
 
 // Optional CLI parameters with default values
-int iterations = 1000;
-int exaggeration_iter = 250;
-int perplexity = 30;
-float theta = 0.5;
-float thetaDual = 0.5;
-unsigned embedding_dimensions = 2;
+uint iterations = 1000;
+uint nLowDimensions = 2;
+float perplexity = 30.f;
+float singleHierarchyTheta = 0.5;
+float dualHierarchyTheta = 0.5;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doVisualisation = false;
 bool doLabelExtraction = false;
-bool doDataLoad = true;
 
 // Timer values
 float data_loading_time = 0.f;
@@ -79,7 +72,16 @@ float kl_divergence_comp_time = 0.f;
 float nnp_comp_time = 0.f;
 float data_saving_time = 0.f;
 
-void loadData(hdi::data::PanelData<scalar_type>& panelData, 
+// Visual debugger default window settings
+constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
+                           | hdi::dbg::WindowInfo::bSRGB 
+                           | hdi::dbg::WindowInfo::bFocused
+                           | hdi::dbg::WindowInfo::bResizable;
+constexpr uint windowWidth = 2560u;
+constexpr uint windowHeight = 1440u;
+constexpr char *windowTitle = "GPGPU tSNE";
+ 
+void loadData(hdi::data::PanelData<float>& panelData, 
               std::vector<unsigned> &labelData, 
               std::string filename_data, 
               unsigned int num_points, 
@@ -89,20 +91,18 @@ void loadData(hdi::data::PanelData<scalar_type>& panelData,
   if (!file_data.is_open()) {
     throw std::runtime_error("data file cannot be found");
   }
-
-  if (doDataLoad) {
-    panelData.clear();
-    for (size_t j = 0; j < num_dims; ++j) {
-      panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
-    }
-    panelData.initialize();
+  
+  panelData.clear();
+  for (size_t j = 0; j < num_dims; ++j) {
+    panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
   }
+  panelData.initialize();
 
   if (doLabelExtraction) {
     labelData.resize(num_points);
   }
 
-  std::vector<scalar_type> buffer(num_dims);
+  std::vector<float> buffer(num_dims);
   for (size_t j = 0; j < num_points; ++j) {
     // Read 4-byte label if label extraction is required
     if (doLabelExtraction) {
@@ -110,27 +110,23 @@ void loadData(hdi::data::PanelData<scalar_type>& panelData,
     }
     // Read 4-byte point data for entire row
     file_data.read((char *) buffer.data(), sizeof(float) * buffer.size());
-    if (doDataLoad) {
-      panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
-    }
+    panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
   }
 }
 
-void parseCli(int argc, char* argv[]) {
-  hdi::utils::CoutLog log;
-
+void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   // Configure command line options
-  cxxopts::Options options("Gpgpu T-SNE", "Compute embedding from given raw input data");
+  cxxopts::Options options("Gpgpu T-SNE", "Compute low-dimensional embedding from given high-dimensional data");
   options.add_options()
-    ("input", "Input data file (required)", cxxopts::value<std::string>())
-    ("output", "Output data file (required)", cxxopts::value<std::string>())
+    ("input", "Input binary data file (required)", cxxopts::value<std::string>())
+    ("output", "Output binary data file (required)", cxxopts::value<std::string>())
     ("size", "number of data points (required)", cxxopts::value<unsigned>())
-    ("dims", "number of dims (required)", cxxopts::value<unsigned>())
-    ("d,dimensions", "target embedding dimensions", cxxopts::value<int>())
-    ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<int>())
+    ("dims", "number of input dims (required)", cxxopts::value<unsigned>())
+    ("d,dimensions", "number of output dims", cxxopts::value<int>())
+    ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<float>())
     ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
-    ("t,theta", "BH-approximation angle", cxxopts::value<float>())
-    ("a,theta2", "Dual-tree BH-approximation angle", cxxopts::value<float>())
+    ("t,theta", "Single-hierarchy BH-approximation angle", cxxopts::value<float>())
+    ("a,theta2", "Dual-hierarchy BH-approximation angle", cxxopts::value<float>())
     ("h,help", "Print help and exit")
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ("vis", "Run the OpenGL visualization", cxxopts::value<bool>())
@@ -139,41 +135,40 @@ void parseCli(int argc, char* argv[]) {
     ;
   options.parse_positional({"input", "output", "size", "dims"});
   options.positional_help("<input> <output> <size> <dims>");
-
-  // Parse results
   auto result = options.parse(argc, argv);
 
   // Help message
   if (result.count("help")) {
-    hdi::utils::secureLog(&log, options.help());
+    hdi::utils::secureLog(logger, options.help());
     exit(0);
   }
 
+  // Parse required arguments
   if (!result.count("input") || !result.count("output") 
       || !result.count("size") || !result.count("dims")) {
-    hdi::utils::secureLog(&log, options.help());
+    hdi::utils::secureLog(logger, options.help());
     exit(0);
   }
   inputFileName = result["input"].as<std::string>();
   outputFileName = result["output"].as<std::string>();
-  num_data_points = result["size"].as<unsigned>();
-  num_dimensions = result["dims"].as<unsigned>();
+  n = result["size"].as<unsigned>();
+  nHighDimensions = result["dims"].as<unsigned>();
 
   // Parse optional arguments
   if (result.count("perplexity")) {
-    perplexity = result["perplexity"].as<int>();
+    perplexity = result["perplexity"].as<float>();
   }
   if (result.count("iterations")) {
     iterations = result["iterations"].as<int>();
   }
   if (result.count("dimensions")) {
-    embedding_dimensions = result["dimensions"].as<int>();
+    nLowDimensions = result["dimensions"].as<int>();
   }
   if (result.count("theta")) {
-    theta = result["theta"].as<float>();
+    singleHierarchyTheta = result["theta"].as<float>();
   }
   if (result.count("theta2")) {
-    thetaDual = result["theta2"].as<float>();
+    dualHierarchyTheta = result["theta2"].as<float>();
   }
   if (result.count("kld")) {
     doKlDivergence = result["kld"].as<bool>();
@@ -191,191 +186,120 @@ void parseCli(int argc, char* argv[]) {
 
 int main(int argc, char *argv[]) {
   try {
-    parseCli(argc, argv);
+    // Logger which is passed through the program
+    hdi::utils::CoutLog logger;
 
-    hdi::utils::CoutLog log;
-    hdi::dr::HDJointProbabilityGenerator<scalar_type> prob_gen;
-    hdi::dr::HDJointProbabilityGenerator<scalar_type>::sparse_scalar_matrix_type distributions;
-    hdi::dr::HDJointProbabilityGenerator<scalar_type>::Parameters prob_gen_param;
-    hdi::dr::TsneParameters tsne_params;
-    hdi::data::Embedding<scalar_type> embedding;
-    hdi::data::PanelData<scalar_type> panelData;
+    // Pass input arguments and parse them, setting parameters
+    parseCli(&logger, argc, argv);
+
+    // Load input data and labels
+    hdi::data::PanelData<float> panelData;
     std::vector<unsigned> labelData;
-
-    // Set tsne parameters
-    tsne_params._seed = 1;
-    tsne_params._perplexity = static_cast<double>(perplexity);
-    tsne_params._n = num_data_points;
-    tsne_params._embedding_dimensionality = embedding_dimensions;
-    tsne_params._iterations = iterations;
-    tsne_params._mom_switching_iter = exaggeration_iter;
-    tsne_params._remove_exaggeration_iter = exaggeration_iter;
-    tsne_params._theta = theta;
-    tsne_params._thetaDual = thetaDual;
-
-    // Check if there is a cache file already to load the probability distr
-    std::string cacheFileName = inputFileName 
-      + "_cache"
-      + "_n=" + std::to_string(num_data_points)
-      + "_p=" + std::to_string(perplexity);
-    std::ifstream cacheFile(cacheFileName, std::ios::binary);
-    if (cacheFile.is_open() && !doNNPreservation) {
-      doDataLoad = false;
-    }
-
-    // Load the input data and labels
     {
-      hdi::utils::secureLog(&log, "Loading original data...");
+      hdi::utils::secureLog(&logger, "Loading data...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
-      loadData(panelData, labelData, inputFileName, num_data_points, num_dimensions);
+      loadData(panelData, labelData, inputFileName, n, nHighDimensions);
     }
 
-    // Create an opengl context/window
-    hdi::dbg::Window window;
-    if (doVisualisation) {
-      hdi::dbg::WindowInfo windowInfo;
-      windowInfo.flags = hdi::dbg::WindowInfo::bDecorated
-                       | hdi::dbg::WindowInfo::bSRGB 
-                       | hdi::dbg::WindowInfo::bFocused
-                       | hdi::dbg::WindowInfo::bResizable;
-      windowInfo.width = 2560;
-      windowInfo.height = 1440;
-      windowInfo.title = "GPGPU T-SNE";
-      window = hdi::dbg::Window(windowInfo);
-    } else {
-      window = hdi::dbg::Window::Offscreen();
-    }
+    // Create an opengl context (and visible window, if we want one for the visual debugger)
+    hdi::dbg::Window window = doVisualisation
+                            ? hdi::dbg::Window({windowFlags, windowWidth, windowHeight, windowTitle})
+                            : hdi::dbg::Window::Offscreen();
+    window.makeCurrent();
     window.enableVsync(false);
+
+    // Inputmanager and rendermanager handle input/rendering of visual debugger components
     hdi::dbg::InputManager inputManager(window);
     hdi::dbg::RenderManager renderManager;
     if (doVisualisation) {
-      renderManager.init(embedding_dimensions, labelData);
+      renderManager.init(nLowDimensions, labelData);
     }
 
-    // Compute high-dimensional joint similarity distribution
-    /* hdi::dr::GpgpuHdCompute hdCompute;
-    {
-      hdCompute.setLogger(&log);
-      hdCompute.init(tsne_params);
-      hdCompute.compute(panelData);
-    } */
-    hdi::dr::GpgpuHdCompute hdCompute;
+    // Set CLI arguments in parameter object passed through the program
+    hdi::dr::TsneParameters params;
+    params.seed = 1;
+    params.perplexity = perplexity;
+    params.n = n;
+    params.nHighDimensions = nHighDimensions;
+    params.nLowDimensions = nLowDimensions;
+    params.iterations = iterations;
+    params.singleHierarchyTheta = singleHierarchyTheta;
+    params.dualHierarchyTheta = dualHierarchyTheta;
 
-    // Load or compute joint probability distribution
-    if (cacheFile.is_open()) { 
-      // // There IS a cache file already, load just that
-      // hdi::utils::secureLog(&log, "Loading joint probability distribution from cache file...");
-      // hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
-      // hdi::data::IO::loadSparseMatrix(distributions, cacheFile);
-    } else { 
-      // No cache file, build probability distr from scratch
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+    // Initialize tSNE computation
+    // This computes the HD joint similarity distribution and then sets up the minimization
+    hdi::dr::GpgpuTSNE tSNE;
+    tSNE.setLogger(&logger);
+    tSNE.init(panelData, params);
 
-      { // Faiss scope
-        hdCompute.setLogger(&log);
-        hdCompute.init(tsne_params);
-        hdCompute.compute(panelData);
-      } // Faiss scope
+    if (doVisualisation) {
+      window.display();
+      window.enableVsync(false);
+    }
 
-      // hdi::utils::secureLog(&log, "Computing joint probability distribution...");
-      // prob_gen.setLogger(&log);
-      // prob_gen_param._perplexity = perplexity;
-      // prob_gen.computeJointProbabilityDistribution(panelData.getData().data(),
-      //                                              panelData.numDimensions(),
-      //                                              panelData.numDataPoints(),
-      //                                              distributions,
-      //                                              prob_gen_param);
+    // Perform tSNE minimization
+    for (uint i = 0; i < iterations; ++i) {
+      tSNE.iterate();
       
-      // Store probability distribution in cache file
-      // std::ofstream outputFile(cacheFileName, std::ios::binary);
-      // hdi::data::IO::saveSparseMatrix(distributions, outputFile);
-    }
-
-    // Init T-SNE algorithm and perform minimization
-    hdi::dr::GradientDescentTSNE tSNE;
-    {
-      tSNE.setLogger(&log);
-      tSNE.init(distributions, hdCompute.buffers(), &embedding, tsne_params);
-      hdi::utils::secureLog(&log, "Computing gradient descent...");  
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
+      // Process debug render components
       if (doVisualisation) {
-        // Basic render loop, running T-Sne, processing window input,
-        // rendering data, swapping buffers
+        window.processEvents();
+        inputManager.processInputs();
+        renderManager.render();
+        inputManager.render();
         window.display();
-        for (int i = 0; i < iterations; ++i) {
-          tSNE.iterate();
-          window.processEvents();
-          inputManager.processInputs();
-          renderManager.render();
-          inputManager.render();
-          window.display();
-        }
-        // Do not destroy tSNE object, needed for further visualization 
-      } else {
-        // No render loop, just chunk out minimization
-        for (int i = 0; i < iterations; ++i) {
-          tSNE.iterate();
-        }
-        tSNE.destr();
       }
     }
     
     // Compute KL-divergence if requested (takes a while in debug mode)
     if (doKlDivergence) {
-      hdi::utils::secureLog(&log, "Computing KL-Divergence...");  
+      hdi::utils::secureLog(&logger, "Computing KL-Divergence...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
-      float KL = 0.f;
-      if (embedding_dimensions == 2) {
-        KL = hdi::dr::KlDivergenceCompute<2>().compute(&embedding, hdCompute.buffers(), tsne_params);
-      } else if (embedding_dimensions == 3) {
-        KL = hdi::dr::KlDivergenceCompute<3>().compute(&embedding, hdCompute.buffers(), tsne_params);
-      }
-      hdi::utils::secureLogValue(&log, "  KL Divergence", KL);
-      hdi::utils::secureLog(&log, "");
+      hdi::utils::secureLogValue(&logger, "  KL Divergence", tSNE.getKLDivergence());
+      hdi::utils::secureLog(&logger, "");
     } 
     
     // Compute mearest neighbour preservation if requested (takes a long while with these settings)
-    if (doNNPreservation) {
-      hdi::utils::secureLog(&log, "Computing NNP...");  
+    /* if (doNNPreservation) {
+      hdi::utils::secureLog(&logger, "Computing NNP...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
-      std::vector<scalar_type> precision;
-      std::vector<scalar_type> recall;
+      std::vector<float> precision;
+      std::vector<float> recall;
       unsigned K = 30;
-      std::vector<unsigned> points(num_data_points);
+      std::vector<unsigned> points(n);
       std::iota(points.begin(), points.end(), 0);
       hdi::dr::computePrecisionRecall(panelData, embedding, points, precision, recall, K);
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
-    }
-
-    // Kill hdCompute
-    hdCompute.destr();
+    } */
 
     // Output embedding file
-    hdi::utils::secureLog(&log, "Writing embedding to file...");
+    hdi::utils::secureLog(&logger, "Writing embedding to file...");
     {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
+      auto embedding = tSNE.getRawEmbedding();
       std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
-      embedding.removePadding();
-      output_file.write(reinterpret_cast<const char*>(embedding.getContainer().data()), sizeof(scalar_type)*embedding.getContainer().size());
+      output_file.write(reinterpret_cast<const char*>(embedding.data()), embedding.size() * sizeof(float));
     }
 
-    hdi::utils::secureLog(&log, "Timings");
-    hdi::utils::secureLogValue(&log, "  Data loading (s)", data_loading_time);
-    hdi::utils::secureLogValue(&log, "  Similarities (s)", similarities_comp_time);
-    hdi::utils::secureLogValue(&log, "  Gradient descent (s)", gradient_desc_comp_time);
+    // Output computation timings
+    hdi::utils::secureLog(&logger, "Timings");
+    hdi::utils::secureLogValue(&logger, "  Data loading (s)", data_loading_time);
+    hdi::utils::secureLogValue(&logger, "  Similarities (s)", similarities_comp_time);
+    hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", gradient_desc_comp_time);
     if (doKlDivergence) {
-      hdi::utils::secureLogValue(&log, "  KL computation (s)", kl_divergence_comp_time);
+      hdi::utils::secureLogValue(&logger, "  KL computation (s)", kl_divergence_comp_time);
     }
     if (doNNPreservation) {
-      hdi::utils::secureLogValue(&log, "  NNP computation (s)", nnp_comp_time);
+      hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnp_comp_time);
     }
-    hdi::utils::secureLogValue(&log, "  Data saving (s)", data_saving_time);
+    hdi::utils::secureLogValue(&logger, "  Data saving (s)", data_saving_time);
 
-    // Spin render loop until window closed or application killed
     if (doVisualisation) {
       window.enableVsync(true);
+
+      // Spin render loop until window is closed
       while (window.canDisplay()) {
         window.processEvents();
         inputManager.processInputs();
@@ -383,12 +307,13 @@ int main(int argc, char *argv[]) {
         inputManager.render();
         window.display();
       }
+
       renderManager.destr();
-      tSNE.destr();
     }
 
+    tSNE.destr();
   } catch (std::exception& e) { 
-    std::cerr << "Caught exception: " << e.what() << std::endl; 
+    std::cerr << "gpgpu_tsne_cmd caught generic exception: " << e.what() << std::endl; 
     return EXIT_FAILURE;
   }
 
