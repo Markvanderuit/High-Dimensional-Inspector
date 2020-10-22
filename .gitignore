@@ -4,3 +4,4 @@ bin*/
 CMakeLists.txt.user*
 .DS_Store
 .vscode/
+imgui.ini
