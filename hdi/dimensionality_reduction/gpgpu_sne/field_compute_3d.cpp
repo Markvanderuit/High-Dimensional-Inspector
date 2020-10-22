@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <sstream>
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d_dual.h"
@@ -101,6 +102,9 @@ namespace hdi::dr {
     _useFieldBvh = _params.dualHierarchyTheta > 0.0;
     _useVoxelGrid = !_useEmbeddingBvh && !_useFieldBvh;
 
+    constexpr uint kNode = BVH_3D_KNODE;
+    constexpr uint logk = BVH_3D_LOGK;
+
     // Build shader programs
     try {
       for (auto& program : _programs) {
@@ -168,7 +172,7 @@ namespace hdi::dr {
     // Initialize hierarchy over embedding if any hierarchy is used
     if (_useEmbeddingBvh || _useFieldBvh) {
       _embeddingBvh.setLogger(_logger);
-      _embeddingBvh.init(params, EmbeddingBVH<3>::Layout(n, 8, 4), positionBuffer, boundsBuffer);
+      _embeddingBvh.init(params, EmbeddingBVH<3>::Layout(n), positionBuffer, boundsBuffer);
       _embeddingBVHRenderer.init(_embeddingBvh, boundsBuffer);
     }
 
@@ -176,7 +180,7 @@ namespace hdi::dr {
     if (_useFieldBvh) {
       // Init hierarchy for a estimated larger field texture, so it doesn't resize too often.
       _fieldBvh.setLogger(_logger);     
-      _fieldBvh.init(params, FieldBVH<3>::Layout(fieldBvhDims, 8), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
+      _fieldBvh.init(params, FieldBVH<3>::Layout(fieldBvhDims), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
       _fieldBVHRenderer.init(_fieldBvh, boundsBuffer);
 
       // Glorp all the VRAM. Hey look, it's the downside of a dual hierarchy traversal
@@ -200,7 +204,6 @@ namespace hdi::dr {
         const uint eStartLvl = 1;//2;//2;
 
         // Determine nr of nodes in each tree level
-        const uint kNode = _fieldBvh.layout().nodeFanout;
         uint fBegin = 0, fNodes = 1;
         for (uint i = 0; i < fStartLvl; i++) {
           fBegin += fNodes;
@@ -281,6 +284,9 @@ namespace hdi::dr {
    */
   void Field3dCompute::compute(uvec dims, unsigned iteration, unsigned n,
                                 GLuint positionBuffer, GLuint boundsBuffer, GLuint interpBuffer) {
+    constexpr uint kNode = BVH_3D_KNODE;
+    constexpr uint logk = BVH_3D_LOGK;
+
     // Rescale field texture as the required dimensions change
     if (_dims != dims) {
       _dims = dims;
@@ -334,7 +340,7 @@ namespace hdi::dr {
     glGetNamedBufferSubData(_buffers(BufferType::ePixelsHeadReadback), 0, sizeof(uint), &nPixels);
 
     // Build hierarchy over flagged pixels if certain conditions are met
-    const auto fieldBvhLayout = FieldBVH<3>::Layout(nPixels, _dims, 8);
+    const auto fieldBvhLayout = FieldBVH<3>::Layout(nPixels, _dims);
     const bool fieldBvhActive = _useFieldBvh
       && iteration >= _params.removeExaggerationIter     // After early exaggeration phase
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
@@ -412,8 +418,6 @@ namespace hdi::dr {
       program.bind();
       program.uniform1ui("nPos", layout.nPos);
       program.uniform1ui("nLvls", layout.nLvls);
-      program.uniform1ui("kNode", layout.nodeFanout);
-      program.uniform1ui("kLeaf", layout.leafFanout);
       program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
 
       // Bind buffers
@@ -572,8 +576,6 @@ namespace hdi::dr {
     program.uniform3ui("textureSize", _dims.x, _dims.y, _dims.z);
     program.uniform1ui("nPos", layout.nPos);
     program.uniform1ui("nLvls", layout.nLvls);
-    program.uniform1ui("kNode", layout.nodeFanout);
-    program.uniform1ui("kLeaf", layout.leafFanout);
     program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta);
 
     // Bind buffers
@@ -628,14 +630,12 @@ namespace hdi::dr {
       program.bind();
       program.uniform1ui("eLvls", eLayout.nLvls);
       program.uniform1ui("fLvls", fLayout.nLvls);
-      program.uniform1ui("kNode", eLayout.nodeFanout);
-      program.uniform1ui("kLeaf", eLayout.leafFanout);
       program.uniform1f("theta2", _params.dualHierarchyTheta * _params.dualHierarchyTheta);
 
       // Bind dispatch divide program and set uniform values
       auto &_program = _programs(ProgramType::eDivideDispatch);
       _program.bind();
-      _program.uniform1ui("div", 256 / _embeddingBvh.layout().nodeFanout); 
+      _program.uniform1ui("div", 256 / BVH_3D_KNODE); 
       
       // Bind buffers reused below
       glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
@@ -737,7 +737,7 @@ namespace hdi::dr {
 
       auto &program = _programs(ProgramType::ePush);
       program.bind();
-      program.uniform1ui("kNode", fLayout.nodeFanout);
+      program.uniform1ui("kNode", BVH_3D_KNODE);
 
       // Bind buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, fBuffers.node0);

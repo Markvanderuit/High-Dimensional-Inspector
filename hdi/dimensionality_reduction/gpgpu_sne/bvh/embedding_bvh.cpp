@@ -37,6 +37,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh_shaders_3d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
@@ -65,6 +66,8 @@ namespace hdi::dr {
                           GLuint boundsBuffer) {      
     _params = params;
     _layout = layout;
+    
+    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
 
     // Create program objects
     {
@@ -72,18 +75,19 @@ namespace hdi::dr {
         program.create();
       }
 
-      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _2d::subdiv_src);
       _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _2d::divide_dispatch_src);
 
       // Blargh, swap some shaders depending on embedding dimension being 2 or 3
       if constexpr (D == 2) {
         _programs(ProgramType::eMorton).addShader(COMPUTE, _2d::morton_src);
         _programs(ProgramType::ePosSorted).addShader(COMPUTE, _2d::pos_sorted_src);
+      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _2d::subdiv_src);
         _programs(ProgramType::eLeaf).addShader(COMPUTE, _2d::leaf_src);
         _programs(ProgramType::eBbox).addShader(COMPUTE, _2d::bbox_src);
       } else if constexpr (D == 3) {
         _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
         _programs(ProgramType::ePosSorted).addShader(COMPUTE, _3d::pos_sorted_src);
+      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _3d::subdiv_src);
         _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
         _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
       }
@@ -125,7 +129,7 @@ namespace hdi::dr {
 
     // Output tree info
     utils::secureLogValue(_logger, "   EmbeddingBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
-    utils::secureLogValue(_logger, "      fanout", _layout.nodeFanout);
+    utils::secureLogValue(_logger, "      fanout", kNode);
     utils::secureLogValue(_logger, "      nPos", _layout.nPos);
     utils::secureLogValue(_logger, "      nLvls", _layout.nLvls);
     utils::secureLogValue(_logger, "      nNodes", _layout.nNodes);
@@ -152,6 +156,9 @@ namespace hdi::dr {
                        unsigned iteration,
                        GLuint posBuffer,
                        GLuint boundsBuffer) {
+    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
+    constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+
     // Generate morton codes
     if (rebuild) {
       TICK_TIMER(TIMR_MORTON);
@@ -177,7 +184,7 @@ namespace hdi::dr {
     if (rebuild) {
       TICK_TIMER(TIMR_SORT);
       
-      _sorter.sort(_layout.nPos, _layout.nLvls * uint(std::log2(_layout.nodeFanout))); // ohboy
+      _sorter.sort(_layout.nPos, _layout.nLvls * logk); // ohboy
       
       auto &program = _programs(ProgramType::ePosSorted);
       program.bind();
@@ -194,99 +201,6 @@ namespace hdi::dr {
       ASSERT_GL("EmbeddingBVH::compute::posSorted()");
     } // rebuild
 
-/*     // Perform subdivision based on generated morton codes using work queues
-    if (rebuild) {
-      TICK_TIMER(TIMR_SUBDIV); 
-
-      glClearNamedBufferSubData(_buffers(BufferType::eNode0),
-        GL_RGBA32F, sizeof(glm::vec4), (_layout.nNodes - 1) * sizeof(glm::vec4), GL_RGBA, GL_FLOAT, nullptr);
-      glClearNamedBufferSubData(_buffers(BufferType::eNode1),
-        GL_RGBA32F, sizeof(glm::vec4), (_layout.nNodes - 1) * sizeof(glm::vec4), GL_RGBA, GL_FLOAT, nullptr);
-
-      // Reset subdiv queue head and inital value
-      glCopyNamedBufferSubData(_buffers(BufferType::eSubdivQueueHeadInit), _buffers(BufferType::eSubdivQueueHead0),
-        0, 0, sizeof(uint));
-      glClearNamedBufferSubData(_buffers(BufferType::eSubdivQueue0), 
-        GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-      glClearNamedBufferSubData(_buffers(BufferType::eSubdivQueue1), 
-        GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-
-      // Reset leaf queue head
-      glClearNamedBufferData(_buffers(BufferType::eLeafHead), 
-        GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-
-      // Bind subdivision program and set uniforms
-      auto &program = _programs(ProgramType::eSubdiv);
-      program.bind();
-      program.uniform1ui("leafFanout", _layout.leafFanout);
-      program.uniform1ui("nodeFanout", _layout.nodeFanout);
-
-      // Bind dispatch program and set uniforms
-      auto &_program = _programs(ProgramType::eDivideDispatch);
-      _program.bind();
-      _program.uniform1ui("div", 256 / _layout.nodeFanout); 
-
-      // Bind buffers reused below
-      glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
-      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
-      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode0));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eNode1));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, _buffers(BufferType::eLeafFlag));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, _buffers(BufferType::eLeafHead));
-
-      // Iterate through tree levels from top to bottom
-      // const uint logk = std::log2(_layout.nodeFanout);
-      for (uint lvl = 0; lvl < _layout.nLvls - 1; lvl++) {
-        {
-          // uint head = 0;
-          // glGetNamedBufferSubData(_buffers(BufferType::eSubdivQueueHead0), 0, sizeof(uint), &head);
-          // std::cout << lvl << '\t' << head << '\n';
-          // std::vector<uint> queue(16, 0);
-          // glGetNamedBufferSubData(_buffers(BufferType::eSubdivQueue0), 0, queue.size() * sizeof(uint), queue.data());
-          // for (uint i = 0; i < 16; i++) {
-          //   std::cout << queue[i] << ' ';
-          // }
-          // std::cout << '\n';
-          // std::vector<glm::vec4> queue(16, glm::vec4(0));
-          // glGetNamedBufferSubData(_buffers(BufferType::eNode0), 0, queue.size() * sizeof(glm::vec4), queue.data());
-          // for (uint i = 0; i < 16; i++) {
-          //   std::cout << queue[i].w << ' ';
-          // }
-        }
-
-        // Reset output queue head
-        glClearNamedBufferData(_buffers(BufferType::eSubdivQueueHead1),
-          GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-
-        // Bind dispatch divide program and divide BufferType::ePairsInputHead by workgroupsize
-        _program.bind();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eSubdivQueueHead0));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
-        glDispatchCompute(1, 1, 1);
-        glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
-
-        // Bind subdiv program and perform one step down tree based on BufferType::eDispatch
-        program.bind();
-        program.uniform1ui("isBottom", lvl == _layout.nLvls - 2); // All further subdivided nodes are leaves
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode0));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eSubdivQueue0));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eSubdivQueueHead0));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eSubdivQueue1));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _buffers(BufferType::eSubdivQueueHead1));
-        glDispatchComputeIndirect(0);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-        // Swap input and output queue buffer handles
-        using std::swap;
-        swap(_buffers(BufferType::eSubdivQueue0), _buffers(BufferType::eSubdivQueue1));
-        swap(_buffers(BufferType::eSubdivQueueHead0), _buffers(BufferType::eSubdivQueueHead1));
-      }
-
-      TOCK_TIMER(TIMR_SUBDIV);
-      ASSERT_GL("EmbeddingBVH::compute::subdiv()");
-    } // subdiv */
-
     // Perform subdivision based on generated morton codes
     if (rebuild) {
       TICK_TIMER(TIMR_SUBDIV); 
@@ -297,8 +211,6 @@ namespace hdi::dr {
 
       auto &program = _programs(ProgramType::eSubdiv);
       program.bind();
-      program.uniform1ui("leafFanout", _layout.leafFanout);
-      program.uniform1ui("nodeFanout", _layout.nodeFanout);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode0));
@@ -307,7 +219,6 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eLeafHead));
 
       // Iterate through tree levels from top to bottom
-      const uint logk = std::log2(_layout.nodeFanout);
       uint begin = 0;
       for (uint lvl = 0; lvl < _layout.nLvls - 1; lvl++) {
         const uint end = begin + (1u << (logk * lvl)) - 1;
@@ -317,7 +228,7 @@ namespace hdi::dr {
         program.uniform1ui("rangeBegin", begin);
         program.uniform1ui("rangeEnd", end);
 
-        glDispatchCompute(ceilDiv(range, 256u / _layout.nodeFanout), 1, 1);
+        glDispatchCompute(ceilDiv(range, 256u / kNode), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
         begin = end + 1;
@@ -370,14 +281,12 @@ namespace hdi::dr {
       
       auto &program = _programs(ProgramType::eBbox);
       program.bind();
-      program.uniform1ui("nodeFanout", _layout.nodeFanout);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
 
       // Iterate through levels from bottom to top.
-      const uint logk = std::log2(_layout.nodeFanout);
       uint end = _layout.nNodes - 1;
       for (int lvl = _layout.nLvls - 1; lvl > 0; lvl--) {
         const uint begin = 1 + end - (1u << (logk * lvl));
@@ -395,7 +304,6 @@ namespace hdi::dr {
       TOCK_TIMER(TIMR_BBOX);
       ASSERT_GL("EmbeddingBVH::compute::bbox()");
     }
-
 
     // Output timer data on final iteration
     POLL_TIMERS();

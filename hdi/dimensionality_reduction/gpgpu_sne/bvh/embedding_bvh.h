@@ -33,6 +33,7 @@
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
@@ -47,18 +48,14 @@ namespace hdi::dr {
       uint nPos;        // Number of embedding points stored in BVH
       uint nNodes;      // Max nr of nodes in BVH
       uint nLvls;       // Max nr of levels in BVH
-      uint nodeFanout;  // Fan-out at node level: 2, 4, 8, crazy stuff, ...
-      uint leafFanout;  // Fan-out at leaf level: 1...32
 
       Layout()
-      : nPos(0), nNodes(0), nLvls(0),  nodeFanout(0), leafFanout(0) { }
+      : nPos(0), nNodes(0), nLvls(0) { }
 
-      Layout(uint nPos, uint nodeFanout, uint leafFanout) 
-      : nPos(nPos), 
-        nodeFanout(nodeFanout), 
-        leafFanout(leafFanout) 
+      Layout(uint nPos) 
+      : nPos(nPos)
       {
-        const uint logk = static_cast<uint>(std::log2(nodeFanout));
+        constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
         nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPos) / logk));
         nNodes = 0u;
         for (uint i = 0u; i < nLvls; i++) {

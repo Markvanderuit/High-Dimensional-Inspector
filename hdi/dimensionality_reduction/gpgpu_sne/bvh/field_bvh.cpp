@@ -66,6 +66,8 @@ namespace hdi::dr {
     _layout = layout;
     _reservedNodes = _layout.nNodes;
 
+    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
+
     // Create program objects
     {
       for (auto &program : _programs) {
@@ -110,7 +112,7 @@ namespace hdi::dr {
 
     // Output tree info
     utils::secureLogValue(_logger, "   FieldBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
-    utils::secureLogValue(_logger, "      fanout", _layout.nodeFanout);
+    utils::secureLogValue(_logger, "      fanout", kNode);
     utils::secureLogValue(_logger, "      nPixels", _layout.nPixels);
     utils::secureLogValue(_logger, "      nLvls", _layout.nLvls);
     utils::secureLogValue(_logger, "      nNodes", _layout.nNodes);
@@ -140,6 +142,9 @@ namespace hdi::dr {
                             GLuint boundsBuffer) {
     _layout = layout;
 
+    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
+    constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+
     // Available memory for the tree becomes too small as the nr. of pixels to compute keeps
     // growing aggressively throughout the gradient descent
     if (_reservedNodes < _layout.nNodes) {
@@ -152,7 +157,7 @@ namespace hdi::dr {
       if constexpr (D == 3) {
         newPixels *= newDims.z;
       } 
-      FieldBVH<D>::Layout reserveLayout(newPixels, newDims, _layout.nodeFanout);
+      FieldBVH<D>::Layout reserveLayout(newPixels, newDims);
 
       _reservedNodes = reserveLayout.nNodes;
 
@@ -214,7 +219,7 @@ namespace hdi::dr {
     {
       TICK_TIMER(TIMR_SORT);
 
-      _sorter.sort(_layout.nPixels, _layout.nLvls * uint(std::log2(_layout.nodeFanout)));
+      _sorter.sort(_layout.nPixels, _layout.nLvls * logk);
 
       auto &program = _programs(ProgramType::ePixelSorted);
       program.bind();
@@ -242,7 +247,6 @@ namespace hdi::dr {
       auto &program = _programs(ProgramType::eSubdiv);
       program.bind();
       program.uniform1ui("nPixels", _layout.nPixels);
-      program.uniform1ui("nodeFanout", _layout.nodeFanout);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eMortonSorted));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode0));
@@ -251,7 +255,6 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eLeafHead));
 
       // Iterate through tree levels from top to bottom
-      const uint logk = std::log2(_layout.nodeFanout);
       uint begin = 0;
       for (uint lvl = 0; lvl < _layout.nLvls - 1; lvl++) {
         const uint end = begin + (1u << (logk * lvl)) - 1;
@@ -262,7 +265,7 @@ namespace hdi::dr {
         program.uniform1ui("rangeBegin", begin);
         program.uniform1ui("rangeEnd", end);
 
-        glDispatchCompute(ceilDiv(range, 256u / _layout.nodeFanout), 1, 1);
+        glDispatchCompute(ceilDiv(range, 256u / kNode), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
         begin = end + 1;
@@ -321,14 +324,12 @@ namespace hdi::dr {
       
       auto &program = _programs(ProgramType::eBbox);
       program.bind();
-      program.uniform1ui("nodeFanout", _layout.nodeFanout);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eField));
 
       // Iterate through levels from bottom to top.
-      const uint logk = std::log2(_layout.nodeFanout);
       uint end = _layout.nNodes - 1;
       for (int lvl = _layout.nLvls - 1; lvl > 0; lvl--) {
         const uint begin = 1 + end - (1u << (logk * lvl));

@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(stencil_vert_src, 450,
@@ -159,46 +160,43 @@ GLSL(field_bvh_src, 450,
 
   // Uniforms
   layout(location = 0) uniform uint nPos;     // nr of points
-  layout(location = 1) uniform uint kNode;    // Node fanout
-  layout(location = 2) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 3) uniform uint kLeaf;    // Leaf fanout
-  layout(location = 4) uniform float theta2;  // Squared approximation param
-  layout(location = 5) uniform uvec2 textureSize;
+  layout(location = 1) uniform uint nLvls;    // Nr of tree levels
+  layout(location = 2) uniform float theta2;  // Squared approximation param
+  layout(location = 3) uniform uvec2 textureSize;
 
   // Fun stuff for fast modulo and division and stuff
-  const uint logk = uint(log2(kNode));
-  const uint bitmask = ~((~0u) << logk);
+  const uint bitmask = ~((~0u) << BVH_2D_LOGK);
 
   // Traversal data
   uint lvl = 1u; // We start a level lower, as the root node will probably never approximate
   uint loc = 1u;
-  uint stack = 1u | (bitmask << (logk * lvl));
+  uint stack = 1u | (bitmask << (BVH_2D_LOGK * lvl));
 
   void descend() {
     // Move down tree
     lvl++;
-    loc = loc * kNode + 1u;
+    loc = loc * BVH_2D_KNODE + 1u;
 
     // Push unvisited locations on stack
-    stack |= (bitmask << (logk * lvl));
+    stack |= (bitmask << (BVH_2D_LOGK * lvl));
   }
 
   void ascend() {
     // Find distance to next level on stack
-    uint nextLvl = findMSB(stack) / logk;
+    uint nextLvl = findMSB(stack) / BVH_2D_LOGK;
     uint dist = lvl - nextLvl;
 
     // Move dist up to where next available stack position is
     // and one to the right
     if (dist > 0) {
-      loc >>= logk * dist;
+      loc >>= BVH_2D_LOGK * dist;
     } else {
       loc++;
     }
     lvl = nextLvl;
 
     // Pop visited location from stack
-    uint shift = logk * lvl;
+    uint shift = BVH_2D_LOGK * lvl;
     uint b = (stack >> shift) - 1;
     stack &= ~(bitmask << shift);
     stack |= b << shift;
@@ -234,7 +232,7 @@ GLSL(field_bvh_src, 450,
       float tStud = 1.f / (1.f + t2);
       field += mass * vec3(tStud, t * (tStud * tStud));
       return true;
-    } else if (mass <= kLeaf || lvl == nLvls - 1) {
+    } else if (mass <= EMB_BVH_2D_KLEAF || lvl == nLvls - 1) {
       // Iterate over all leaf points (hi, thread divergence here)
       for (uint i = begin; i < begin + mass; ++i) {
         vec2 t = pos - posBuffer[i];
@@ -301,50 +299,47 @@ GLSL(field_bvh_wide_src, 450,
 
   // Uniforms
   layout(location = 0) uniform uint nPos;         // nr of points
-  layout(location = 1) uniform uint kNode;        // Node fanout
-  layout(location = 2) uniform uint nLvls;        // Nr of tree levels
-  layout(location = 3) uniform uint kLeaf;        // Leaf fanout
-  layout(location = 4) uniform float theta2;      // Squared approximation param
-  layout(location = 5) uniform uvec2 textureSize; // Size of fields texture
+  layout(location = 1) uniform uint nLvls;        // Nr of tree levels
+  layout(location = 2) uniform float theta2;      // Squared approximation param
+  layout(location = 3) uniform uvec2 textureSize; // Size of fields texture
 
   // Fun stuff for fast modulo and division in our binary cases
-  const uint logk = uint(log2(kNode));
-  const uint logKQueue = uint(log2(32 >> logk));
-  const uint kNodeMod = bitfieldInsert(0, ~0, 0, int(logk));
-  const uint kQueueMod = bitfieldInsert(0, ~0, 0, int(logKQueue));
+  const uint logkQueue = uint(log2(32 >> BVH_2D_LOGK));
+  const uint kNodeMod = bitfieldInsert(0, ~0, 0, int(BVH_2D_LOGK));
+  const uint kQueueMod = bitfieldInsert(0, ~0, 0, int(logkQueue));
 
   // Traversal constants
   const uint thread = gl_LocalInvocationID.x & kNodeMod;
-  const uint mask = bitfieldInsert(0, ~0, 0, int(kNode));
+  const uint mask = bitfieldInsert(0, ~0, 0, int(BVH_2D_KNODE));
 
   // Traversal data
   uint queue[6]; // oops, hardcoded queue size :(
   uint lvl = 1u; // We start a level lower, as the root node will never approximate
   uint loc = 1u;
 
-  // Read kNode bits from the current queue head
+  // Read BVH_2D_KNODE bits from the current queue head
   uint readQueue() {
-    const uint shift = (lvl & kQueueMod) << logk;
-    return mask & (queue[lvl >> logKQueue] >> shift);
+    const uint shift = (lvl & kQueueMod) << BVH_2D_LOGK;
+    return mask & (queue[lvl >> logkQueue] >> shift);
   }
 
-  // Bitwise OR kNode bits on the current queue head
+  // Bitwise OR BVH_2D_KNODE bits on the current queue head
   void orQueue(in uint v) {
-    const uint shift = (lvl & kQueueMod) << logk;
-    queue[lvl >> logKQueue] |= v << shift;
+    const uint shift = (lvl & kQueueMod) << BVH_2D_LOGK;
+    queue[lvl >> logkQueue] |= v << shift;
   }
 
-  // Bitwise AND kNode bits on the current queue head
+  // Bitwise AND BVH_2D_KNODE bits on the current queue head
   void andQueue(in uint v) {
-    const uint shift = (lvl & kQueueMod) << logk;
-    queue[lvl >> logKQueue] &= (v << shift) | (~0 ^ (mask << shift)); // ouch
+    const uint shift = (lvl & kQueueMod) << BVH_2D_LOGK;
+    queue[lvl >> logkQueue] &= (v << shift) | (~0 ^ (mask << shift)); // ouch
   }
 
-  // Bitwise OR kNode bits on the current queue head between a cluster 
-  // of kNode invocations 
+  // Bitwise OR BVH_2D_KNODE bits on the current queue head between a cluster 
+  // of BVH_2D_KNODE invocations 
   void clusterQueue() {
-    const uint i = lvl >> logKQueue;
-    queue[i] = subgroupClusteredOr(queue[i], kNode);
+    const uint i = lvl >> logkQueue;
+    queue[i] = subgroupClusteredOr(queue[i], BVH_2D_KNODE);
   }
 
   void computeField(in vec2 pos, inout vec3 field) {    
@@ -376,7 +371,7 @@ GLSL(field_bvh_wide_src, 450,
       // If BH-approximation passes, compute approximated value
       float tStud = 1.f / (1.f + t2);
       field += mass * vec3(tStud, t * (tStud * tStud));
-    } else if (mass <= kLeaf || lvl == nLvls - 1) {
+    } else if (mass <= EMB_BVH_2D_KLEAF || lvl == nLvls - 1) {
       // Iterate over all leaf points (hi, thread divergence here)
       for (uint i = begin; i < begin + mass; ++i) {
         vec2 t = pos - posBuffer[i];
@@ -402,7 +397,7 @@ GLSL(field_bvh_wide_src, 450,
       const uint head = readQueue();
       if (head == 0u) {
         // Move up tree one level
-        loc >>= logk;
+        loc >>= BVH_2D_LOGK;
         lvl--;
       } else {
         // Pop next flagged node from queue head
@@ -411,7 +406,7 @@ GLSL(field_bvh_wide_src, 450,
 
         // Move down tree one level at flagged node
         loc = loc - ((loc - 1) & kNodeMod) + flag;
-        loc = (loc * kNode) + 1u;
+        loc = (loc * BVH_2D_KNODE) + 1u;
         lvl++;
 
         // Test full fan-out on new tree level
@@ -425,7 +420,7 @@ GLSL(field_bvh_wide_src, 450,
   void main() {
     // Check that invocation ID falls inside fields texture bounds
     const uvec2 i = (gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy) 
-                  / uvec2(kNode, 1);
+                  / uvec2(BVH_2D_KNODE, 1);
     if (min(i, textureSize - 1) != i) {
       return;
     }
@@ -444,7 +439,7 @@ GLSL(field_bvh_wide_src, 450,
 
     // Traverse tree, add together results from subgroup
     // Only let first thread in subgroup store result
-    vec3 field = subgroupClusteredAdd(traverse(pos), kNode);
+    vec3 field = subgroupClusteredAdd(traverse(pos), BVH_2D_KNODE);
     if (thread == 0u) {
       imageStore(fieldImage, ivec2(i), vec4(field, 0));
     }
@@ -477,18 +472,15 @@ GLSL(pixels_bvh_src, 450,
   // Uniforms
   layout(location = 0) uniform uint nPos;      // nr of points
   layout(location = 1) uniform uint nLvls;     // Nr of tree levels
-  layout(location = 2) uniform uint kNode;     // Node fanout
-  layout(location = 3) uniform uint kLeaf;     // Leaf fanout
-  layout(location = 4) uniform uvec2 textureSize;
+  layout(location = 2) uniform uvec2 textureSize;
 
   // Fun stuff for fast modulo and division and stuff
-  const uint logk = uint(log2(kNode));
-  const uint bitmask = ~((~0u) << logk);
+  const uint bitmask = ~((~0u) << BVH_2D_LOGK);
 
   // Traversal data
   uint lvl = 1u; // We start a level lower, as the root node will probably never approximate
   uint loc = 1u;
-  uint stack = 1u | (bitmask << (logk * lvl));
+  uint stack = 1u | (bitmask << (BVH_2D_LOGK * lvl));
 
   // Pixel size
   const vec2 bbox = bounds.range / vec2(textureSize);
@@ -497,15 +489,15 @@ GLSL(pixels_bvh_src, 450,
   void descend() {
     // Move down tree
     lvl++;
-    loc = loc * kNode + 1u;
+    loc = loc * BVH_2D_KNODE + 1u;
 
     // Push unvisited locations on stack
-    stack |= (bitmask << (logk * lvl));
+    stack |= (bitmask << (BVH_2D_LOGK * lvl));
   }
 
   void ascend() {
     // Find distance to next level on stack
-    uint nextLvl = findMSB(stack) / logk;
+    uint nextLvl = findMSB(stack) / BVH_2D_LOGK;
     uint dist = lvl - nextLvl;
 
     // Move dist up to where next available stack position is
@@ -513,12 +505,12 @@ GLSL(pixels_bvh_src, 450,
     if (dist == 0) {
       loc++;
     } else {
-      loc >>= logk * dist;
+      loc >>= BVH_2D_LOGK * dist;
     }
     lvl = nextLvl;
 
     // Pop visited location from stack
-    uint shift = logk * lvl;
+    uint shift = BVH_2D_LOGK * lvl;
     uint b = (stack >> shift) - 1;
     stack &= ~(bitmask << shift);
     stack |= b << shift;
@@ -613,144 +605,3 @@ GLSL(interp_src, 450,
     Values[i] = texture(fields_texture, position).xyz;
   }
 );
-
-/* GLSL(point_bvh_src, 450,
-  struct Bounds {
-    vec2 min;
-    vec2 max;
-    vec2 range;
-    vec2 invRange;
-  };
-
-  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-  layout(binding = 0, std430) restrict readonly buffer NodeBuffer { vec4 nodeBuffer[]; };
-  layout(binding = 1, std430) restrict readonly buffer IdxBuffer { uint idxBuffer[]; };
-  layout(binding = 2, std430) restrict readonly buffer PosBuffer { vec2 posBuffer[]; };
-  layout(binding = 3, std430) restrict readonly buffer MinbBuffer { vec2 minbBuffer[]; };
-  layout(binding = 4, std430) restrict readonly buffer DiamBuffer { vec2 diamBuffer[]; };
-  layout(binding = 5, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
-  layout(binding = 6, std430) restrict readonly buffer PosBuffer2 { vec2 posBufferUnsorted[]; };
-  layout(binding = 7, std430) restrict writeonly buffer Val { vec3 Values[]; };
-  layout(binding = 0) uniform usampler2D stencilSampler;
-
-  layout(location = 0) uniform uint nPos;     // nr of points
-  layout(location = 1) uniform uint kNode;    // Node fanout
-  layout(location = 2) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 3) uniform float theta;   // Approximation param
-  layout(location = 4) uniform uvec2 textureSize;
-
-  // Constants
-  const uint logk = uint(log2(kNode));
-  const uint bitmask = ~((~0u) << logk);
-  const float theta2 = theta * theta;
-
-  // Traversal local memory
-  // We start a level lower, as the root node will never approximate
-  uint lvl = 1u;
-  uint loc = 1u;
-  uint stack = 1u | (bitmask << (logk * lvl));
-
-  void descend() {
-    // Move down tree
-    lvl++;
-    loc = loc * kNode + 1u;
-
-    // Push unvisited locations on stack
-    stack |= (bitmask << (logk * lvl));
-  }
-
-  void ascend() {
-    // Find distance to next level on stack
-    uint nextLvl = findMSB(stack) / logk;
-    uint dist = lvl - nextLvl;
-
-    // Move dist up to where next available stack position is
-    // and one to the right
-    if (dist == 0) {
-      loc++;
-    } else {
-      loc >>= logk * dist;
-    }
-    lvl = nextLvl;
-
-    // Pop visited location from stack
-    uint shift = logk * lvl;
-    uint b = (stack >> shift) - 1;
-    stack &= ~(bitmask << shift);
-    stack |= b << shift;
-  }
-
-  bool approx(vec2 domainPos, inout vec3 fieldValue) {
-    // Query values from current node
-    vec4 node = nodeBuffer[loc];
-    vec2 diam = diamBuffer[loc];
-    
-    // Squared distance to pos
-    vec2 t = domainPos - node.xy;
-    float t2 = dot(t, t);
-
-    // Compute squared diameter
-    vec2 b = abs(normalize(t)) * vec2(-1, 1);
-    vec2 c = diam - b * dot(diam, b); // Vector rejection of diam onto unit vector b
-    
-    if (dot(c, c) / t2 < theta2 || node.w < 2.f) {
-      // If BH-approximation passes, compute approximated value
-      float tStud = 1.f / (1.f + t2);
-
-      // Field layout is: S, V.x, V.y, V.z
-      fieldValue += node.w * vec3(tStud, t * (tStud * tStud));
-
-      return true;
-    } else if (lvl == nLvls - 1) {
-      // If a leaf node is reached that is not approximate enough
-      // we iterate over all contained points (there goes thread divergence)
-      uint begin = idxBuffer[loc];
-      for (uint i = begin; i < begin + uint(node.w); ++i) {
-        t = domainPos - posBuffer[i];
-        float tStud = 1.f / (1.f +  dot(t, t));
-
-        // Field layout is: S, V.x, V.y, V.z
-        fieldValue += vec3(tStud, t * (tStud * tStud));
-       }
-      return true;
-    }
-    return false;
-  }
-
-  vec3 traverse(vec2 domainPos) {
-    vec3 fieldValue = vec3(0);
-
-    do {
-      if (approx(domainPos, fieldValue)) {
-        ascend();
-      } else {
-        descend();
-      }
-    } while (lvl > 0u);
-
-    return fieldValue;
-  }
-
-  void main() {
-    // Invocation ID
-    const uint globalIdx = gl_WorkGroupID.x
-                        * gl_WorkGroupSize.x
-                        + gl_LocalInvocationID.x;
-    if (min(globalIdx, nPos - 1) != globalIdx) {
-      return;
-    }
-
-    vec2 domainPos = posBufferUnsorted[globalIdx];
-    vec3 v = traverse(domainPos);
-    Values[globalIdx] = v;
-
-    // // Compute pixel position in [0, 1], then map to domain bounds
-    // vec2 domainPos = (vec2(globalIdx) + 0.5) / vec2(textureSize);
-    // domainPos = domainPos * bounds.range + bounds.min;
-
-    //  // Traverse tree and store result
-    // vec3 v = traverse(domainPos);
-    // imageStore(fieldImage, ivec2(globalIdx), vec4(v, 0));
-  }
-); */

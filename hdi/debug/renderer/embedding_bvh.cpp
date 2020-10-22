@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include "hdi/debug/renderer/embedding_bvh.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 
 GLSL(flags_comp, 450,
   // Wrapper structure for BoundsBuffer data
@@ -21,11 +22,11 @@ GLSL(flags_comp, 450,
   layout(binding = 4, std430) restrict writeonly buffer FlagsBuffer { float flagsBuffer[]; };
 
   layout(location = 0) uniform uint nNodes;
-  layout(location = 1) uniform uint kNode;
-  layout(location = 2) uniform float theta;   // Approximation param
+  layout(location = 1) uniform float theta;   // Approximation param
 
   // Constants
-  const uint logk = uint(log2(kNode));
+  const uint kNode = BVH_3D_KNODE;
+  const uint logk = BVH_3D_LOGK;
   const float theta2 = theta * theta;
 
   float approx(vec3 pos, uint idx) {
@@ -382,8 +383,6 @@ namespace hdi::dbg {
       program.bind();
 
       // Set uniforms
-      program.uniform1ui("nNodes", layout.nNodes);
-      program.uniform1ui("kNode", layout.nodeFanout);
       program.uniform1f("theta", _flagTheta);
 
       // Bind buffers

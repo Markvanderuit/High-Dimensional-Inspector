@@ -33,6 +33,7 @@
 #include "hdi/utils/abstract_log.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
@@ -51,24 +52,19 @@ namespace hdi::dr {
       uvec dims;          // Dimensional field resolution
       uint nNodes;        // Nr of tree nodes
       uint nLvls;         // Nr of tree levels
-      uint nodeFanout;    // Fan-out, 8 is a good tradeoff for 3d
 
       Layout()
-      : nPixels(0), dims(0), nNodes(0), nLvls(0), nodeFanout(0) { }
+      : nPixels(0), dims(0), nNodes(0), nLvls(0) { }
 
-      Layout(uvec dims, uint nodeFanout)
-      : Layout(product(dims), dims, nodeFanout) { }
+      Layout(uvec dims)
+      : Layout(product(dims), dims) { }
 
-      Layout(uint nPixels, uvec dims, uint nodeFanout)
+      Layout(uint nPixels, uvec dims)
       : nPixels(nPixels),
-        dims(dims),
-        nodeFanout(nodeFanout)
+        dims(dims)
       {
-        const uint logk = static_cast<uint>(std::log2(nodeFanout));
-        size_t nPixelsTotal = dims.x * dims.y;
-        if constexpr (D == 3) {
-          nPixelsTotal *= dims.z;
-        }
+        constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+        size_t nPixelsTotal = product(dims);
         nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPixelsTotal) / logk));
         nNodes = 0u;
         for (uint i = 0u; i < nLvls; i++) {

@@ -30,12 +30,11 @@
 
 #pragma once
 
-#define SHADER_SRC(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace hdi::dr::_3d {
-  SHADER_SRC(morton_src, 450,
+  GLSL(morton_src, 450,
     struct Bounds {
       vec3 min;
       vec3 max;
@@ -79,7 +78,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(pos_sorted_src, 450,
+  GLSL(pos_sorted_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Index { uint indices[]; };
     layout(binding = 1, std430) restrict readonly buffer Posit { vec3 positionsIn[]; };
@@ -96,7 +95,106 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(leaf_src, 450,
+  GLSL(subdiv_src, 450,
+    layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+    // Buffer bindings
+    layout(binding = 0, std430) restrict readonly buffer Mort { uint mortonBuffer[]; };
+    layout(binding = 1, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
+    layout(binding = 2, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
+    layout(binding = 3, std430) restrict writeonly buffer Leaf { uint leafBuffer[]; };
+    layout(binding = 4, std430) restrict coherent buffer LHead { uint leafHead; };
+
+    // Uniforms
+    layout(location = 0) uniform bool isBottom;
+    layout(location = 1) uniform uint rangeBegin;
+    layout(location = 2) uniform uint rangeEnd;
+
+    uint findSplit(uint first, uint last) {
+      uint firstCode = mortonBuffer[first];
+      uint lastCode = mortonBuffer[last];
+      uint commonPrefix = findMSB(firstCode ^ lastCode);
+
+      // Initial guess for split position
+      uint split = first;
+      uint step = last - first;
+
+      // Perform a binary search to find the split position
+      do {
+        step = (step + 1) >> 1; // Decrease step size
+        uint _split = split + step; // Possible new split position
+
+        if (_split < last) {
+          uint splitCode = mortonBuffer[_split];
+          uint splitPrefix = findMSB(firstCode ^ splitCode);
+
+          // Accept newly proposed split for this iteration
+          if (splitPrefix < commonPrefix) {
+            split = _split;
+          }
+        }
+      } while (step > 1);
+
+      // split = first + (last - first) / 2; // blunt halfway split for testing
+
+      return split;
+    }
+
+    void main() {
+      // Check if invoc exceeds range of child nodes we want to compute
+      const uint i = rangeBegin 
+                   + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
+                   / BVH_3D_KNODE;
+      if (i > rangeEnd) {
+        return;
+      }
+      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
+
+      // Load parent range
+      uint begin = uint(node1Buffer[i].w);
+      uint mass = uint(node0Buffer[i].w);
+
+      // Subdivide if the mass is large enough
+      if (mass <= EMB_BVH_3D_KLEAF) {
+        begin = 0;
+        mass = 0;
+      } else {
+        // First, find split position based on morton codes
+        // Then set node ranges for left and right child based on split
+        // If a range is too small to split, it will be passed to the leftmost invocation only
+        uint end = begin + mass - 1;
+        for (uint j = BVH_3D_KNODE; j > 1; j /= 2) {
+          bool isLeft = (t % j) < (j / 2);
+          if (mass > EMB_BVH_3D_KLEAF) {
+            // Node is large enough, split it
+            uint split = findSplit(begin, end);
+            begin = isLeft ? begin : split + 1;
+            end = isLeft ? split : end;
+            mass = 1 + end - begin;
+          } else {
+            // Node is small enough, hand range only to leftmost invocation
+            if (!isLeft) {
+              begin = 0;
+              mass = 0;
+              break;
+            }
+          }
+        }
+      }
+
+      // Store node data (each invoc stores their own child node)
+      uint j = i * BVH_3D_KNODE + 1 + t;
+      node0Buffer[j] = vec4(0, 0, 0, mass);
+      node1Buffer[j] = vec4(0, 0, 0, begin);
+
+      // Yeet node id on leaf queue if... well if they are a leaf node
+      if (mass > 0 && (isBottom || mass <= EMB_BVH_3D_KLEAF)) {
+        leafBuffer[atomicAdd(leafHead, 1)] = j;
+      }
+    }
+  );
+
+  GLSL(leaf_src, 450,
     struct Node {
       vec4 node0; // center of mass (xy/z) and range size (w)
       vec4 node1; // bbox bounds extent (xy/z) and range begin (w)
@@ -166,7 +264,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(bbox_src, 450,
+  GLSL(bbox_src, 450,
     struct Node {
       vec4 node0; // center of mass (xy/z) and range size (w)
       vec4 node1; // bbox bounds extent (xy/z) and range begin (w)
@@ -181,12 +279,10 @@ namespace hdi::dr::_3d {
     layout(binding = 2, std430) restrict buffer MinBB { vec3 minbBuffer[]; };
 
     // Uniforms
-    layout(location = 0) uniform uint nodeFanout;
-    layout(location = 1) uniform uint rangeBegin;
-    layout(location = 2) uniform uint rangeEnd;
+    layout(location = 0) uniform uint rangeBegin;
+    layout(location = 1) uniform uint rangeEnd;
 
     // Shared memory
-    const uint logk = uint(log2(nodeFanout));
     const uint groupSize = gl_WorkGroupSize.x;
     shared Node sharedNode[groupSize / 2]; // should be smaller for larger fanouts, but "eh"
 
@@ -228,8 +324,8 @@ namespace hdi::dr::_3d {
       if (i > rangeEnd) {
         return;
       }
-      const uint s = gl_LocalInvocationID.x / nodeFanout;
-      const uint t = gl_LocalInvocationID.x % nodeFanout;
+      const uint s = gl_LocalInvocationID.x / BVH_3D_KNODE;
+      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
 
       // Read in node data per invoc, and let first invoc store in shared memory
       const Node node = read(i);
@@ -238,8 +334,8 @@ namespace hdi::dr::_3d {
       }
       barrier();
 
-      // Reduce into shared memory over nodeFanout invocs
-      for (uint _t = 1; _t < nodeFanout; _t++) {
+      // Reduce into shared memory over BVH_3D_KNODE invocs
+      for (uint _t = 1; _t < BVH_3D_KNODE; _t++) {
         if (t == _t && node.node0.w != 0f) {
           sharedNode[s] = reduce(node, sharedNode[s]);
         }
@@ -248,7 +344,7 @@ namespace hdi::dr::_3d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = (i - 1) / nodeFanout;
+        uint j = (i - 1) / BVH_3D_KNODE;
         write(j, sharedNode[s]);
       }
     }

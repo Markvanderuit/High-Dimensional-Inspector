@@ -30,12 +30,11 @@
 
 #pragma once
 
-#define SHADER_SRC(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace hdi::dr::_3d {
-  SHADER_SRC(morton_src, 450,
+  GLSL(morton_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Pixe { ivec3 pixels[]; };
     layout(binding = 1, std430) restrict writeonly buffer Mor { uint morton[]; };
@@ -72,7 +71,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(pixel_sorted_src, 450,
+  GLSL(pixel_sorted_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Index { uint indices[]; };
     layout(binding = 1, std430) restrict readonly buffer Pixel { ivec3 pixelsIn[]; };
@@ -89,7 +88,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(divide_dispatch_src, 450,
+  GLSL(divide_dispatch_src, 450,
     layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer ValueBuffer { uint value; };
     layout(binding = 1, std430) restrict writeonly buffer DispatchBu { uvec3 dispatch; };
@@ -100,7 +99,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(subdiv_src, 450,
+  GLSL(subdiv_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
     // Buffer bindings
@@ -112,13 +111,10 @@ namespace hdi::dr::_3d {
 
     // Uniforms
     layout(location = 0) uniform uint nPixels;
-    layout(location = 1) uniform uint nodeFanout;
-    layout(location = 2) uniform bool isTop;
-    layout(location = 3) uniform bool isBottom;
-    layout(location = 4) uniform uint rangeBegin;
-    layout(location = 5) uniform uint rangeEnd;
-
-    const uint logk = uint(log2(nodeFanout));
+    layout(location = 1) uniform bool isTop;
+    layout(location = 2) uniform bool isBottom;
+    layout(location = 3) uniform uint rangeBegin;
+    layout(location = 4) uniform uint rangeEnd;
 
     uint findSplit(uint first, uint last) {
       uint firstCode = mortonBuffer[first];
@@ -152,11 +148,11 @@ namespace hdi::dr::_3d {
       // Check if invoc exceeds range of child nodes we want to compute
       const uint i = rangeBegin 
                    + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
-                   / nodeFanout;
+                   / BVH_3D_KNODE;
       if (i > rangeEnd) {
         return;
       }
-      const uint t = gl_LocalInvocationID.x % nodeFanout;
+      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
 
       // Load parent range
       uint mass = uint(node0Buffer[i].w);
@@ -174,7 +170,7 @@ namespace hdi::dr::_3d {
         // Then set node ranges for left and right child based on split
         // If a range is too small to split, it will be passed to the leftmost invocation only
         uint end = begin + mass - 1;
-        for (uint j = nodeFanout; j > 1; j /= 2) {
+        for (uint j = BVH_3D_KNODE; j > 1; j /= 2) {
           bool isLeft = (t % j) < (j / 2);
           if (mass > 1) {
             // Node is large enough, split it
@@ -197,7 +193,7 @@ namespace hdi::dr::_3d {
       }
 
       // Store node data (each invoc stores their own child node)
-      uint j = i * nodeFanout + 1 + t;
+      uint j = i * BVH_3D_KNODE + 1 + t;
       node0Buffer[j] = vec4(0, 0, 0, mass);
       node1Buffer[j] = vec4(0, 0, 0, begin);
 
@@ -210,7 +206,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(leaf_src, 450,
+  GLSL(leaf_src, 450,
     struct Node {
       vec4 node0; // Minimum of bbox and range extent
       vec4 node1; // Extent of bbox and range begin
@@ -289,7 +285,7 @@ namespace hdi::dr::_3d {
     }
   );
 
-  SHADER_SRC(bbox_src, 450, 
+  GLSL(bbox_src, 450, 
     struct Node {
       vec4 node0; // Minimum of bbox and range extent
       vec4 node1; // Extent of bbox and range begin
@@ -303,12 +299,10 @@ namespace hdi::dr::_3d {
     layout(binding = 2, std430) restrict buffer Field { vec4 fieldBuffer[]; };
 
     // Uniforms
-    layout(location = 0) uniform uint nodeFanout;
-    layout(location = 1) uniform uint rangeBegin;
-    layout(location = 2) uniform uint rangeEnd;
+    layout(location = 0) uniform uint rangeBegin;
+    layout(location = 1) uniform uint rangeEnd;
 
     // Shared memory
-    const uint logk = uint(log2(nodeFanout));
     const uint groupSize = gl_WorkGroupSize.x;
     shared Node sharedNode[groupSize / 2]; // should be smaller for larger fanouts, but "eh"
 
@@ -349,8 +343,8 @@ namespace hdi::dr::_3d {
       if (i > rangeEnd) {
         return;
       }
-      const uint s = gl_LocalInvocationID.x / nodeFanout;
-      const uint t = gl_LocalInvocationID.x % nodeFanout;
+      const uint s = gl_LocalInvocationID.x / BVH_3D_KNODE;
+      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
 
       // Read in node data per invoc, and let first invoc store in shared memory
       const Node node = read(i);
@@ -359,8 +353,8 @@ namespace hdi::dr::_3d {
       }
       barrier();
 
-      // Reduce into shared memory over nodeFanout invocs
-      for (uint _t = 1; _t < nodeFanout; _t++) {
+      // Reduce into shared memory over BVH_3D_KNODE invocs
+      for (uint _t = 1; _t < BVH_3D_KNODE; _t++) {
         if (t == _t && node.node0.w != 0f) {
           sharedNode[s] = reduce(node, sharedNode[s]);
         }
@@ -369,7 +363,7 @@ namespace hdi::dr::_3d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = (i - 1) / nodeFanout;
+        uint j = (i - 1) / BVH_3D_KNODE;
         write(j, sharedNode[s]);
       }
     }

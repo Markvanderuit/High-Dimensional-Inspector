@@ -30,12 +30,11 @@
 
 #pragma once
 
-#define SHADER_SRC(name, version, shader) \
-  static const char * name = \
-  "#version " #version "\n" #shader
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 namespace hdi::dr::_2d {
-  SHADER_SRC(morton_src, 450,
+  GLSL(morton_src, 450,
     struct Bounds {
       vec2 min;
       vec2 max;
@@ -78,7 +77,7 @@ namespace hdi::dr::_2d {
     }
   );
 
-  SHADER_SRC(pos_sorted_src, 450,
+  GLSL(pos_sorted_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Index { uint indices[]; };
     layout(binding = 1, std430) restrict readonly buffer Posit { vec2 positionsIn[]; };
@@ -95,126 +94,7 @@ namespace hdi::dr::_2d {
     }
   );
 
-   /* SHADER_SRC(subdiv_src, 450,
-    layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-    // Buffer bindings
-    layout(binding = 0, std430) restrict readonly buffer Mort { uint mortonBuffer[]; };
-    layout(binding = 1, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
-    layout(binding = 2, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
-    layout(binding = 3, std430) restrict readonly buffer Subd0 { uint subdiv0Buffer[]; };
-    layout(binding = 4, std430) restrict readonly buffer SHea0 { uint subdiv0Head; };
-    layout(binding = 5, std430) restrict writeonly buffer Sub1 { uint subdiv1Buffer[]; };
-    layout(binding = 6, std430) restrict coherent buffer SHea1 { uint subdiv1Head; };
-    layout(binding = 7, std430) restrict writeonly buffer Leaf { uint leafBuffer[]; };
-    layout(binding = 8, std430) restrict coherent buffer LHead { uint leafHead; };
-
-    // Uniforms
-    layout(location = 0) uniform uint leafFanout;
-    layout(location = 1) uniform uint nodeFanout;
-    layout(location = 2) uniform bool isBottom;
-
-    // Constants
-    const uint logk = uint(log2(nodeFanout));
-    const uint t = gl_LocalInvocationID.x % nodeFanout;
-
-    uint findSplit(uint first, uint last) {
-      uint firstCode = mortonBuffer[first];
-      uint lastCode = mortonBuffer[last];
-      uint commonPrefix = findMSB(firstCode ^ lastCode);
-
-      // Initial guess for split position
-      uint split = first;
-      uint step = last - first;
-
-      // Perform a binary search to find the split position
-      do {
-        step = (step + 1) >> 1; // Decrease step size
-        uint _split = split + step; // Possible new split position
-
-        if (_split < last) {
-          uint splitCode = mortonBuffer[_split];
-          uint splitPrefix = findMSB(firstCode ^ splitCode);
-
-          // Accept newly proposed split for this iteration
-          if (splitPrefix < commonPrefix) {
-            split = _split;
-          }
-        }
-      } while (step > 1);
-
-      // split = first + (last - first) / 2; // blunt halfway split for testing
-
-      return split;
-    }
-
-    void main() {
-      // Check if invoc exceeds range of child nodes we want to compute
-      const uint _i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nodeFanout;
-      if (_i >= subdiv0Head) {
-        return;
-      }
-      const uint i = subdiv0Buffer[_i];
-
-      // Check if invoc exceeds range of child nodes we want to compute
-      // const uint i = rangeBegin 
-      //              + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
-      //              / nodeFanout;
-      // if (i > rangeEnd) {
-      //   return;
-      // }
-
-      // Load parent range
-      uint begin = uint(node1Buffer[i].w);
-      uint mass = uint(node0Buffer[i].w);
-
-      // Subdivide if the mass is large enough
-      if (mass <= leafFanout) {
-        begin = 0;
-        mass = 0;
-      } else {
-        // First, find split position based on morton codes
-        // Then set node ranges for left and right child based on split
-        // If a range is too small to split, it will be passed to the leftmost invocation only
-        uint end = begin + mass - 1;
-        for (uint j = nodeFanout; j > 1; j /= 2) {
-          bool isLeft = (t % j) < (j / 2);
-          if (mass > leafFanout) {
-            // Node is large enough, split it
-            uint split = findSplit(begin, end);
-            begin = isLeft ? begin : split + 1;
-            end = isLeft ? split : end;
-            mass = 1 + end - begin;
-          } else {
-            // Node is small enough, hand range only to leftmost invocation
-            if (!isLeft) {
-              begin = 0;
-              mass = 0;
-              break;
-            }
-          }
-        }
-      }
-
-      // Store node data (each invoc stores their own child node)
-      uint j = i * nodeFanout + 1 + t;
-      node0Buffer[j] = vec4(0, 0, 0, mass);
-      node1Buffer[j] = vec4(0, 0, 0, begin);
-      
-      if (mass > 0) {
-        if (isBottom || mass <= leafFanout) {
-          // Yeet node id on leaf queue if... well if they are a leaf node
-          leafBuffer[atomicAdd(leafHead, 1)] = j;
-        } else {
-          // Push on subdivision queue for further subdivision
-          subdiv1Buffer[atomicAdd(subdiv1Head, 1)] = j;
-        }
-      }
-    }
-  ); */
-
-  // Pre-workqueue subdiv
-  SHADER_SRC(subdiv_src, 450,
+  GLSL(subdiv_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
     // Buffer bindings
@@ -225,13 +105,9 @@ namespace hdi::dr::_2d {
     layout(binding = 4, std430) restrict coherent buffer LHead { uint leafHead; };
 
     // Uniforms
-    layout(location = 0) uniform uint leafFanout;
-    layout(location = 1) uniform uint nodeFanout;
-    layout(location = 2) uniform bool isBottom;
-    layout(location = 3) uniform uint rangeBegin;
-    layout(location = 4) uniform uint rangeEnd;
-
-    const uint logk = uint(log2(nodeFanout));
+    layout(location = 0) uniform bool isBottom;
+    layout(location = 1) uniform uint rangeBegin;
+    layout(location = 2) uniform uint rangeEnd;
 
     uint findSplit(uint first, uint last) {
       uint firstCode = mortonBuffer[first];
@@ -267,18 +143,18 @@ namespace hdi::dr::_2d {
       // Check if invoc exceeds range of child nodes we want to compute
       const uint i = rangeBegin 
                    + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
-                   / nodeFanout;
+                   / BVH_2D_KNODE;
       if (i > rangeEnd) {
         return;
       }
-      const uint t = gl_LocalInvocationID.x % nodeFanout;
+      const uint t = gl_LocalInvocationID.x % BVH_2D_KNODE;
 
       // Load parent range
       uint begin = uint(node1Buffer[i].w);
       uint mass = uint(node0Buffer[i].w);
 
       // Subdivide if the mass is large enough
-      if (mass <= leafFanout) {
+      if (mass <= EMB_BVH_2D_KLEAF) {
         begin = 0;
         mass = 0;
       } else {
@@ -286,9 +162,9 @@ namespace hdi::dr::_2d {
         // Then set node ranges for left and right child based on split
         // If a range is too small to split, it will be passed to the leftmost invocation only
         uint end = begin + mass - 1;
-        for (uint j = nodeFanout; j > 1; j /= 2) {
+        for (uint j = BVH_2D_KNODE; j > 1; j /= 2) {
           bool isLeft = (t % j) < (j / 2);
-          if (mass > leafFanout) {
+          if (mass > EMB_BVH_2D_KLEAF) {
             // Node is large enough, split it
             uint split = findSplit(begin, end);
             begin = isLeft ? begin : split + 1;
@@ -306,18 +182,18 @@ namespace hdi::dr::_2d {
       }
 
       // Store node data (each invoc stores their own child node)
-      uint j = i * nodeFanout + 1 + t;
+      uint j = i * BVH_2D_KNODE + 1 + t;
       node0Buffer[j] = vec4(0, 0, 0, mass);
       node1Buffer[j] = vec4(0, 0, 0, begin);
 
       // Yeet node id on leaf queue if... well if they are a leaf node
-      if (mass > 0 && (isBottom || mass <= leafFanout)) {
+      if (mass > 0 && (isBottom || mass <= EMB_BVH_2D_KLEAF)) {
         leafBuffer[atomicAdd(leafHead, 1)] = j;
       }
     }
   );
 
-  SHADER_SRC(divide_dispatch_src, 450,
+  GLSL(divide_dispatch_src, 450,
     layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
     struct Dispatch {
@@ -335,7 +211,7 @@ namespace hdi::dr::_2d {
     }
   );
 
-  SHADER_SRC(leaf_src, 450,
+  GLSL(leaf_src, 450,
     struct Node {
       vec4 node0; // center of mass (xy/z) and range size (w)
       vec4 node1; // bbox bounds extent (xy/z) and range begin (w)
@@ -405,7 +281,7 @@ namespace hdi::dr::_2d {
     }
   );
 
-  SHADER_SRC(bbox_src, 450,
+  GLSL(bbox_src, 450,
     struct Node {
       vec4 node0; // center of mass (xy/z) and range size (w)
       vec4 node1; // bbox bounds extent (xy/z) and range begin (w)
@@ -420,12 +296,10 @@ namespace hdi::dr::_2d {
     layout(binding = 2, std430) restrict buffer MinBB { vec2 minbBuffer[]; };
 
     // Uniforms
-    layout(location = 0) uniform uint nodeFanout;
-    layout(location = 1) uniform uint rangeBegin;
-    layout(location = 2) uniform uint rangeEnd;
+    layout(location = 0) uniform uint rangeBegin;
+    layout(location = 1) uniform uint rangeEnd;
 
     // Shared memory
-    const uint logk = uint(log2(nodeFanout));
     const uint groupSize = gl_WorkGroupSize.x;
     shared Node sharedNode[groupSize / 2]; // should be smaller for larger fanouts, but "eh"
 
@@ -467,8 +341,8 @@ namespace hdi::dr::_2d {
       if (i > rangeEnd) {
         return;
       }
-      const uint s = gl_LocalInvocationID.x / nodeFanout;
-      const uint t = gl_LocalInvocationID.x % nodeFanout;
+      const uint s = gl_LocalInvocationID.x / BVH_2D_KNODE;
+      const uint t = gl_LocalInvocationID.x % BVH_2D_KNODE;
 
       // Read in node data per invoc, and let first invoc store in shared memory
       const Node node = read(i);
@@ -477,8 +351,8 @@ namespace hdi::dr::_2d {
       }
       barrier();
 
-      // Reduce into shared memory over nodeFanout invocs
-      for (uint _t = 1; _t < nodeFanout; _t++) {
+      // Reduce into shared memory over BVH_2D_KNODE invocs
+      for (uint _t = 1; _t < BVH_2D_KNODE; _t++) {
         if (t == _t && node.node0.w != 0f) {
           sharedNode[s] = reduce(node, sharedNode[s]);
         }
@@ -487,7 +361,7 @@ namespace hdi::dr::_2d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = i / nodeFanout;
+        uint j = i / BVH_2D_KNODE;
         write(j, sharedNode[s]);
       }
     }

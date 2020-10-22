@@ -32,6 +32,7 @@
 #include <cmath>
 #include <algorithm>
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_2d.h"
@@ -150,9 +151,9 @@ namespace hdi::dr {
     if (_useBvh) {
       _bvh.setLogger(_logger);
 #ifdef USE_WIDE_BVH
-      _bvh.init(params, EmbeddingBVH<2>::Layout(n, 16, 4), position_buff, bounds_buff);
+      _bvh.init(params, EmbeddingBVH<2>::Layout(n), position_buff, bounds_buff);
 #else
-      _bvh.init(params, EmbeddingBVH<2>::Layout(n, 4, 4), position_buff, bounds_buff);
+      _bvh.init(params, EmbeddingBVH<2>::Layout(n), position_buff, bounds_buff);
 #endif // USE_WIDE_BVH
     }
 
@@ -304,8 +305,6 @@ namespace hdi::dr {
       program.bind();
       program.uniform1ui("nPos", layout.nPos);
       program.uniform1ui("nLvls", layout.nLvls);
-      program.uniform1ui("kNode", layout.nodeFanout);
-      program.uniform1ui("kLeaf", layout.leafFanout);
       program.uniform2ui("textureSize", _dims.x, _dims.y);
 
       // Bind buffers
@@ -416,8 +415,6 @@ namespace hdi::dr {
     program.bind();
     program.uniform1ui("nPos", layout.nPos);
     program.uniform1ui("nLvls", layout.nLvls);
-    program.uniform1ui("kNode", layout.nodeFanout);
-    program.uniform1ui("kLeaf", layout.leafFanout);
     program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta); // TODO extract and make program parameter
     program.uniform2ui("textureSize", _dims.x, _dims.y);
 

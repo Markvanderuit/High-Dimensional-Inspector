@@ -1,6 +1,7 @@
 #include <iostream>
 #include <imgui.h>
 #include "hdi/debug/renderer/field_bvh.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(flags_comp, 450,
@@ -10,11 +11,12 @@ GLSL(flags_comp, 450,
   layout(binding = 1, std430) restrict writeonly buffer FlagsBuffer { float flagsBuffer[]; };
   
   layout(location = 0) uniform uint nNodes;
-  layout(location = 1) uniform uint kNode;
-  layout(location = 2) uniform bool lvlOnly;
-  layout(location = 3) uniform uint lvl;
+  layout(location = 1) uniform bool lvlOnly;
+  layout(location = 2) uniform uint lvl;
   
-  const uint logk = uint(log2(kNode));
+  // Constants
+  const uint kNode = BVH_3D_KNODE;
+  const uint logk = BVH_3D_LOGK;
 
   uint findLvl(uint i) {
     uint lvl = 0u;
@@ -138,11 +140,12 @@ GLSL(field_slice_src, 450,
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
 
   // Uniform values
-  layout(location = 0) uniform uint kNode; // Node fanout in BVH
-  layout(location = 1) uniform uint outputLvl;
-  layout(location = 2) uniform uint outputDepth;
+  layout(location = 0) uniform uint outputLvl;
+  layout(location = 1) uniform uint outputDepth;
   
-  const uint logk = uint(log2(kNode));
+  // Constants
+  const uint kNode = BVH_3D_KNODE;
+  const uint logk = BVH_3D_LOGK;
 
   uint findLvl(uint i) {
     uint lvl = 0u;
@@ -385,7 +388,6 @@ namespace hdi::dbg {
       program.bind();
 
       // Set uniforms
-      program.uniform1ui("kNode", layout.nodeFanout);
       program.uniform1ui("nNodes", layout.nNodes);
       program.uniform1ui("lvlOnly", _drawSpecificLevel ? 1u : 0u);
       program.uniform1ui("lvl", _fieldLvl);
@@ -463,7 +465,6 @@ namespace hdi::dbg {
         // Bind program and uniforms
         auto &program = _programs(ProgramType::eFieldSlice);
         program.bind();
-        program.uniform1ui("kNode", layout.nodeFanout);
         program.uniform1ui("outputLvl", _fieldLvl);
         program.uniform1ui("outputDepth", static_cast<uint>(_fieldDepth * static_cast<float>(layout.dims.z)));
 
