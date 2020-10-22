@@ -42,7 +42,6 @@
 #include <glm/gtx/string_cast.hpp>
 
 // #define SKIP_SMALL_GRID   // Skip computation of active pixels for tiny fields, only for voxel grid computation
-#define DO_BVH_REFIT      // Only rebuild the embedding hierarchy every x iterations, or when runtime is exceeded
 
 namespace hdi::dr {
   // Magic numbers
@@ -124,7 +123,7 @@ namespace hdi::dr {
       _programs(ProgramType::eFieldBvh).addShader(COMPUTE, field_bvh_src); 
 #endif // EMB_BVH_3D_WIDE_TRAVERSAL
       _programs(ProgramType::eFieldDual).addShader(COMPUTE, field_bvh_dual_src); 
-      _programs(ProgramType::eLeaf).addShader(COMPUTE, field_bvh_leaf_src);
+      _programs(ProgramType::eFieldDualLeaf).addShader(COMPUTE, field_bvh_dual_leaf_src);
       _programs(ProgramType::ePush).addShader(COMPUTE, push_src); 
 
       for (auto& program : _programs) {
@@ -585,6 +584,8 @@ namespace hdi::dr {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, boundsBuffer);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::ePixels));
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::ePixelsHead));
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _buffers(BufferType::ePairsLeaf));
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, _buffers(BufferType::ePairsLeafHead));
 
     // Bind output image
     glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -692,7 +693,7 @@ namespace hdi::dr {
           glDispatchCompute(1, 1, 1);
         }
 
-        auto &program = _programs(ProgramType::eLeaf);
+        auto &program = _programs(ProgramType::eFieldDualLeaf);
         program.bind();
 
         // Bind buffers

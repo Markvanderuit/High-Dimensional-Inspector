@@ -204,7 +204,7 @@ GLSL(field_bvh_src, 450,
   layout(binding = 2, std430) restrict readonly buffer Posit { vec3 posBuffer[]; };
   layout(binding = 3, std430) restrict readonly buffer Bound { Bounds bounds; };
   layout(binding = 4, std430) restrict readonly buffer Queue { uvec3 queueBuffer[]; };
-  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; }; 
+  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; };
   layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
 
   // Uniforms
@@ -282,12 +282,14 @@ GLSL(field_bvh_src, 450,
       field += mass * vec4(tStud, t * (tStud * tStud));
       return true;
     } else if (mass <= EMB_BVH_3D_KLEAF || lvl == nLvls - 1) {
-      // Iterate over all leaf points (there goes thread divergence)
+      // Leaf is reached. iterate over all data. The dual
+      // hierarchy handles this much better, as it can
+      // just deal with large leaves in a separate shader...
       for (uint i = begin; i < begin + mass; ++i) {
         vec3 t = pos - posBuffer[i];
         float tStud = 1.f / (1.f +  dot(t, t));
         field += vec4(tStud, t * (tStud * tStud));
-       }
+      }
       return true;
     }
     return false;

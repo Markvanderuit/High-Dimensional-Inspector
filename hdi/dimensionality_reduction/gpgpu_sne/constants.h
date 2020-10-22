@@ -60,3 +60,7 @@
 // Leaf fan-out for embedding hierarchy in 2/3d
 #define EMB_BVH_2D_KLEAF 4
 #define EMB_BVH_3D_KLEAF 4
+
+// Any leaf with mass > 16 is not interacted with during traversal
+// and is instead computed in a separate shader
+#define EMB_BVH_LARGE_LEAF 16

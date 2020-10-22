@@ -118,7 +118,7 @@ namespace hdi::dr {
 
       // Dual hierarchy programs
       eFieldDual,
-      eLeaf,
+      eFieldDualLeaf,
       ePush,
 
       Length

@@ -183,7 +183,7 @@ GLSL(field_bvh_dual_src, 450,
       } else if (!fCanSubdiv && !eCanSubdiv) {
         // Leaf is reached. Large leaves are dealt with in separate shader
         // as leaves require iterating over all contained data
-        if (eNode.extent > 16) {
+        if (eNode.extent > EMB_BVH_LARGE_LEAF) {
           lQueueBuffer[atomicAdd(lQueueHead, 1)] = pair;
         } else {
           for (uint j = eNode.begin; j < eNode.begin + eNode.extent; ++j) {
@@ -217,7 +217,7 @@ GLSL(field_bvh_dual_src, 450,
   }
 );
 
-GLSL(field_bvh_leaf_src, 450,
+GLSL(field_bvh_dual_leaf_src, 450,
   GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
   GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
   GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
@@ -252,12 +252,8 @@ GLSL(field_bvh_leaf_src, 450,
   const uint nThreads = 4; // Two threads to handle all the buffer reads together
   const uint thread = gl_LocalInvocationID.x % nThreads;
 
-  float sdot(vec3 v) {
-    return dot(v, v);
-  }
-
   void main() {
-    // Check if invoc is within nr of items on accept queue
+    // Check if invoc is within nr of items on leaf queue
     uint j = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nThreads;
     if (j >= lQueueHead) {
       return;
