@@ -29,6 +29,7 @@
  */
 
 #include <algorithm>
+#include <random>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
@@ -39,7 +40,7 @@
 constexpr bool doAdaptiveResolution = true;
 constexpr unsigned minFieldSize = 5;                // 5 is default
 constexpr unsigned fixedFieldSize = 40;             // 40 is default
-constexpr float pixelRatio = 1.4f;                  // 2.0 in 2d, < 1.35 in 3d seems to work fine
+constexpr float pixelRatio = 1.4f;                  // 2.0 in 2d and >= 1.35 in 3d seem to work fine
 constexpr float boundsPadding = 0.1f;               // Padding to forcedly grow embedding
 
 namespace hdi::dr {
@@ -50,7 +51,8 @@ namespace hdi::dr {
    */
   template <unsigned D>
   GpgpuSneCompute<D>::GpgpuSneCompute()
-  : _isInit(false), _logger(nullptr)
+  : _isInit(false),
+    _logger(nullptr)
   { }
   
   /**
@@ -73,12 +75,37 @@ namespace hdi::dr {
    * buffers and shader programs.
    */
   template <unsigned D>
-  void GpgpuSneCompute<D>::init(const Embedding *embedding,
-                                const GpgpuHdCompute::Buffers distribution,
-                                const TsneParameters &params)
+  void GpgpuSneCompute<D>::init(const GpgpuHdCompute::Buffers distribution, const TsneParameters &params)
   {
+    hdi::utils::secureLog(_logger, "Initializing minimization"); 
     _distribution = distribution;
     _params = params;
+
+    // Generate embedding data with randomly placed points
+    const uint n = _params.n;
+    std::vector<vec> embedding(n, vec(0.f));
+    utils::secureLog(_logger, "Initializing embedding...");
+    {
+      // Seed bad rng
+      std::srand(_params.seed);
+
+      // Generate n random vectors
+      for (uint i = 0; i < n; ++i) {
+        vec v;
+        float r;
+
+        do {
+          r = 0.f;
+          for (uint j = 0; j < D; ++j) {
+            v[j] = 2 * (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX + 1)) - 1;
+          }
+          r = dr::dot(v, v);
+        } while (r > 1.f || r == 0.f);
+
+        r = std::sqrt(-2.f * std::log(r) / r);
+        embedding[i] = v * r * _params.rngRange;
+      }
+    }
 
     // Initialize shader program objects
     {
@@ -111,14 +138,11 @@ namespace hdi::dr {
     
     // Initialize buffer objects
     {
-      const unsigned n = embedding->numDataPoints();
-      const auto *data = embedding->getContainer().data();
-      const unsigned _D = (D > 2) ? 4 : D; // aligned D
-      const std::vector<float> zeroes(_D * n, 0);
-      const std::vector<float> ones(_D * n, 1);
+      const std::vector<vec> zeroes(n, vec(0));
+      const std::vector<vec> ones(n, vec(1));
 
       glCreateBuffers(_buffers.size(), _buffers.data());
-      glNamedBufferStorage(_buffers(BufferType::ePosition), n * sizeof(vec), data, GL_DYNAMIC_STORAGE_BIT);
+      glNamedBufferStorage(_buffers(BufferType::ePosition), n * sizeof(vec), embedding.data(), GL_DYNAMIC_STORAGE_BIT);
       glNamedBufferStorage(_buffers(BufferType::eBounds), 4 * sizeof(vec), ones.data(), GL_DYNAMIC_STORAGE_BIT);
       glNamedBufferStorage(_buffers(BufferType::eBoundsReduceAdd), 256 * sizeof(vec), ones.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::eSumQ), 2 * sizeof(float), nullptr, 0);
@@ -135,15 +159,15 @@ namespace hdi::dr {
     // Initialize field computation subcomponent
     if constexpr (D == 2) {
       _field2dCompute.setLogger(_logger);
-      _field2dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
+      _field2dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), n);
     } else if constexpr (D == 3) {
       _field3dCompute.setLogger(_logger);
-      _field3dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), embedding->numDataPoints());
+      _field3dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), n);
     }
 
     // Initialize embedding renderer subcomponent
     _embeddingRenderer.init(
-      embedding->numDataPoints(), 
+      n, 
       _buffers(BufferType::ePosition), 
       _buffers(BufferType::eBounds)
     );
@@ -189,14 +213,20 @@ namespace hdi::dr {
    *
    */
   template <unsigned D>
-  void GpgpuSneCompute<D>::compute(Embedding* embedding,
-                                   float exaggeration,
-                                   unsigned iteration,
-                                   float mult)
+  void GpgpuSneCompute<D>::compute(unsigned iteration, float mult)
   {
-    ASSERT_GL("GpgpuSneCompute::compute::begin()");
-
-    const unsigned int n = embedding->numDataPoints();
+    const uint n = _params.n;
+    
+    // Compute exaggeration factor
+    float exaggeration = 1.0f;
+    if (iteration <= _params.removeExaggerationIter) {
+      exaggeration = _params.exaggerationFactor;
+    } else if (iteration <= _params.removeExaggerationIter + _params.exponentialDecayIter) {
+      float decay = 1.0f
+                  - static_cast<float>(iteration - _params.removeExaggerationIter)
+                  / static_cast<float>(_params.exponentialDecayIter);
+      exaggeration = 1.0f + (_params.exaggerationFactor - 1.0f) * decay;
+    }
 
     // Compute embedding bounds
     {
@@ -327,15 +357,15 @@ namespace hdi::dr {
       TICK_TIMER(TIMR_UPDATE);
 
       // Precompute instead of doing it in shader N times
-      float iterMult = (static_cast<double>(iteration) < _params._mom_switching_iter) 
-                     ? _params._momentum 
-                     : _params._final_momentum;
+      float iterMult = (static_cast<double>(iteration) < _params.momentumSwitchIter) 
+                     ? _params.momentum 
+                     : _params.finalMomentum;
 
       auto &program = _programs(ProgramType::eUpdate);
       program.bind();
       program.uniform1ui("nPoints", n);
-      program.uniform1f("eta", _params._eta);
-      program.uniform1f("minGain", _params._minimum_gain);
+      program.uniform1f("eta", _params.eta);
+      program.uniform1f("minGain", _params.minimumGain);
       program.uniform1f("mult", mult);
       program.uniform1f("iterMult", iterMult);
 
@@ -386,11 +416,7 @@ namespace hdi::dr {
 
     POLL_TIMERS();
 
-    if (iteration == _params._iterations - 1) {
-      // Update host embedding data
-      glGetNamedBufferSubData(_buffers(BufferType::ePosition), 
-        0, n * sizeof(vec), embedding->getContainer().data());
-
+    if (iteration == _params.iterations - 1) {
       // Output timer averages
 #ifdef GL_TIMERS_ENABLED
       utils::secureLog(_logger, "\nGradient descent");
@@ -407,6 +433,16 @@ namespace hdi::dr {
     }
 
     ASSERT_GL("GpgpuSneCompute::compute::end()");
+  }
+
+  template <unsigned D>
+  std::vector<glm::vec<D, float>> GpgpuSneCompute<D>::getEmbedding() const {
+    if (!_isInit) {
+      throw std::runtime_error("GpgpuSneCompute::getEmbedding() called while GpgpuSneCompute was not initialized");
+    }
+    std::vector<vec> buffer(_params.n);
+    glGetNamedBufferSubData(_buffers(BufferType::ePosition), 0, buffer.size() * sizeof(vec), buffer.data());
+    return std::vector<glm::vec<D, float>>(std::begin(buffer), std::end(buffer));
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

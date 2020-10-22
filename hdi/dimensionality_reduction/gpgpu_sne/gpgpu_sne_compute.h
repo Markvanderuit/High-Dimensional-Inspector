@@ -57,20 +57,30 @@ namespace hdi::dr {
     using uvec = dr::AlignedVec<D, uint>;
 
   public:
+    // Buffers the class can export
+    struct Buffers {
+      GLuint positionsBuffer; // N * padded D list of embedding positions
+    };
+
+  public:
     GpgpuSneCompute();
     ~GpgpuSneCompute();
 
-    void init(const Embedding *embedding,
-              const GpgpuHdCompute::Buffers distribution,
-              const TsneParameters &params);
+    void init(const GpgpuHdCompute::Buffers distribution, const TsneParameters &params);
     void destr();
-    void compute(Embedding* embedding,
-                 float exaggeration,
-                 unsigned iteration,
-                 float mult);
+    void compute(unsigned iteration, float mult);
+
+    // Returns a vector of unaligned vectors (eg, maximally packed) for outside usage
+    std::vector<glm::vec<D, float>> getEmbedding() const;
 
     void setLogger(utils::AbstractLog *logger) {
       _logger = logger;
+    }
+
+    Buffers buffers() const {
+      return Buffers {
+        _buffers(BufferType::ePosition)
+      };
     }
 
   private:

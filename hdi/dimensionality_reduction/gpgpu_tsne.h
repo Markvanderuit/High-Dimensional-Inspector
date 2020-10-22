@@ -32,53 +32,44 @@
 
 #pragma once
 
-#include <cstdint>
-#include <vector>
+#include <memory>
 #include "hdi/utils/abstract_log.h"
-#include "hdi/data/embedding.h"
-#include "hdi/data/map_mem_eff.h"
+#include "hdi/data/panel_data.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute.h"
 
 namespace hdi::dr {
-  class GradientDescentTSNE {
-    typedef std::vector<data::MapMemEff<uint32_t, float>> SparseMatrix;
-    typedef data::Embedding<float> Embedding;
-
+  class GpgpuTSNE {
   public:
-    GradientDescentTSNE();
-    ~GradientDescentTSNE();
+    GpgpuTSNE();
+    ~GpgpuTSNE();
 
-    // Lifetime management
-    void init(const SparseMatrix& P,
-              const GpgpuHdCompute::Buffers& distribution,
-              Embedding* embeddingPtr,
-              TsneParameters params);
+    void init(const data::PanelData<float>& data, TsneParameters params);
     void destr();
-
-    // Iterator management
-    void iterate(double mult = 1.0);
-
-    // Misc. computation
-    double computeKullbackLeiblerDivergence() const;
-    double computeExaggeration() const;
+    void iterate();
 
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
+      _gpgpuHdCompute.setLogger(_logger);
+      _gpgpu2dSneCompute.setLogger(_logger);
+      _gpgpu3dSneCompute.setLogger(_logger);
     }
+
+    std::vector<float> getRawEmbedding() const;
+    float getKLDivergence();
 
   private:
     bool _isInit;
     unsigned _iteration;
-    double _exaggeration_baseline;
-    Embedding* _embeddingPtr;
     TsneParameters _params;
-    SparseMatrix _P; 
     utils::AbstractLog* _logger;
 
-    // Underlying compute classes for 2 and 3 dimensions
-    GpgpuSneCompute<2> _gpgpu_2d_sne_compute;
-    GpgpuSneCompute<3> _gpgpu_3d_sne_compute;
+    // Underlying compute classes
+    GpgpuHdCompute _gpgpuHdCompute;
+    GpgpuSneCompute<2> _gpgpu2dSneCompute;
+    GpgpuSneCompute<3> _gpgpu3dSneCompute;
   };
 }

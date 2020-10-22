@@ -84,12 +84,18 @@ namespace hdi {
       return t;
     }
 
+    template< unsigned D, typename genType >
+    genType dot(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {
+      return glm::dot(static_cast<glm::vec<D, genType>>(x), static_cast<glm::vec<D, genType>>(y));
+    }
+
     // Rounded up division of n by div
     template <typename genType> 
     inline
     genType ceilDiv(genType n, genType div) {
       return (n + div - 1) / div;
     }
+
 
     /**
      * Simple bounding box type for D dimensions.
