@@ -31,26 +31,21 @@
 #include <iostream>
 #include <stdexcept>
 #include "hdi/utils/log_helper_functions.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/kl_divergence_compute.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/kl_divergence_shaders.h"
-
-template <typename genType> 
-inline
-genType ceilDiv(genType n, genType div) {
-  return (n + div - 1) / div;
-}
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute_shaders.h"
 
 namespace hdi::dr {
   template <unsigned D>
-  KlDivergenceCompute<D>::KlDivergenceCompute()
+  GpgpuKldCompute<D>::GpgpuKldCompute()
   : _logger(nullptr) { }
 
   template <unsigned D>
-  float KlDivergenceCompute<D>::compute(const Embedding *embedding,
-                                        const GpgpuHdCompute::Buffers distribution,
-                                        const TsneParameters &params) {
-    const unsigned n = embedding->numDataPoints();
+  float GpgpuKldCompute<D>::compute(const typename GpgpuSneCompute<D>::Buffers embedding,
+                                    const GpgpuHdCompute::Buffers distribution,
+                                    const TsneParameters &params) {
+    const unsigned n = params.n;
 
     // Create shader program objects
     {
@@ -75,20 +70,15 @@ namespace hdi::dr {
 
     // Create shader storage buffer objects
     {
-      const auto *data = embedding->getContainer().data();
-      const unsigned _D = (D > 2) ? 4 : D; // aligned D
-
       glCreateBuffers(_buffers.size(), _buffers.data());
-      glNamedBufferStorage(_buffers(BufferType::ePositions), n * sizeof(vec), data, 0);      
       glNamedBufferStorage(_buffers(BufferType::eQij), n * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eKlc), n * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eReduceIntermediate), 256 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eReduceFinal), sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
-      ASSERT_GL("KlDivergenceCompute::compute::buffers()");
+      ASSERT_GL("GpgpuKldCompute::compute::buffers()");
     }
-    
-    // Set up timers for performance idea
+
     INIT_TIMERS();
 
     // Compute Q_ij over all i without approximation, therefore in O(n^2) time
@@ -99,7 +89,7 @@ namespace hdi::dr {
       program.bind();
       program.uniform1ui("nPoints", n);
 
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePositions));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, embedding.positionsBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eQij));
       
       const uint step = 1024;
@@ -110,7 +100,7 @@ namespace hdi::dr {
       }
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("KlDivergenceCompute::compute::q_ij()");
+      ASSERT_GL("GpgpuKldCompute::compute::q_ij()");
       TOCK_TIMER(TIMR_QIJ);
     }
 
@@ -134,7 +124,7 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("KlDivergenceCompute::compute::reduce0()");
+      ASSERT_GL("GpgpuKldCompute::compute::reduce0()");
       TOCK_TIMER(TIMR_REDUCE_QIJ);
     }
 
@@ -146,7 +136,7 @@ namespace hdi::dr {
       program.bind();
       program.uniform1ui("nPoints", n);
       
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePositions));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, embedding.positionsBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eReduceFinal));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, distribution.layoutBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, distribution.neighboursBuffer);
@@ -161,7 +151,7 @@ namespace hdi::dr {
       }
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       
-      ASSERT_GL("KlDivergenceCompute::compute::kl_divergence()");
+      ASSERT_GL("GpgpuKldCompute::compute::kl_divergence()");
       TOCK_TIMER(TIMR_KLC);
     }
 
@@ -185,7 +175,7 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("KlDivergenceCompute::compute::reduce1()");
+      ASSERT_GL("GpgpuKldCompute::compute::reduce1()");
       TOCK_TIMER(TIMER_REDUCE_KLC);
     }
     
@@ -212,12 +202,12 @@ namespace hdi::dr {
       glDeleteBuffers(_buffers.size(), _buffers.data());
     }
     
-    ASSERT_GL("KlDivergenceCompute::compute()");
+    ASSERT_GL("GpgpuKldCompute::compute()");
 
     return kld;
   }
 
   // Explicit template instantiations for 2 and 3 dimensions
-  template class KlDivergenceCompute<2>;
-  template class KlDivergenceCompute<3>;
+  template class GpgpuKldCompute<2>;
+  template class GpgpuKldCompute<3>;
 } // namespace hdi::dr
