@@ -39,8 +39,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
-// #define USE_WIDE_BVH // Toggle partial warp traversal of a wide BVH, only for single tree trav.
-
 namespace hdi::dr {
   // Magic numbers
   constexpr float pointSize = 3.f;      // Point size for stencil
@@ -94,11 +92,11 @@ namespace hdi::dr {
       _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
 
       if (_useBvh) {
-#ifdef USE_WIDE_BVH
+#ifdef EMB_BVH_2D_WIDE_TRAVERSAL
         _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_wide_src); 
 #else
         _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
-#endif // USE_WIDE_BVH
+#endif // EMB_BVH_2D_WIDE_TRAVERSAL
       } else {
         _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
       }
@@ -150,11 +148,7 @@ namespace hdi::dr {
     // works well for subgroups, 4 works well for 2 dimensions.
     if (_useBvh) {
       _bvh.setLogger(_logger);
-#ifdef USE_WIDE_BVH
       _bvh.init(params, EmbeddingBVH<2>::Layout(n), position_buff, bounds_buff);
-#else
-      _bvh.init(params, EmbeddingBVH<2>::Layout(n), position_buff, bounds_buff);
-#endif // USE_WIDE_BVH
     }
 
     _fieldRenderer.init(&_textures(TextureType::eField));
@@ -398,11 +392,11 @@ namespace hdi::dr {
     {
       auto &program = _programs(ProgramType::eDispatch);
       program.bind();
-  #ifdef USE_WIDE_BVH
-      program.uniform1ui("div", 256 / _bvh.layout().nodeFanout);
+  #ifdef EMB_BVH_2D_WIDE_TRAVERSAL
+      program.uniform1ui("div", 256 / BVH_2D_KNODE);
   #else
       program.uniform1ui("div", 256);
-  #endif // USE_WIDE_BVH
+  #endif // EMB_BVH_2D_WIDE_TRAVERSAL
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePixelsHead));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
@@ -415,7 +409,7 @@ namespace hdi::dr {
     program.bind();
     program.uniform1ui("nPos", layout.nPos);
     program.uniform1ui("nLvls", layout.nLvls);
-    program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta); // TODO extract and make program parameter
+    program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta);
     program.uniform2ui("textureSize", _dims.x, _dims.y);
 
     // Bind images and textures to right units

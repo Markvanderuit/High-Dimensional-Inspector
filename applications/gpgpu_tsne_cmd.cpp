@@ -235,16 +235,19 @@ int main(int argc, char *argv[]) {
     }
 
     // Perform tSNE minimization
-    for (uint i = 0; i < iterations; ++i) {
-      tSNE.iterate();
-      
-      // Process debug render components
-      if (doVisualisation) {
-        window.processEvents();
-        inputManager.processInputs();
-        renderManager.render();
-        inputManager.render();
-        window.display();
+    {
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
+      for (uint i = 0; i < iterations; ++i) {
+        tSNE.iterate();
+        
+        // Process debug render components
+        if (doVisualisation) {
+          window.processEvents();
+          inputManager.processInputs();
+          renderManager.render();
+          inputManager.render();
+          window.display();
+        }
       }
     }
     
@@ -260,12 +263,16 @@ int main(int argc, char *argv[]) {
     if (doNNPreservation) {
       hdi::utils::secureLog(&logger, "Computing NNP...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
+
       std::vector<float> precision;
       std::vector<float> recall;
-      uint K = 30;
       std::vector<unsigned> points(n);
+
       std::iota(points.begin(), points.end(), 0);
-      hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, K);
+
+      hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, 30);
+
+      // Just dump in cout for now
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }

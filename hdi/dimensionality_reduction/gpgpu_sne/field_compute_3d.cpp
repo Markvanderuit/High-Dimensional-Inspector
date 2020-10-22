@@ -118,11 +118,11 @@ namespace hdi::dr {
       _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, divide_dispatch_src);
       _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
       _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
-#ifdef USE_WIDE_BVH
+#ifdef EMB_BVH_3D_WIDE_TRAVERSAL
       _programs(ProgramType::eFieldBvh).addShader(COMPUTE, field_bvh_wide_src); 
 #else
       _programs(ProgramType::eFieldBvh).addShader(COMPUTE, field_bvh_src); 
-#endif // USE_WIDE_BVH
+#endif // EMB_BVH_3D_WIDE_TRAVERSAL
       _programs(ProgramType::eFieldDual).addShader(COMPUTE, field_bvh_dual_src); 
       _programs(ProgramType::eLeaf).addShader(COMPUTE, field_bvh_leaf_src);
       _programs(ProgramType::ePush).addShader(COMPUTE, push_src); 
@@ -558,8 +558,8 @@ namespace hdi::dr {
     {
       auto &program = _programs(ProgramType::eDivideDispatch);
       program.bind();
-  #ifdef USE_WIDE_BVH
-      program.uniform1ui("div", 256 / _bvh.layout().nodeFanout);
+  #ifdef EMB_BVH_3D_WIDE_TRAVERSAL
+      program.uniform1ui("div", 256 / BVH_3D_KNODE);
   #else
       program.uniform1ui("div", 256);
   #endif // USE_WIDE_BVH

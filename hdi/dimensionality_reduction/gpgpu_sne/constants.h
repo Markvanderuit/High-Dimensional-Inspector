@@ -30,24 +30,31 @@
 
 #pragma once
 
-// Use wide single hierarchy traversal for embedding hierarchy in 2/3d
+// Use wider subgroup-based traversal for embedding hierarchy in 2/3d
+// A bit finicky and unpredictable
 // #define EMB_BVH_2D_WIDE_TRAVERSAL
 // #define EMB_BVH_3D_WIDE_TRAVERSAL
 
+// Node fan-out for embedding/field hierarchy in 2d
+// as well as log2 of said value
 #ifndef EMB_BVH_2D_WIDE_TRAVERSAL
-  // Node fan-out for embedding/field hierarchy in 2/3d
-  // as well as log2 of said value
   #define BVH_2D_KNODE 4
   #define BVH_2D_LOGK 2
+#else
+  #define BVH_2D_KNODE 16
+  #define BVH_2D_LOGK 4
+#endif
+
+#ifndef EMB_BVH_3D_WIDE_TRAVERSAL
+  // Node fan-out for embedding/field hierarchy in 3d
+  // as well as log2 of said value
   #define BVH_3D_KNODE 8
   #define BVH_3D_LOGK 3
 #else
-  // Node fan-out for embedding/field hierarchy in 2/3d
+  // Node fan-out for embedding/field hierarchy in 3d
   // as well as log2 of said value
-  #define BVH_2D_KNODE 16
-  #define BVH_2D_LOGK 4
-  #define BVH_3D_KNODE 16
-  #define BVH_3D_LOGK 4
+  #define BVH_3D_KNODE 8
+  #define BVH_3D_LOGK 3
 #endif
 
 // Leaf fan-out for embedding hierarchy in 2/3d

@@ -159,10 +159,10 @@ GLSL(field_bvh_src, 450,
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
 
   // Uniforms
-  layout(location = 0) uniform uint nPos;     // nr of points
-  layout(location = 1) uniform uint nLvls;    // Nr of tree levels
-  layout(location = 2) uniform float theta2;  // Squared approximation param
-  layout(location = 3) uniform uvec2 textureSize;
+  layout(location = 0) uniform uint nPos;         // nr of points
+  layout(location = 1) uniform uint nLvls;        // Nr of tree levels
+  layout(location = 2) uniform float theta2;      // Squared approximation param
+  layout(location = 3) uniform uvec2 textureSize; // Size of fields texture
 
   // Fun stuff for fast modulo and division and stuff
   const uint bitmask = ~((~0u) << BVH_2D_LOGK);
@@ -287,15 +287,16 @@ GLSL(field_bvh_wide_src, 450,
     vec2 invRange;
   };
 
-  layout(local_size_x = 32, local_size_y = 4, local_size_z = 1) in;
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
   // Buffer, sampler and image bindings
   layout(binding = 0, std430) restrict readonly buffer Node0 { vec4 node0Buffer[]; };
   layout(binding = 1, std430) restrict readonly buffer Node1 { vec4 node1Buffer[]; };
   layout(binding = 2, std430) restrict readonly buffer Posit { vec2 posBuffer[]; };
   layout(binding = 3, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 4, std430) restrict readonly buffer Queue { uvec2 queueBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer QHead { uint queueHead; }; 
   layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
-  layout(binding = 0) uniform usampler2D stencilSampler;
 
   // Uniforms
   layout(location = 0) uniform uint nPos;         // nr of points
@@ -418,23 +419,17 @@ GLSL(field_bvh_wide_src, 450,
   }
 
   void main() {
-    // Check that invocation ID falls inside fields texture bounds
-    const uvec2 i = (gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy) 
-                  / uvec2(BVH_2D_KNODE, 1);
-    if (min(i, textureSize - 1) != i) {
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x);
+                 / BVH_2D_KNODE;
+    if (i >= queueHead) {
       return;
     }
-    
-    // Check to skip empty pixels in stencil buffer
-    if (texelFetch(stencilSampler, ivec2(i), 0).x == 0u) {
-      if (thread == 0u) {
-        imageStore(fieldImage, ivec2(i), vec4(0));
-      }
-      return;
-    } 
+    const uvec2 px = queueBuffer[i];
 
-    // Compute pixel position in [0, 1], then map to domain bounds
-    vec2 pos = (vec2(i) + 0.5) / vec2(textureSize);
+    // Compute pixel position in [0, 1]
+    // Then map pixel position to domain bounds
+    vec2 pos = (vec2(px) + 0.5) / vec2(textureSize);
     pos = pos * bounds.range + bounds.min;
 
     // Traverse tree, add together results from subgroup
