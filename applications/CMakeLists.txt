@@ -6,7 +6,6 @@ function(addProject Name Sources)
   target_include_directories(${Name} PRIVATE ${CMAKE_SOURCE_DIR})
   target_link_libraries(${Name} 
     cxxopts
-    flann::flann
     hdidata
     hdiutils
     hdidebug

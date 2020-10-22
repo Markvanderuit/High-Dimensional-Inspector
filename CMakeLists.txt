@@ -22,7 +22,6 @@ endif()
 find_package(CUDAToolkit)
 
 # Add third party libraries
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/flann)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/openblas)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
@@ -31,7 +30,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cub)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cxxopts)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/roaring)
 
 # Add OpenMP support for core libraries 
 find_package(OpenMP)

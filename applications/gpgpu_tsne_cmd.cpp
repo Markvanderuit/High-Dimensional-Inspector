@@ -84,8 +84,8 @@ constexpr char *windowTitle = "GPGPU tSNE";
 void loadData(hdi::data::PanelData<float>& panelData, 
               std::vector<unsigned> &labelData, 
               std::string filename_data, 
-              unsigned int num_points, 
-              unsigned int num_dims) 
+              uint num_points, 
+              uint num_dims) 
 {
   std::ifstream file_data(filename_data, std::ios::in | std::ios::binary);
   if (!file_data.is_open()) {
