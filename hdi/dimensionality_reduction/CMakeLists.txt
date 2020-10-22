@@ -33,6 +33,7 @@ target_link_libraries(hdidimensionalityreduction
   cub 
   glm
   gpufaiss
+  nanoflann
 )
 
 install (TARGETS hdidimensionalityreduction DESTINATION bin)

@@ -36,7 +36,7 @@
 #include "hdi/data/panel_data.h"
 #include "hdi/data/embedding.h"
 #include "hdi/data/vptree.h"
-#include "hdi/data/nano_flann.h"
+#include <nanoflann/nano_flann.h>
 #include <unordered_set>
 
 #ifdef __USE_GCD__

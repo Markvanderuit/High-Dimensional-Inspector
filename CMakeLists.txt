@@ -30,6 +30,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cub)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cxxopts)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanoflann)
 
 # Add OpenMP support for core libraries 
 find_package(OpenMP)
