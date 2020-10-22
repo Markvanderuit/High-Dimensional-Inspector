@@ -35,13 +35,11 @@
 #include <string>
 #include <cxxopts/cxxopts.hpp>
 #include "hdi/utils/cout_log.h"
-#include "hdi/utils/log_helper_functions.h"
 #include "hdi/utils/scoped_timers.h"
+#include "hdi/utils/log_helper_functions.h"
 #include "hdi/debug/utils/window.hpp"
 #include "hdi/debug/utils/input.hpp"
 #include "hdi/debug/renderer/renderer.hpp"
-#include "hdi/data/panel_data.h"
-#include "hdi/data/empty_data.h"
 #include "hdi/dimensionality_reduction/gpgpu_tsne.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
 
@@ -80,38 +78,37 @@ constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
 constexpr uint windowWidth = 2560u;
 constexpr uint windowHeight = 1440u;
 constexpr char *windowTitle = "GPGPU tSNE";
- 
-void loadData(hdi::data::PanelData<float>& panelData, 
-              std::vector<unsigned> &labelData, 
-              std::string filename_data, 
-              uint num_points, 
-              uint num_dims) 
+
+void loadData(std::vector<float> &data, 
+              std::vector<uint> &labels,
+              const std::string &fileName)
 {
-  std::ifstream file_data(filename_data, std::ios::in | std::ios::binary);
-  if (!file_data.is_open()) {
-    throw std::runtime_error("data file cannot be found");
+  std::ifstream inputFile(fileName, std::ios::in | std::ios::binary);
+  if (!inputFile) {
+    throw std::runtime_error("Input file cannot be found");
   }
   
-  panelData.clear();
-  for (size_t j = 0; j < num_dims; ++j) {
-    panelData.addDimension(std::make_shared<hdi::data::EmptyData>());
-  }
-  panelData.initialize();
-
+  // Allocate space to store point vectors and labels
+  data = std::vector<float>(n * nHighDimensions);
   if (doLabelExtraction) {
-    labelData.resize(num_points);
+    labels = std::vector<uint>(n);
   }
+  
+  if (doLabelExtraction) {
+    // Read data in iteratively
+    for (uint i = 0; i < n; ++i) {
+      // Read 4-byte label if label extraction is required
+      if (doLabelExtraction) {
+        inputFile.read((char *) &labels[i], sizeof(uint));
+      }
 
-  std::vector<float> buffer(num_dims);
-  for (size_t j = 0; j < num_points; ++j) {
-    // Read 4-byte label if label extraction is required
-    if (doLabelExtraction) {
-      file_data.read((char *) &labelData[j], sizeof(uint));
+      // Read point data for entire row
+      inputFile.read((char *) &data[i * nHighDimensions], nHighDimensions * sizeof(float));
     }
-    // Read 4-byte point data for entire row
-    file_data.read((char *) buffer.data(), sizeof(float) * buffer.size());
-    panelData.addDataPoint(std::make_shared<hdi::data::EmptyData>(), buffer);
-  }
+  } else {
+    // Read data in single function call
+    inputFile.read((char *) data.data(), data.size() * sizeof(float));
+  }  
 }
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
@@ -193,12 +190,12 @@ int main(int argc, char *argv[]) {
     parseCli(&logger, argc, argv);
 
     // Load input data and labels
-    hdi::data::PanelData<float> panelData;
-    std::vector<unsigned> labelData;
+    std::vector<float> data;
+    std::vector<uint> labels;
     {
       hdi::utils::secureLog(&logger, "Loading data...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
-      loadData(panelData, labelData, inputFileName, n, nHighDimensions);
+      loadData(data, labels, inputFileName);
     }
 
     // Create an opengl context (and visible window, if we want one for the visual debugger)
@@ -212,7 +209,7 @@ int main(int argc, char *argv[]) {
     hdi::dbg::InputManager inputManager(window);
     hdi::dbg::RenderManager renderManager;
     if (doVisualisation) {
-      renderManager.init(nLowDimensions, labelData);
+      renderManager.init(nLowDimensions, labels);
     }
 
     // Set CLI arguments in parameter object passed through the program
@@ -230,7 +227,7 @@ int main(int argc, char *argv[]) {
     // This computes the HD joint similarity distribution and then sets up the minimization
     hdi::dr::GpgpuTSNE tSNE;
     tSNE.setLogger(&logger);
-    tSNE.init(panelData, params);
+    tSNE.init(data, params);
 
     if (doVisualisation) {
       window.display();

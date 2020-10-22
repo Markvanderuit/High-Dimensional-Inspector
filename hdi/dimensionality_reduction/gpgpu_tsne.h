@@ -32,14 +32,12 @@
 
 #pragma once
 
-#include <memory>
+#include <vector>
 #include "hdi/utils/abstract_log.h"
-#include "hdi/data/panel_data.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
-#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute.h"
 
 namespace hdi::dr {
   class GpgpuTSNE {
@@ -47,7 +45,7 @@ namespace hdi::dr {
     GpgpuTSNE();
     ~GpgpuTSNE();
 
-    void init(const data::PanelData<float>& data, TsneParameters params);
+    void init(const std::vector<float>& data, TsneParameters params);
     void destr();
     void iterate();
 

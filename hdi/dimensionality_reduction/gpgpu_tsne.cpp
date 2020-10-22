@@ -34,6 +34,7 @@
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_tsne.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute.h"
 
 namespace hdi::dr {
   GpgpuTSNE::GpgpuTSNE()
@@ -49,7 +50,7 @@ namespace hdi::dr {
     }
   }
 
-  void GpgpuTSNE::init(const data::PanelData<float>& data, TsneParameters params)
+  void GpgpuTSNE::init(const std::vector<float>& data, TsneParameters params)
   {
     utils::secureLog(_logger, "Initializing tSNE...");
     _params = params;

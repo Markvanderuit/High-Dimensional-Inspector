@@ -31,7 +31,6 @@
 #pragma once
 
 #include "hdi/utils/abstract_log.h"
-#include "hdi/data/panel_data.h"
 #include "hdi/data/shader.h"
 #include "hdi/dimensionality_reduction/tsne_parameters.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
@@ -61,7 +60,7 @@ namespace hdi {
 
       void init(const TsneParameters &params);
       void destr();
-      void compute(const data::PanelData<float>& data);
+      void compute(const std::vector<float>& data);
 
       void setLogger(utils::AbstractLog *logger) {
         _logger = logger;

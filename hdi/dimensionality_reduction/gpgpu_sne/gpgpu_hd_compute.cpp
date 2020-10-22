@@ -102,13 +102,12 @@ namespace hdi {
       _isInit = false;
     }
 
-    void GpgpuHdCompute::compute(const data::PanelData<float>& data)
+    void GpgpuHdCompute::compute(const std::vector<float>& data)
     {
       // Data size, dimensionality, requested nearest neighbours
-      const uint n = data.numDataPoints();
-      const uint d = data.numDimensions();
+      const uint n = _params.n;
+      const uint d = _params.nHighDimensions;
       const uint k = std::min(kMax, 3 * static_cast<uint>(_params.perplexity) + 1);
-      const float *points = data.getData().data();
       
       // Temporary memory for kNN computation
       // Stored host-side because (a) we move to OpenGL afterwards (b) interopability requires
@@ -144,15 +143,15 @@ namespace hdi {
           faissConfig
         );
         faissIndex.setNumProbes(nProbe);
-        faissIndex.train(n, points);
-        faissIndex.add(n, points);
+        faissIndex.train(n,  data.data());
+        faissIndex.add(n,  data.data());
 
         // Perform actual search
         // Store results device cide in cuKnnSquaredDistances, cuKnnIndices, as the
         // rest of construction is performed on device as well.
         faissIndex.search(
           n,
-          points,
+          data.data(),
           k,
           knnSquareDistances.data(),
           knnIndices.data()
