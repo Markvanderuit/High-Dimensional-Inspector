@@ -107,7 +107,7 @@ namespace hdi {
       // Data size, dimensionality, requested nearest neighbours
       const uint n = data.numDataPoints();
       const uint d = data.numDimensions();
-      const uint k = std::min(kMax, 3 * static_cast<uint>(_params._perplexity) + 1);
+      const uint k = std::min(kMax, 3 * static_cast<uint>(_params.perplexity) + 1);
       const float *points = data.getData().data();
       
       // Temporary memory for kNN computation
@@ -200,7 +200,7 @@ namespace hdi {
         program.bind();
         program.uniform1ui("nPoints", n);
         program.uniform1ui("kNeighbours", k);
-        program.uniform1f("perplexity", _params._perplexity);
+        program.uniform1f("perplexity", _params.perplexity);
         program.uniform1ui("nIters", 200);
         program.uniform1f("epsilon", 1e-5);
 
@@ -327,7 +327,7 @@ namespace hdi {
       // Report runtimes 
       utils::secureLog(_logger, "\nSimilarities Computation");
       utils::secureLogValue(_logger, "  kNN (ms)", 
-        std::to_string(_time_knn * 1000));
+        std::to_string(_time_knn * 1000.f));
       utils::secureLogValue(_logger, "  Expansion (ms)", 
         std::to_string(glTimers[TIMR_EXPANSION].lastMillis()));
       utils::secureLogValue(_logger, "  Similarity (ms)", 

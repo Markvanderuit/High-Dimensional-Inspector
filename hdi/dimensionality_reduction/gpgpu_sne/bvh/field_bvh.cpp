@@ -349,7 +349,7 @@ namespace hdi::dr {
 
     // Output timer data on final iteration
     POLL_TIMERS();
-    if (iteration == _params._iterations - 1) {
+    if (iteration == _params.iterations - 1) {
 #ifdef GL_TIMERS_ENABLED
       utils::secureLog(_logger, "\nPixelBVH building");
 #endif

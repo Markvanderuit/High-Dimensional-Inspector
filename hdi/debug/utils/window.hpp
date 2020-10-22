@@ -76,6 +76,7 @@ namespace hdi::dbg {
     void enableVsync(bool enabled);
 
     // Window handling
+    void setTitle(const std::string &title);
     bool isCurrent() const;
     bool canDisplay() const;
     bool isVisible() const;
@@ -88,7 +89,9 @@ namespace hdi::dbg {
     // Simple window constructors
     static Window Offscreen();
     static Window Decorated();
+    static Window DecoratedResizable();
     static Window Undecorated();
+    static Window UndecoratedResizable();
     static Window Fullscreen();
     
   private:

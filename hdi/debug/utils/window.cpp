@@ -122,6 +122,10 @@ namespace hdi::dbg {
     _currentWindow = this; // set to wrapper, not to window
   }
 
+  void Window::setTitle(const std::string &title) {
+    glfwSetWindowTitle((GLFWwindow *) _handle, title.c_str());
+  }
+
   bool Window::isCurrent() const
   {
     return ((GLFWwindow*) _handle) == glfwGetCurrentContext();
@@ -179,7 +183,16 @@ namespace hdi::dbg {
   Window Window::Decorated() 
   {
     WindowInfo info;
-    info.flags = WindowInfo::bDecorated | WindowInfo::bFocused;
+    info.flags = WindowInfo::bDecorated | WindowInfo::bFocused | WindowInfo::bSRGB;
+    info.width = 1024;
+    info.height = 768;
+    return Window(info);
+  }
+
+  Window Window::DecoratedResizable() 
+  {
+    WindowInfo info;
+    info.flags = WindowInfo::bDecorated | WindowInfo::bFocused | WindowInfo::bSRGB | WindowInfo::bResizable;
     info.width = 1024;
     info.height = 768;
     return Window(info);
@@ -188,7 +201,16 @@ namespace hdi::dbg {
   Window Window::Undecorated() 
   {
     WindowInfo info;
-    info.flags = WindowInfo::bFocused;
+    info.flags = WindowInfo::bFocused | WindowInfo::bSRGB;
+    info.width = 1024;
+    info.height = 768;
+    return Window(info);
+  }
+
+  Window Window::UndecoratedResizable() 
+  {
+    WindowInfo info;
+    info.flags = WindowInfo::bFocused | WindowInfo::bSRGB | WindowInfo::bResizable;
     info.width = 1024;
     info.height = 768;
     return Window(info);

@@ -97,8 +97,8 @@ namespace hdi::dr {
                             GLuint boundsBuffer, 
                             unsigned n) {
     _params = params;
-    _useEmbeddingBvh = _params._theta > 0.0;
-    _useFieldBvh = _params._thetaDual > 0.0;
+    _useEmbeddingBvh = _params.singleHierarchyTheta > 0.0;
+    _useFieldBvh = _params.dualHierarchyTheta > 0.0;
     _useVoxelGrid = !_useEmbeddingBvh && !_useFieldBvh;
 
     // Build shader programs
@@ -316,7 +316,7 @@ namespace hdi::dr {
       _embeddingBvh.compute(_bvhRebuildIters == 0, iteration, positionBuffer, boundsBuffer);
 
       // Rebuild BVH fully only once every X iterations
-      if (iteration <= _params._remove_exaggeration_iter || _bvhRebuildIters >= bvhRebuildIters) {
+      if (iteration <= _params.removeExaggerationIter || _bvhRebuildIters >= bvhRebuildIters) {
         _bvhRebuildIters = 0;
       } else {
         _bvhRebuildIters++;
@@ -336,7 +336,7 @@ namespace hdi::dr {
     // Build hierarchy over flagged pixels if certain conditions are met
     const auto fieldBvhLayout = FieldBVH<3>::Layout(nPixels, _dims, 8);
     const bool fieldBvhActive = _useFieldBvh
-      && iteration >= _params._remove_exaggeration_iter     // After early exaggeration phase
+      && iteration >= _params.removeExaggerationIter     // After early exaggeration phase
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
          static_cast<int>(fieldBvhLayout.nLvls)  < 3;       // Trees within certain depth of each other  
     if (fieldBvhActive) {
@@ -361,7 +361,7 @@ namespace hdi::dr {
 
     POLL_TIMERS();  
     
-    if (iteration >= _params._iterations - 1) {
+    if (iteration >= _params.iterations - 1) {
       // Output timings after final run
   #ifdef GL_TIMERS_ENABLED
       utils::secureLog(_logger, "\nField computation");
@@ -574,7 +574,7 @@ namespace hdi::dr {
     program.uniform1ui("nLvls", layout.nLvls);
     program.uniform1ui("kNode", layout.nodeFanout);
     program.uniform1ui("kLeaf", layout.leafFanout);
-    program.uniform1f("theta2", _params._theta * _params._theta);
+    program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta);
 
     // Bind buffers
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
@@ -630,7 +630,7 @@ namespace hdi::dr {
       program.uniform1ui("fLvls", fLayout.nLvls);
       program.uniform1ui("kNode", eLayout.nodeFanout);
       program.uniform1ui("kLeaf", eLayout.leafFanout);
-      program.uniform1f("theta2", _params._thetaDual * _params._thetaDual);
+      program.uniform1f("theta2", _params.dualHierarchyTheta * _params.dualHierarchyTheta);
 
       // Bind dispatch divide program and set uniform values
       auto &_program = _programs(ProgramType::eDivideDispatch);

@@ -48,6 +48,7 @@ namespace hdi {
      */
     class GpgpuHdCompute {      
     public:
+      // Buffers the class can export
       struct Buffers {
         GLuint layoutBuffer;        // N * 2 list in format [offset, size]
         GLuint neighboursBuffer;    // n * varying k' list of k' neighbours  indices for n each i

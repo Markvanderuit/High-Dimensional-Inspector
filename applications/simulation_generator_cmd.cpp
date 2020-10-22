@@ -44,8 +44,8 @@
 
 // Required CLI parameters
 std::string outputFileName;
-unsigned num_data_points;
-unsigned num_dimensions;
+unsigned n;
+unsigned nHighDimensions;
 unsigned num_clusters;
 
 // Optional CLI parameters with default values
@@ -83,8 +83,8 @@ void parseCli(int argc, char* argv[]) {
     exit(0);
   }
   outputFileName = result["output"].as<std::string>();
-  num_data_points = result["size"].as<unsigned>();
-  num_dimensions = result["dims"].as<unsigned>();
+  n = result["size"].as<unsigned>();
+  nHighDimensions = result["dims"].as<unsigned>();
   num_clusters = result["clusters"].as<unsigned>();
 
   // Parse optional arguments
@@ -105,8 +105,8 @@ int main(int argc, char *argv[]) {
     hdi::utils::CoutLog log;
 
     hdi::utils::secureLog(&log, "Generating simulated data");
-    hdi::utils::secureLogValue(&log, "  size", num_data_points);
-    hdi::utils::secureLogValue(&log, "  dims", num_dimensions);
+    hdi::utils::secureLogValue(&log, "  size", n);
+    hdi::utils::secureLogValue(&log, "  dims", nHighDimensions);
     hdi::utils::secureLogValue(&log, "  clus", num_clusters);
     
     // Initialize mersenne twister and random distributions
@@ -116,40 +116,40 @@ int main(int argc, char *argv[]) {
     std::uniform_real_distribution<float> unifDistr(0.f, 1.f);
 
     // Some memory to generate data in
-    std::vector<unsigned> labelData(num_data_points);
-    std::vector<float> pointData(num_data_points * num_dimensions);
-    std::vector<float> clusterData(num_clusters * num_dimensions);
+    std::vector<unsigned> labelData(n);
+    std::vector<float> pointData(n * nHighDimensions);
+    std::vector<float> clusterData(num_clusters * nHighDimensions);
 
     // Generate uniformly distributed cluster location
     for (size_t c = 0; c < num_clusters; c++) {
-      for (size_t j = 0; j < num_dimensions; j++) {
-        clusterData[c * num_dimensions + j]  = unifDistr(gen);
+      for (size_t j = 0; j < nHighDimensions; j++) {
+        clusterData[c * nHighDimensions + j]  = unifDistr(gen);
       }
     }
 
     // Generate normal distributed points around each cluster location
     for (size_t c = 0; c < num_clusters; c++) {
       // Cluster start and range
-      const size_t range = ceilDiv(num_data_points, num_clusters);
+      const size_t range = ceilDiv(n, num_clusters);
       const size_t begin = c * range;
-      const size_t end = std::min(begin + range, static_cast<size_t>(num_data_points));
+      const size_t end = std::min(begin + range, static_cast<size_t>(n));
 
       for (size_t i = begin; i < end; i++) {
         labelData[i] = static_cast<unsigned>(c);
-        for (size_t j = 0; j < num_dimensions; j++) {
-          pointData[i * num_dimensions + j] = normDistr(gen) + clusterData[c * num_dimensions + j]; // static_cast<float>(c);
+        for (size_t j = 0; j < nHighDimensions; j++) {
+          pointData[i * nHighDimensions + j] = normDistr(gen) + clusterData[c * nHighDimensions + j]; // static_cast<float>(c);
         }
       }
     }
     
     // Write to file
     std::ofstream file(outputFileName, std::ios::out | std::ios::binary);
-    for (size_t i = 0; i < num_data_points; i++) {
+    for (size_t i = 0; i < n; i++) {
       // Write label
       file.write((char *) &labelData[i], sizeof(unsigned));
 
       // Write points
-      file.write((char *) &pointData[i * num_dimensions], num_dimensions * sizeof(float));
+      file.write((char *) &pointData[i * nHighDimensions], nHighDimensions * sizeof(float));
     }
 
   } catch (std::exception& e) { 

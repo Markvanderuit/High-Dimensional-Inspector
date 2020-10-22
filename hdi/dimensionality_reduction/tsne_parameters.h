@@ -30,52 +30,41 @@
 *
 */
 
-#ifndef TSNE_PARAMETERS_H
-#define TSNE_PARAMETERS_H
+#pragma once
 
-namespace hdi {
-  namespace dr {
-    //! Parameters used for the initialization of the algorithm
-    class TsneParameters {
-    public:
-      TsneParameters() :
-        _seed(-1),
-        _rngRange(0.1f),
-        _n(0),
-        _embedding_dimensionality(2),
-        _iterations(1000),
-        _minimum_gain(0.1),
-        _eta(200),
-        _momentum(0.2),
-        _final_momentum(0.5),
-        _mom_switching_iter(250),
-        _exaggeration_factor(4),
-        _remove_exaggeration_iter(250),
-        _exponential_decay_iter(150),
-        _perplexity(30.0),
-        _theta(0.0),
-        _thetaDual(0.0)
-      { }
+namespace hdi::dr {
+  class TsneParameters {
+  private:
+    using uint = unsigned;
 
-      int _seed;
-      float _rngRange;
-      int _n;
-      int _embedding_dimensionality;
-      int _iterations;
+  public:
+    // Input/output data parameters
+    uint n = 0;
+    uint nHighDimensions = 0;
+    uint nLowDimensions = 2;
 
-      double _minimum_gain;
-      double _eta;                                //! constant multiplicator of the gradient
-      double _momentum;
-      double _final_momentum;
-      double _mom_switching_iter;                 //! momentum switching iteration
-      double _exaggeration_factor;                //! exaggeration factor for the attractive forces. Note: it shouldn't be too high when few points are used
-      unsigned int _remove_exaggeration_iter;     //! iterations with complete exaggeration of the attractive forces
-      unsigned int _exponential_decay_iter;       //! iterations required to remove the exaggeration using an exponential decay
-      double _perplexity;                         //! Perplexity of data, probably between 5 and 50
-      double _theta;                              //! Approximation angle between 0.0 (disables approx) and 0.5 (very approximate) for single-tree approx.
-      double _thetaDual;                          //! Approximation angle between 0.0 (disables approximation) and 1.0 (very approximate) for dual-tree approx.
-    };
-  }
-}
+    // Base tSNE parameters
+    uint iterations = 1000;
+    float perplexity = 30.f;
 
-#endif
+    // RNG initialization parameters
+    int seed = -1;
+    float rngRange = 0.1f;
+
+    // Barnes-Hut approximation parameters
+    float singleHierarchyTheta = 0.5f;
+    float dualHierarchyTheta = 0.5f;
+
+    // Gradient descent switching iterations
+    uint momentumSwitchIter = 250;
+    uint removeExaggerationIter = 250;
+    uint exponentialDecayIter = 150;
+
+    // Gradient descent parameters
+    float minimumGain = 0.1f;
+    float eta = 200.f;
+    float momentum = 0.2f;
+    float finalMomentum = 0.5f;
+    float exaggerationFactor = 4.f;
+  };
+} // hdi::dr

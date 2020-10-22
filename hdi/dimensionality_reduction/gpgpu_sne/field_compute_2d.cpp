@@ -78,7 +78,7 @@ namespace hdi::dr {
                             GLuint bounds_buff, 
                             unsigned n) {
     _params = params;
-    _useBvh = _params._theta > 0.0;
+    _useBvh = _params.singleHierarchyTheta > 0.0;
 
     // Build shader programs
     try {
@@ -232,7 +232,7 @@ namespace hdi::dr {
       _bvh.compute(_bvhRebuildIters == 0, iteration, position_buff, bounds_buff);
 
       // Rebuild BVH fully only once every X iterations
-      if (iteration <= _params._remove_exaggeration_iter || _bvhRebuildIters >= bvhRebuildIters) {
+      if (iteration <= _params.removeExaggerationIter || _bvhRebuildIters >= bvhRebuildIters) {
         _bvhRebuildIters = 0;
       } else {
         _bvhRebuildIters++;
@@ -263,7 +263,7 @@ namespace hdi::dr {
     
     POLL_TIMERS();
     
-    if (iteration == _params._iterations - 1) {
+    if (iteration == _params.iterations - 1) {
       // Output timings after final run
       utils::secureLog(_logger, "\nField computation");
       LOG_TIMER(_logger, TIMR_STENCIL, "  Stencil");
@@ -418,7 +418,7 @@ namespace hdi::dr {
     program.uniform1ui("nLvls", layout.nLvls);
     program.uniform1ui("kNode", layout.nodeFanout);
     program.uniform1ui("kLeaf", layout.leafFanout);
-    program.uniform1f("theta2", _params._theta * _params._theta); // TODO extract and make program parameter
+    program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta); // TODO extract and make program parameter
     program.uniform2ui("textureSize", _dims.x, _dims.y);
 
     // Bind images and textures to right units
