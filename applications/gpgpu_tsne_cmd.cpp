@@ -257,19 +257,19 @@ int main(int argc, char *argv[]) {
     } 
     
     // Compute mearest neighbour preservation if requested (takes a long while with these settings)
-    /* if (doNNPreservation) {
+    if (doNNPreservation) {
       hdi::utils::secureLog(&logger, "Computing NNP...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
       std::vector<float> precision;
       std::vector<float> recall;
-      unsigned K = 30;
+      uint K = 30;
       std::vector<unsigned> points(n);
       std::iota(points.begin(), points.end(), 0);
-      hdi::dr::computePrecisionRecall(panelData, embedding, points, precision, recall, K);
+      hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, K);
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
-    } */
+    }
 
     // Output embedding file
     hdi::utils::secureLog(&logger, "Writing embedding to file...");

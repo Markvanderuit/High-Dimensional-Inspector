@@ -32,7 +32,6 @@
 #include <iostream>
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/gpu/GpuIndexIVFFlat.h>
-#include "hdi/data/panel_data.h"
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"

@@ -30,17 +30,12 @@
 
 #pragma once
 
-#include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtx/string_cast.hpp>
-#include "hdi/data/embedding.h"
-#include "hdi/data/map_mem_eff.h"
 
 namespace hdi {
   namespace dr {
-    typedef unsigned uint;
-    typedef data::Embedding<float> Embedding;
-    typedef std::vector<data::MapMemEff<uint32_t, float>> SparseMatrix;
+    using uint = unsigned;
 
     namespace detail {
       constexpr unsigned std430_align(unsigned D) {
@@ -116,36 +111,5 @@ namespace hdi {
         return 0.5f * (max + min);
       }
     };
-
-    /**
-     * Linearized version of probability matrix
-     */
-    struct LinearProbabilityMatrix {
-      std::vector<uint32_t> neighbours;
-      std::vector<float> probabilities;
-      std::vector<int> indices;
-    };
-
-    /**
-     * Compute linearized version of sparse matrix
-     */
-    inline LinearProbabilityMatrix linearizeProbabilityMatrix(const Embedding *embeddingPtr, 
-                                                              const SparseMatrix &P) {
-      LinearProbabilityMatrix LP;
-      LP.indices.reserve(2 * embeddingPtr->numDataPoints());
-      LP.neighbours.reserve(128 * embeddingPtr->numDataPoints());
-      LP.probabilities.reserve(128 * embeddingPtr->numDataPoints());
-
-      for (size_t i = 0; i < embeddingPtr->numDataPoints(); i++) {
-        LP.indices.push_back(static_cast<int>(LP.neighbours.size()));
-        for (const auto& p_ij : P[i]) {
-          LP.neighbours.push_back(p_ij.first);
-          LP.probabilities.push_back(p_ij.second);
-        }
-        LP.indices.push_back(static_cast<int>(P[i].size()));
-      }
-
-      return LP;
-    }
   }
 }
