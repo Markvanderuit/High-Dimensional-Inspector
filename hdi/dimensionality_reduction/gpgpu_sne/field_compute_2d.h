@@ -70,10 +70,6 @@ namespace hdi::dr {
                  GLuint bounds_buff, 
                  GLuint interp_buff);
 
-    void setLogger(utils::AbstractLog* logger) {
-      _logger = logger; 
-    }
-
   private:
     enum class BufferType {
       eDispatch,
@@ -96,6 +92,14 @@ namespace hdi::dr {
       Length
     };
 
+    enum class TimerType {
+      eStencil, 
+      eField, 
+      eInterp,
+      
+      Length
+    };
+
     enum class TextureType {
       eStencil,
       eField,
@@ -110,6 +114,7 @@ namespace hdi::dr {
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
     EnumArray<TextureType, GLuint> _textures;
+    EnumArray<TimerType, GLtimer> _timers;
 
     // Subcomponent for debug renderer
     dbg::FieldRenderer<2> _fieldRenderer;
@@ -142,12 +147,11 @@ namespace hdi::dr {
                     GLuint boundsBuffer,
                     GLuint interpBuffer);
 
-  private:
-    // Query timers matching to each shader program
-    DECL_TIMERS(
-      TIMR_STENCIL, 
-      TIMR_FIELD, 
-      TIMR_INTERP
-    );
+  public:
+    void setLogger(utils::AbstractLog* logger) {
+      _logger = logger; 
+    }
+
+    void logTimerAverage() const;
   };
 }

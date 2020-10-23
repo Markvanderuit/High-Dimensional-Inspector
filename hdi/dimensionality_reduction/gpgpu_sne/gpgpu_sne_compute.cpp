@@ -111,14 +111,14 @@ namespace hdi::dr {
       if constexpr (D == 2) {
         _programs(ProgramType::eBounds).addShader(COMPUTE, _2d::bounds_src);
         _programs(ProgramType::eSumQ).addShader(COMPUTE, _2d::sumq_src);
-        _programs(ProgramType::ePositiveForces).addShader(COMPUTE, _2d::positive_forces_src);
+        _programs(ProgramType::eAttr).addShader(COMPUTE, _2d::positive_forces_src);
         _programs(ProgramType::eGradients).addShader(COMPUTE, _2d::gradients_src);
         _programs(ProgramType::eUpdate).addShader(COMPUTE, _2d::update_src);
         _programs(ProgramType::eCenter).addShader(COMPUTE, _2d::center_src);
       } else if constexpr (D == 3) {
         _programs(ProgramType::eBounds).addShader(COMPUTE, _3d::bounds_src);
         _programs(ProgramType::eSumQ).addShader(COMPUTE, _3d::sumq_src);
-        _programs(ProgramType::ePositiveForces).addShader(COMPUTE, _3d::positive_forces_src);
+        _programs(ProgramType::eAttr).addShader(COMPUTE, _3d::positive_forces_src);
         _programs(ProgramType::eGradients).addShader(COMPUTE, _3d::gradients_src);
         _programs(ProgramType::eUpdate).addShader(COMPUTE, _3d::update_src);
         _programs(ProgramType::eCenter).addShader(COMPUTE, _3d::center_src);
@@ -127,7 +127,7 @@ namespace hdi::dr {
       for (auto &program : _programs) {
         program.build();
       }
-      ASSERT_GL("GpgpuSneCompute::init::programs()");
+      glAssert("GpgpuSneCompute::init::programs()");
     }
     
     // Initialize buffer objects
@@ -142,11 +142,11 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eSumQ), 2 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eSumQReduceAdd), 128 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eInterpFields), n * 4 * sizeof(float), nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePositiveForces), n * sizeof(vec), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::eAttr), n * sizeof(vec), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eGradients), n * sizeof(vec), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePrevGradients), n * sizeof(vec), zeroes.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::eGain), n * sizeof(vec), ones.data(), 0);
-      ASSERT_GL("GpgpuSneCompute::init::buffers()");
+      glAssert("GpgpuSneCompute::init::buffers()");
       utils::secureLogValue(_logger, "   GpgpuSne", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     }
 
@@ -166,8 +166,8 @@ namespace hdi::dr {
       _buffers(BufferType::eBounds)
     );
 
-    INIT_TIMERS();
-    ASSERT_GL("GpgpuSneCompute::init()");
+    glCreateTimers(_timers.size(), _timers.data());
+    glAssert("GpgpuSneCompute::init()");
     _isInit = true;
   }
 
@@ -195,8 +195,8 @@ namespace hdi::dr {
       program.destroy();
     }
     glDeleteBuffers(_buffers.size(), _buffers.data());
-    DSTR_TIMERS();
-    ASSERT_GL("GpgpuSneCompute::destr()");
+    glDeleteTimers(_timers.size(), _timers.data());
+    glAssert("GpgpuSneCompute::destr()");
     _isInit = false;
   }
 
@@ -204,7 +204,6 @@ namespace hdi::dr {
    * GpgpuSneCompute::compute()
    * 
    * Perform one step of the tSNE minimization for the provided embedding.
-   *
    */
   template <unsigned D>
   void GpgpuSneCompute<D>::compute(unsigned iteration, float mult)
@@ -224,7 +223,8 @@ namespace hdi::dr {
 
     // Compute embedding bounds
     {
-      TICK_TIMER(TIMR_BOUNDS);
+      auto &timer = _timers(TimerType::eBounds);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eBounds);
       program.bind();
@@ -243,8 +243,8 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuSneCompute::compute::bounds()");
-      TOCK_TIMER(TIMR_BOUNDS);
+      glAssert("GpgpuSneCompute::compute::bounds()");
+      timer.tock();
     }
     
     // Compute field approximation, delegated to subclass
@@ -282,7 +282,8 @@ namespace hdi::dr {
 
     // Calculate sum over Q. Partially called Z or approx(Z) in notation.
     {
-      TICK_TIMER(TIMR_SUM_Q);
+      auto &timer = _timers(TimerType::eSumQ);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eSumQ);
       program.bind();
@@ -300,8 +301,8 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuSneCompute::compute::sum_q()");
-      TOCK_TIMER(TIMR_SUM_Q);
+      glAssert("GpgpuSneCompute::compute::sum_q()");
+      timer.tock();
     }
 
     // Compute positive/attractive forces
@@ -309,9 +310,10 @@ namespace hdi::dr {
     // perplexity value becomes large. Technically O(kN) for N points and k neighbours, but
     // has horrible disjointed memory access patterns, so for large k it's kinda slow.
     {
-      TICK_TIMER(TIMR_F_ATTR);
+      auto &timer = _timers(TimerType::eAttr);
+      timer.tick();
 
-      auto &program = _programs(ProgramType::ePositiveForces);
+      auto &program = _programs(ProgramType::eAttr);
       program.bind();
       program.uniform1ui("nPos", n);
       program.uniform1f("invPos", 1.f / static_cast<float>(n));
@@ -320,25 +322,26 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _distribution.layoutBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _distribution.neighboursBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _distribution.similaritiesBuffer);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::ePositiveForces));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::eAttr));
 
       glDispatchCompute(ceilDiv(n, 256u / 32u), 1, 1); // divide by subgroup size
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuSneCompute::compute::pos_forces()");
-      TOCK_TIMER(TIMR_F_ATTR);
+      glAssert("GpgpuSneCompute::compute::pos_forces()");
+      timer.tock();
     }
 
     // Compute resulting gradient
     {
-      TICK_TIMER(TIMR_GRADIENTS);
+      auto &timer = _timers(TimerType::eGrads);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eGradients);
       program.bind();
       program.uniform1ui("nPoints", n);
       program.uniform1f("exaggeration", exaggeration);
 
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePositiveForces));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eAttr));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eInterpFields));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eSumQ));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _buffers(BufferType::eGradients));
@@ -346,13 +349,14 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(n, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuSneCompute::compute::gradients()");
-      TOCK_TIMER(TIMR_GRADIENTS);
+      glAssert("GpgpuSneCompute::compute::gradients()");
+      timer.tock();
     }
 
     // Update embedding
     {
-      TICK_TIMER(TIMR_UPDATE);
+      auto &timer = _timers(TimerType::eUpdate);
+      timer.tick();
 
       // Precompute instead of doing it in shader N times
       float iterMult = (static_cast<double>(iteration) < _params.momentumSwitchIter) 
@@ -375,13 +379,14 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(n, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       
-      ASSERT_GL("GpgpuSneCompute::compute::update()");
-      TOCK_TIMER(TIMR_UPDATE);
+      glAssert("GpgpuSneCompute::compute::update()");
+      timer.tock();
     }
 
     // Center embedding
     {
-      TICK_TIMER(TIMR_CENTER);
+      auto &timer = _timers(TimerType::eCenter);
+      timer.tick();
 
       vec center = _bounds.center();
       vec range = _bounds.range();
@@ -408,29 +413,11 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(n, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       
-      ASSERT_GL("GpgpuSneCompute::compute::center()");
-      TOCK_TIMER(TIMR_CENTER);
+      glAssert("GpgpuSneCompute::compute::center()");
+      timer.tock();
     }
 
-    POLL_TIMERS();
-
-    if (iteration == _params.iterations - 1) {
-      // Output timer averages
-#ifdef GL_TIMERS_ENABLED
-      utils::secureLog(_logger, "\nGradient descent");
-#endif
-      LOG_TIMER(_logger, TIMR_BOUNDS,     "  Bounds")
-      LOG_TIMER(_logger, TIMR_SUM_Q,      "  Sum Q")
-      LOG_TIMER(_logger, TIMR_F_ATTR,     "  Attr")
-      LOG_TIMER(_logger, TIMR_GRADIENTS,  "  Grads")
-      LOG_TIMER(_logger, TIMR_UPDATE,     "  Update")
-      LOG_TIMER(_logger, TIMR_CENTER,     "  Center")
-#ifdef GL_TIMERS_ENABLED
-      utils::secureLog(_logger, "");
-#endif
-    }
-
-    ASSERT_GL("GpgpuSneCompute::compute::end()");
+    glPollTimers(_timers.size(), _timers.data());
   }
 
   template <unsigned D>
@@ -441,6 +428,23 @@ namespace hdi::dr {
     std::vector<vec> buffer(_params.n);
     glGetNamedBufferSubData(_buffers(BufferType::ePosition), 0, buffer.size() * sizeof(vec), buffer.data());
     return std::vector<glm::vec<D, float>>(std::begin(buffer), std::end(buffer));
+  }
+
+  template <unsigned D>
+  void GpgpuSneCompute<D>::logTimerAverage() const {
+    if constexpr (D == 2) {
+      _field2dCompute.logTimerAverage();
+    } else if constexpr (D == 3) {
+      _field3dCompute.logTimerAverage();
+    }
+
+    utils::secureLog(_logger, "\nGradient descent");
+    LOG_TIMER(_logger, TimerType::eBounds,     "  Bounds");
+    LOG_TIMER(_logger, TimerType::eSumQ,      "  Sum Q");
+    LOG_TIMER(_logger, TimerType::eAttr,     "  Attr");
+    LOG_TIMER(_logger, TimerType::eGrads,  "  Grads");
+    LOG_TIMER(_logger, TimerType::eUpdate,     "  Update");
+    LOG_TIMER(_logger, TimerType::eCenter,     "  Center");
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

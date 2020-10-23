@@ -33,7 +33,7 @@
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/gpu/GpuIndexIVFFlat.h>
 #include "hdi/utils/scoped_timers.h"
-#include "hdi/utils/log_helper_functions.h"
+#include "hdi/utils/log_helper_functions.h" 
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute_shaders.h"
@@ -85,8 +85,8 @@ namespace hdi {
       // memory size is not yet known
       glCreateBuffers(_buffers.size(), _buffers.data());
 
-      INIT_TIMERS();
-      ASSERT_GL("GpgpuSneCompute::init()");
+      glCreateTimers(_timers.size(), _timers.data());
+      glAssert("GpgpuSneCompute::init()");
       _isInit = true;
     }
 
@@ -96,8 +96,8 @@ namespace hdi {
         program.destroy();
       }
       glDeleteBuffers(_buffers.size(), _buffers.data());
-      DSTR_TIMERS();
-      ASSERT_GL("GpgpuSneCompute::destr()");
+      glDeleteTimers(_timers.size(), _timers.data());
+      glAssert("GpgpuSneCompute::destr()");
       _isInit = false;
     }
 
@@ -191,7 +191,8 @@ namespace hdi {
       // but is pretty much a direct copy of the original formulation used in BH-SNE, which is
       // also used exactly like this in Linear-complexity tSNE and CUDA-tSNE
       {
-        TICK_TIMER(TIMR_SIMILARITY);
+        auto &timer = _timers(TimerType::eSimilarity);
+        timer.tick();
         
         // Set program uniforms
         auto &program = _programs(ProgramType::eSimilarity);
@@ -211,15 +212,16 @@ namespace hdi {
         glDispatchCompute(ceilDiv(n, 256u), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         
-        ASSERT_GL("GpgpuSneCompute::compute::similarities()");
-        TOCK_TIMER(TIMR_SIMILARITY);
+        glAssert("GpgpuSneCompute::compute::similarities()");
+        timer.tock();
       }
 
       // 3.
       // Expand the kNN so it is symmetric. That is, every neighbour referred by a point, itself
       // also refers to the point as its neighbour.
       {
-        TICK_TIMER(TIMR_EXPANSION);
+        auto &timer = _timers(TimerType::eExpansion);
+        timer.tick();
         
         auto &program = _programs(ProgramType::eExpandNeighbours);
         program.bind();
@@ -234,8 +236,8 @@ namespace hdi {
         glDispatchCompute(ceilDiv(n, 256u), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        ASSERT_GL("GpgpuSneCompute::compute::expansion()");
-        TOCK_TIMER(TIMR_EXPANSION);
+        glAssert("GpgpuSneCompute::compute::expansion()");
+        timer.tock();
       }
 
       // 4.
@@ -275,14 +277,15 @@ namespace hdi {
         glDispatchCompute(ceilDiv(n, 256u), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        ASSERT_GL("GpgpuSneCompute::compute::layout()");
+        glAssert("GpgpuSneCompute::compute::layout()");
       }
 
       // 6.
       // Generate the expanded BufferType::eNeighbours and BufferType::eSimilarities buffers
       // Compute symmetric neighbourhoods and similarities
       {
-        TICK_TIMER(TIMR_SYMMETRIZE);
+        auto &timer = _timers(TimerType::eSymmetrize);
+        timer.tick();
 
         // Clear sizes buffer, we recycle it as an atomic counter
         glClearNamedBufferData(tempSizesBuffer, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
@@ -305,8 +308,8 @@ namespace hdi {
         glDispatchCompute(ceilDiv(n * k, 256u), 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        ASSERT_GL("GpgpuSneCompute::compute::neighbours()");
-        TOCK_TIMER(TIMR_SYMMETRIZE);
+        glAssert("GpgpuSneCompute::compute::neighbours()");
+        timer.tock();
       }
 
       // Delete temporary buffers
@@ -316,23 +319,23 @@ namespace hdi {
       glDeleteBuffers(1, &tempDistancesBuffer);
       glDeleteBuffers(1, &tempNeighboursBuffer);
 
-      ASSERT_GL("GpgpuSneCompute::compute()");
+      glAssert("GpgpuSneCompute::compute()");
 
       // Poll twice so timers are swapped
-      POLL_TIMERS();
-      POLL_TIMERS();
-
-      // Report runtimes 
-      utils::secureLog(_logger, "\nSimilarities Computation");
-      utils::secureLogValue(_logger, "  kNN (ms)", 
+      glPollTimers(_timers.size(), _timers.data());
+      glPollTimers(_timers.size(), _timers.data());
+    }
+    
+    void GpgpuHdCompute::logTimerTotal() const {
+      utils::secureLog(_logger, "\nSimilarities computation");
+      utils::secureLogValue(_logger, "  k-Nearest total (ms)", 
         std::to_string(_time_knn * 1000.f));
-      utils::secureLogValue(_logger, "  Expansion (ms)", 
-        std::to_string(glTimers[TIMR_EXPANSION].lastMillis()));
-      utils::secureLogValue(_logger, "  Similarity (ms)", 
-        std::to_string(glTimers[TIMR_SIMILARITY].lastMillis()));
-      utils::secureLogValue(_logger, "  Symmetrize (ms)", 
-        std::to_string(glTimers[TIMR_SYMMETRIZE].lastMillis()));
-      utils::secureLog(_logger, "");
+      utils::secureLogValue(_logger, "  Expand total (ms)", 
+        std::to_string(_timers(TimerType::eExpansion).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMillis>()));
+      utils::secureLogValue(_logger, "  Similar total (ms)", 
+        std::to_string(_timers(TimerType::eSimilarity).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMillis>()));
+      utils::secureLogValue(_logger, "  Symmetry total (ms)", 
+        std::to_string(_timers(TimerType::eSymmetrize).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMillis>()));
     }
   } // namespace dr
 } // namespace hdi

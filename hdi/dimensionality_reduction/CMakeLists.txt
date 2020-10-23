@@ -31,6 +31,7 @@ target_link_libraries(hdidimensionalityreduction
   hdidebug 
   hdidata 
   cub 
+  glad
   glm
   gpufaiss
   nanoflann

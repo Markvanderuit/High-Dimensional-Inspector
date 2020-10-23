@@ -16,6 +16,7 @@ function(addProject Name Sources)
   endif()
 endfunction()
 
+addProject(embedding_renderer_cmd embedding_renderer_cmd.cpp)
 addProject(gpgpu_tsne_cmd gpgpu_tsne_cmd.cpp)
 addProject(simulation_generator_cmd simulation_generator_cmd.cpp)
 

@@ -205,10 +205,10 @@ namespace hdi::dr {
   private:
     // Query timers matching to each shader
     DECL_TIMERS(
-      TIMR_FLAGS,
-      TIMR_FIELD, 
-      TIMR_PUSH,
-      TIMR_INTERP
+      TimerType::eFlags,
+      TimerType::eField, 
+      TimerType::ePush,
+      TimerType::eInterp
     )
   };
 }

@@ -94,7 +94,7 @@ namespace hdi::dr {
     void destr();
     void compute(unsigned iteration,        // Iteration of gradient descent
                  const Layout &layout,      // Updated layout given new set of pixels
-                 GLuint pixelBuffer,        // Handle to pixel flags queue buffe
+                 GLuint pixelBuffer,        // Handle to pixel flags queue buffer
                  GLuint pixelHeadBuffer,    // Hanndle to pixel flags queue head
                  GLuint boundsBuffer);
 
@@ -128,6 +128,16 @@ namespace hdi::dr {
       Length
     };
 
+    enum class TimerType {
+      eMorton,
+      eSort,
+      eSubdiv,
+      eLeaf,
+      eBbox,
+      
+      Length
+    };
+
     bool _isInit;
     Layout _layout;
     uint _reservedNodes;
@@ -135,15 +145,8 @@ namespace hdi::dr {
     InteropPairSorter _sorter;
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
+    EnumArray<TimerType, GLtimer> _timers;
     utils::AbstractLog* _logger;
-
-    DECL_TIMERS(
-      TIMR_MORTON,
-      TIMR_SORT,
-      TIMR_SUBDIV,
-      TIMR_LEAF,
-      TIMR_BBOX
-    );
 
   public:     
     Layout layout() const {
@@ -164,5 +167,7 @@ namespace hdi::dr {
     void setLogger(utils::AbstractLog* logger) {
       _logger = logger; 
     }
+    
+    void logTimerAverage() const;
   };
 }

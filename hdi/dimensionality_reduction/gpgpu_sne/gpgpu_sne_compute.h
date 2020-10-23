@@ -70,6 +70,57 @@ namespace hdi::dr {
     void destr();
     void compute(unsigned iteration, float mult);
 
+  private:
+    enum class BufferType {
+      ePosition,
+      eBounds,
+      eBoundsReduceAdd,
+      eSumQ,
+      eSumQReduceAdd,
+      eInterpFields,
+      eAttr,
+      eGradients,
+      ePrevGradients,
+      eGain,
+
+      Length
+    };
+
+    enum class ProgramType {
+      eSumQ,
+      eAttr,
+      eGradients,
+      eUpdate,
+      eBounds,
+      eCenter,
+
+      Length
+    };
+
+    enum class TimerType {
+      eBounds,
+      eSumQ,
+      eAttr,
+      eGrads,
+      eUpdate,
+      eCenter,
+
+      Length
+    };
+
+    bool _isInit;
+    Bounds _bounds;
+    TsneParameters _params;
+    utils::AbstractLog *_logger;
+    EnumArray<BufferType, GLuint> _buffers;
+    EnumArray<ProgramType, ShaderProgram> _programs;
+    EnumArray<TimerType, GLtimer> _timers;
+    GpgpuHdCompute::Buffers _distribution;
+    Field2dCompute _field2dCompute;
+    Field3dCompute _field3dCompute;
+    dbg::EmbeddingRenderer<D> _embeddingRenderer;
+
+  public:
     // Returns a vector of unaligned vectors (eg, maximally packed) for outside usage
     std::vector<glm::vec<D, float>> getEmbedding() const;
 
@@ -82,52 +133,7 @@ namespace hdi::dr {
         _buffers(BufferType::ePosition)
       };
     }
-
-  private:
-    enum class BufferType {
-      ePosition,
-      eBounds,
-      eBoundsReduceAdd,
-      eSumQ,
-      eSumQReduceAdd,
-      eInterpFields,
-      ePositiveForces,
-      eGradients,
-      ePrevGradients,
-      eGain,
-
-      Length
-    };
-
-    enum class ProgramType {
-      eSumQ,
-      ePositiveForces,
-      eGradients,
-      eUpdate,
-      eBounds,
-      eCenter,
-
-      Length
-    };
-
-    bool _isInit;
-    Bounds _bounds;
-    TsneParameters _params;
-    utils::AbstractLog *_logger;
-    EnumArray<BufferType, GLuint> _buffers;
-    EnumArray<ProgramType, ShaderProgram> _programs;
-    GpgpuHdCompute::Buffers _distribution;
-    Field2dCompute _field2dCompute;
-    Field3dCompute _field3dCompute;
-    dbg::EmbeddingRenderer<D> _embeddingRenderer;
-
-    DECL_TIMERS(
-      TIMR_BOUNDS,
-      TIMR_SUM_Q,
-      TIMR_F_ATTR,
-      TIMR_GRADIENTS,
-      TIMR_UPDATE,
-      TIMR_CENTER
-    );
+    
+    void logTimerAverage() const;
   };
 }

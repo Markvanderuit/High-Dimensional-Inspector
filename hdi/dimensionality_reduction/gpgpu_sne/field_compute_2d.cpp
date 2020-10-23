@@ -36,8 +36,6 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_2d.h"
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/string_cast.hpp>
 
 namespace hdi::dr {
   // Magic numbers
@@ -153,8 +151,8 @@ namespace hdi::dr {
 
     _fieldRenderer.init(&_textures(TextureType::eField));
 
-    INIT_TIMERS()
-    ASSERT_GL("Field2dCompute::init()");
+    glCreateTimers(_timers.size(), _timers.data());
+    glAssert("Field2dCompute::init()");
     _isInit = true;
   }
 
@@ -180,8 +178,8 @@ namespace hdi::dr {
       program.destroy();
     }
 
-    DSTR_TIMERS();
-    ASSERT_GL("Field2dCompute::destr()");
+    glDeleteTimers(_timers.size(), _timers.data());
+    glAssert("Field2dCompute::destr()");
     _isInit = false;
   }
 
@@ -196,7 +194,6 @@ namespace hdi::dr {
     // Rescale textures if necessary
     if (_dims != dims) {
       _dims = dims;
-      utils::secureLogValue(_logger, "  Resizing field to", dr::to_string(_dims));
 
       glDeleteTextures(1, &_textures(TextureType::eField));
       glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eField));
@@ -220,6 +217,10 @@ namespace hdi::dr {
       glDeleteBuffers(1, &_buffers(BufferType::ePixels));
       glCreateBuffers(1, &_buffers(BufferType::ePixels));
       glNamedBufferStorage(_buffers(BufferType::ePixels), product(_dims) * sizeof(uvec), nullptr, 0);
+
+#ifdef LOG_FIELD_RESIZE
+      utils::secureLogValue(_logger, "  Resized field to", dr::to_string(_dims));
+#endif
     }
 
     // Build BVH structure over embedding
@@ -256,24 +257,17 @@ namespace hdi::dr {
     // Query field texture at all embedding positions
     queryField(n, position_buff, bounds_buff, interp_buff);
     
-    POLL_TIMERS();
-    
-    if (iteration == _params.iterations - 1) {
-      // Output timings after final run
-      utils::secureLog(_logger, "\nField computation");
-      LOG_TIMER(_logger, TIMR_STENCIL, "  Stencil");
-      LOG_TIMER(_logger, TIMR_FIELD, "  Field");
-      LOG_TIMER(_logger, TIMR_INTERP, "  Interp");
-    } else {
-      // Output nice message during runtime
-      utils::secureLogValue(_logger, \
-        std::string("  Field"), \
-        std::string("iter ") + std::to_string(iteration) 
-        + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
-        + std::string(" - ") + std::to_string(glTimers[TIMR_FIELD].lastMicros())
-        + std::string(" \xE6s")
-      );
-    }
+    glPollTimers(_timers.size(), _timers.data());
+#ifdef LOG_FIELD_ITER
+    // Output nice message during runtime
+    utils::secureLogValue(_logger, \
+      std::string("  Field"), \
+      std::string("iter ") + std::to_string(iteration) 
+      + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
+      + std::string(" - ") + std::to_string(GLtimers[TimerType::eField].lastMicros())
+      + std::string(" \xE6s")
+    );
+#endif
   }
 
   /**
@@ -283,7 +277,8 @@ namespace hdi::dr {
    * either in O(p N) or O(p log N) time, depending on the availability of a BVH over the embedding.
    */
   void Field2dCompute::compactField(unsigned n, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_STENCIL);
+    auto &timer = _timers(TimerType::eStencil);
+    timer.tick();
 
     if (_useBvh) {
       // Reset queue head
@@ -340,8 +335,8 @@ namespace hdi::dr {
                               _buffers(BufferType::ePixelsHeadReadback), 
                               0, 0, sizeof(uint));
 
-    ASSERT_GL("Field2dCompute::compute::stencil()");
-    TOCK_TIMER(TIMR_STENCIL);
+    glAssert("Field2dCompute::compute::stencil()");
+    timer.tock();
   }
 
   /**
@@ -350,7 +345,8 @@ namespace hdi::dr {
    * Compute full scalar and vector fields in O(p N) time.
    */
   void Field2dCompute::computeField(unsigned n, unsigned iteration, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_FIELD);
+    auto &timer = _timers(TimerType::eField);
+    timer.tick();
 
     // Set uniforms
     auto& program = _programs(ProgramType::eField);
@@ -371,8 +367,8 @@ namespace hdi::dr {
     glDispatchCompute(_dims.x, _dims.y, 1);    
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
-    ASSERT_GL("Field2dCompute::compute::field()");
-    TOCK_TIMER(TIMR_FIELD);
+    glAssert("Field2dCompute::compute::field()");
+    timer.tock();
   }
 
   /**
@@ -382,7 +378,8 @@ namespace hdi::dr {
    * the embedding.
    */
   void Field2dCompute::computeFieldBvh(unsigned n, unsigned iteration, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_FIELD);
+    auto &timer = _timers(TimerType::eField);
+    timer.tick();
 
     // Get BVH structure
     const auto layout = _bvh.layout();
@@ -429,8 +426,8 @@ namespace hdi::dr {
     glDispatchComputeIndirect(0);
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
-    ASSERT_GL("Field2dCompute::compute::field()");
-    TOCK_TIMER(TIMR_FIELD);
+    glAssert("Field2dCompute::compute::field()");
+    timer.tock();
   }
 
   /**
@@ -440,7 +437,8 @@ namespace hdi::dr {
    * in interpBuffer.
    */
   void Field2dCompute::queryField(unsigned n, GLuint positionsBuffer, GLuint boundsBuffer, GLuint interpBuffer) {
-    TICK_TIMER(TIMR_INTERP)
+    auto &timer = _timers(TimerType::eInterp);
+    timer.tick();
 
     auto& program = _programs(ProgramType::eInterp);
     program.bind();
@@ -458,7 +456,18 @@ namespace hdi::dr {
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     glDispatchCompute((n / 128) + 1, 1, 1);
 
-    ASSERT_GL("Field2dCompute::compute::interp()");
-    TOCK_TIMER(TIMR_INTERP)
+    glAssert("Field2dCompute::compute::interp()");
+    timer.tock();
+  }
+  
+  void Field2dCompute::logTimerAverage() const {
+    if (_useBvh) {
+      _bvh.logTimerAverage();
+    }
+
+    utils::secureLog(_logger, "\nField computation");
+    LOG_TIMER(_logger, TimerType::eStencil, "  Stencil");
+    LOG_TIMER(_logger, TimerType::eField, "  Field");
+    LOG_TIMER(_logger, TimerType::eInterp, "  Interp");
   }
 }

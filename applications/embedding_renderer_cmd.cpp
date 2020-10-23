@@ -48,9 +48,15 @@ using uint = unsigned;
 // Required CLI parameters
 std::string inputFileName;
 std::string outputFileName;
+uint n;
+uint nHighDimensions;
 
 // Optional CLI parameters with default values
-hdi::dr::TsneParameters params;
+uint iterations = 1000;
+uint nLowDimensions = 2;
+float perplexity = 30.f;
+float singleHierarchyTheta = 0.5;
+float dualHierarchyTheta = 0.5;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doVisualisation = false;
@@ -73,28 +79,31 @@ constexpr uint windowWidth = 2560u;
 constexpr uint windowHeight = 1440u;
 constexpr char *windowTitle = "GPGPU tSNE";
 
-void loadData(std::vector<float> &data, std::vector<uint> &labels, const std::string &fileName) {
+void loadData(std::vector<float> &data, 
+              std::vector<uint> &labels,
+              const std::string &fileName)
+{
   std::ifstream inputFile(fileName, std::ios::in | std::ios::binary);
   if (!inputFile) {
     throw std::runtime_error("Input file cannot be found");
   }
   
   // Allocate space to store point vectors and labels
-  data = std::vector<float>(params.n * params.nHighDimensions);
+  data = std::vector<float>(n * nHighDimensions);
   if (doLabelExtraction) {
-    labels = std::vector<uint>(params.n);
+    labels = std::vector<uint>(n);
   }
   
   if (doLabelExtraction) {
     // Read data in iteratively
-    for (uint i = 0; i < params.n; ++i) {
+    for (uint i = 0; i < n; ++i) {
       // Read 4-byte label if label extraction is required
       if (doLabelExtraction) {
         inputFile.read((char *) &labels[i], sizeof(uint));
       }
 
       // Read point data for entire row
-      inputFile.read((char *) &data[i * params.nHighDimensions], params.nHighDimensions * sizeof(float));
+      inputFile.read((char *) &data[i * nHighDimensions], nHighDimensions * sizeof(float));
     }
   } else {
     // Read data in single function call
@@ -139,25 +148,24 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   }
   inputFileName = result["input"].as<std::string>();
   outputFileName = result["output"].as<std::string>();
-  
-  params.n = result["size"].as<unsigned>();
-  params.nHighDimensions = result["dims"].as<unsigned>();
+  n = result["size"].as<unsigned>();
+  nHighDimensions = result["dims"].as<unsigned>();
 
   // Parse optional arguments
   if (result.count("perplexity")) {
-    params.perplexity = result["perplexity"].as<float>();
+    perplexity = result["perplexity"].as<float>();
   }
   if (result.count("iterations")) {
-    params.iterations = result["iterations"].as<int>();
+    iterations = result["iterations"].as<int>();
   }
   if (result.count("dimensions")) {
-    params.nLowDimensions = result["dimensions"].as<int>();
+    nLowDimensions = result["dimensions"].as<int>();
   }
   if (result.count("theta")) {
-    params.singleHierarchyTheta = result["theta"].as<float>();
+    singleHierarchyTheta = result["theta"].as<float>();
   }
   if (result.count("theta2")) {
-    params.dualHierarchyTheta = result["theta2"].as<float>();
+    dualHierarchyTheta = result["theta2"].as<float>();
   }
   if (result.count("kld")) {
     doKlDivergence = result["kld"].as<bool>();
@@ -201,17 +209,25 @@ int main(int argc, char *argv[]) {
     hdi::dbg::InputManager inputManager(window);
     hdi::dbg::RenderManager renderManager;
     if (doVisualisation) {
-      renderManager.init(params.nLowDimensions, labels);
+      renderManager.init(nLowDimensions, labels);
     }
+
+    // Set CLI arguments in parameter object passed through the program
+    hdi::dr::TsneParameters params;
+    params.seed = 1;
+    params.perplexity = perplexity;
+    params.n = n;
+    params.nHighDimensions = nHighDimensions;
+    params.nLowDimensions = nLowDimensions;
+    params.iterations = iterations;
+    params.singleHierarchyTheta = singleHierarchyTheta;
+    params.dualHierarchyTheta = dualHierarchyTheta;
 
     // Initialize tSNE computation
     // This computes the HD joint similarity distribution and then sets up the minimization
     hdi::dr::GpgpuTSNE tSNE;
     tSNE.setLogger(&logger);
-    {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
-      tSNE.init(data, params);
-    }
+    tSNE.init(data, params);
 
     if (doVisualisation) {
       window.display();
@@ -221,7 +237,7 @@ int main(int argc, char *argv[]) {
     // Perform tSNE minimization
     {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
-      for (uint i = 0; i < params.iterations; ++i) {
+      for (uint i = 0; i < iterations; ++i) {
         tSNE.iterate();
         
         // Process debug render components
@@ -235,25 +251,25 @@ int main(int argc, char *argv[]) {
       }
     }
     
-    // Compute KL-divergence if requested
+    // Compute KL-divergence if requested (takes a while in debug mode)
     if (doKlDivergence) {
-      hdi::utils::secureLog(&logger, "\nComputing KL-Divergence...");  
+      hdi::utils::secureLog(&logger, "Computing KL-Divergence...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
       hdi::utils::secureLogValue(&logger, "  KL Divergence", tSNE.getKLDivergence());
+      hdi::utils::secureLog(&logger, "");
     } 
     
-    // Compute mearest neighbour preservation if requested
+    // Compute mearest neighbour preservation if requested (takes a long while with these settings)
     if (doNNPreservation) {
-      hdi::utils::secureLog(&logger, "\nComputing NNP...");  
+      hdi::utils::secureLog(&logger, "Computing NNP...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
 
-      // Prepare data storage
       std::vector<float> precision;
       std::vector<float> recall;
-      std::vector<unsigned> points(params.n);
+      std::vector<unsigned> points(n);
+
       std::iota(points.begin(), points.end(), 0);
 
-      // Compute p/r... which is an extremely stupid computation that takes basically forever
       hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, 30);
 
       // Just dump in cout for now
@@ -263,16 +279,16 @@ int main(int argc, char *argv[]) {
     }
 
     // Output embedding file
-    hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
+    hdi::utils::secureLog(&logger, "Writing embedding to file...");
     {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
-      const std::vector<float> embedding = tSNE.getRawEmbedding();
+      auto embedding = tSNE.getRawEmbedding();
       std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
       output_file.write(reinterpret_cast<const char*>(embedding.data()), embedding.size() * sizeof(float));
     }
 
     // Output computation timings
-    hdi::utils::secureLog(&logger, "\nTimings");
+    hdi::utils::secureLog(&logger, "Timings");
     hdi::utils::secureLogValue(&logger, "  Data loading (s)", data_loading_time);
     hdi::utils::secureLogValue(&logger, "  Similarities (s)", similarities_comp_time);
     hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", gradient_desc_comp_time);

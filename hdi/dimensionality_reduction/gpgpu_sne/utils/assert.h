@@ -63,7 +63,7 @@ namespace hdi {
   }
 
   inline
-  void assertGlDetail(const char *msg, const char *file, int line, bool abort = true) {
+  void glAssertImpl(const char *msg, const char *file, int line, bool abort = true) {
     GLenum err;
     while ((err = glGetError()) != GL_NO_ERROR) {
       std::stringstream ss;
@@ -81,10 +81,10 @@ namespace hdi {
 
   #define GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX 0x9048
   #define GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX 0x9049
-  #define ASSERT_GL(msg) { assertGlDetail(msg, __FILE__, __LINE__); }
+  #define glAssert(msg) { glAssertImpl(msg, __FILE__, __LINE__); }
 
   inline
-  void memoryGlDetail(const char *file, int line) {
+  void glMemoryImpl(const char *file, int line) {
     // This requires an NVX extension, but that's generally available I guess
     GLint total, free;
     glGetIntegerv(GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX, &total);
@@ -103,5 +103,5 @@ namespace hdi {
     std::cout << ss.str() << std::endl;
   }
 
-  #define MEMORY_GL() { memoryGlDetail(__FILE__, __LINE__); }
+  #define glMemory() { glMemoryImpl(__FILE__, __LINE__); }
 } // namespace hdi

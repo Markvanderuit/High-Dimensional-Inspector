@@ -80,16 +80,19 @@ namespace hdi::dr {
 
       Length
     };
+
+    enum class TimerType {
+      eQij,
+      eReduceQij,
+      eKlc,
+      eReduceKlc,
+
+      Length
+    };
     
     EnumArray<BufferType, GLuint> _buffers;
     EnumArray<ProgramType, ShaderProgram> _programs;
+    EnumArray<TimerType, GLtimer> _timers;
     utils::AbstractLog* _logger;
-
-    DECL_TIMERS(
-      TIMR_QIJ,
-      TIMR_REDUCE_QIJ,
-      TIMR_KLC,
-      TIMER_REDUCE_KLC
-    );
   };
 }

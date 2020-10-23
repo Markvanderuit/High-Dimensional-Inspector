@@ -76,14 +76,15 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eReduceIntermediate), 256 * sizeof(float), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eReduceFinal), sizeof(float), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
-      ASSERT_GL("GpgpuKldCompute::compute::buffers()");
+      glAssert("GpgpuKldCompute::compute::buffers()");
     }
 
-    INIT_TIMERS();
+    glCreateTimers(_timers.size(), _timers.data());
 
     // Compute Q_ij over all i without approximation, therefore in O(n^2) time
     {
-      TICK_TIMER(TIMR_QIJ);
+      auto &timer = _timers(TimerType::eQij);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eQij);
       program.bind();
@@ -100,13 +101,14 @@ namespace hdi::dr {
       }
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuKldCompute::compute::q_ij()");
-      TOCK_TIMER(TIMR_QIJ);
+      glAssert("GpgpuKldCompute::compute::q_ij()");
+      timer.tock();
     }
 
     // Compute sum over Q_ij, eg. Z in paper, through parallel reduction.
     {
-      TICK_TIMER(TIMR_REDUCE_QIJ);
+      auto &timer = _timers(TimerType::eReduceQij);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eReduce);
       program.bind();
@@ -124,13 +126,14 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuKldCompute::compute::reduce0()");
-      TOCK_TIMER(TIMR_REDUCE_QIJ);
+      glAssert("GpgpuKldCompute::compute::reduce0()");
+      timer.tock();
     }
 
     // Compute KL-divergence inner sum
     {
-      TICK_TIMER(TIMR_KLC);
+      auto &timer = _timers(TimerType::eKlc);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eKl);
       program.bind();
@@ -151,13 +154,14 @@ namespace hdi::dr {
       }
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       
-      ASSERT_GL("GpgpuKldCompute::compute::kl_divergence()");
-      TOCK_TIMER(TIMR_KLC);
+      glAssert("GpgpuKldCompute::compute::kl_divergence()");
+      timer.tock();
     }
 
     // Compute sum over computed KL values, through parallel reduction.
     {
-      TICK_TIMER(TIMER_REDUCE_KLC);
+      auto &timer = _timers(TimerType::eReduceKlc);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eReduce);
       program.bind();
@@ -175,19 +179,19 @@ namespace hdi::dr {
       glDispatchCompute(1, 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("GpgpuKldCompute::compute::reduce1()");
-      TOCK_TIMER(TIMER_REDUCE_KLC);
+      glAssert("GpgpuKldCompute::compute::reduce1()");
+      timer.tock();
     }
     
     // Query timers
     {
-      // POLL_TIMERS();
-      // LOG_TIMER(_logger, TIMR_QIJ, "  Qij compute")
-      // LOG_TIMER(_logger, TIMR_REDUCE_QIJ, "  Qij reduce")
-      // LOG_TIMER(_logger, TIMR_KLC, "  KLC compute")
-      // LOG_TIMER(_logger, TIMER_REDUCE_KLC, "  KLD reduce")
+      // glPollTimers(_timers.size(), _timers.data());
+      // LOG_TIMER(_logger, TimerType::eQij, "  Qij compute")
+      // LOG_TIMER(_logger, TimerType::eReduceQij, "  Qij reduce")
+      // LOG_TIMER(_logger, TimerType::eKlc, "  KLC compute")
+      // LOG_TIMER(_logger, TimerType::eReduceKlc, "  KLD reduce")
       // utils::secureLog(_logger, "");
-      DSTR_TIMERS();
+      glDeleteTimers(_timers.size(), _timers.data());
     }
 
     // Read computed value back from dynamic buffer
@@ -202,7 +206,7 @@ namespace hdi::dr {
       glDeleteBuffers(_buffers.size(), _buffers.data());
     }
     
-    ASSERT_GL("GpgpuKldCompute::compute()");
+    glAssert("GpgpuKldCompute::compute()");
 
     return kld;
   }

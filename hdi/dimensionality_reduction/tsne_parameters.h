@@ -48,7 +48,7 @@ namespace hdi::dr {
     float perplexity = 30.f;
 
     // RNG initialization parameters
-    int seed = -1;
+    int seed = 1;
     float rngRange = 0.1f;
 
     // Barnes-Hut approximation parameters

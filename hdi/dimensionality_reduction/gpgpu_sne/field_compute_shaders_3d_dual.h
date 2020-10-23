@@ -183,7 +183,7 @@ GLSL(field_bvh_dual_src, 450,
       } else if (!fCanSubdiv && !eCanSubdiv) {
         // Leaf is reached. Large leaves are dealt with in separate shader
         // as leaves require iterating over all contained data
-        if (eNode.extent > EMB_BVH_LARGE_LEAF) {
+        if (eNode.extent > DUAL_BVH_LARGE_LEAF) {
           lQueueBuffer[atomicAdd(lQueueHead, 1)] = pair;
         } else {
           for (uint j = eNode.begin; j < eNode.begin + eNode.extent; ++j) {

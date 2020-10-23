@@ -104,6 +104,15 @@ namespace hdi::dr {
     }
 
     ++_iteration;
+    
+    if (_iteration == _params.iterations - 1) {
+      _gpgpuHdCompute.logTimerTotal();
+      if (_params.nLowDimensions == 2) {
+        _gpgpu2dSneCompute.logTimerAverage();
+      } else if (_params.nLowDimensions == 3) {
+        _gpgpu3dSneCompute.logTimerAverage();
+      }
+    }
   }
   
   std::vector<float> GpgpuTSNE::getRawEmbedding() const {

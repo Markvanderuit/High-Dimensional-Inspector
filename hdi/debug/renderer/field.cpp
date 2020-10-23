@@ -110,7 +110,7 @@ namespace hdi::dbg {
 
   template <unsigned D>
   void FieldRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport) {
-    ASSERT_GL("FieldRenderer::render::begin()");
+    glAssert("FieldRenderer::render::begin()");
 
     if (!_isInit || !_fieldTexture || !glIsTexture(*_fieldTexture)) {
       return;
@@ -149,7 +149,7 @@ namespace hdi::dbg {
     ImGui::Image((void *) (intptr_t) _outputTexture, ImVec2(_dims.x, _dims.y));
     ImGui::End();
 
-    ASSERT_GL("FieldRenderer::render::end()");
+    glAssert("FieldRenderer::render::end()");
   }
   
   // Explicit template instantiations for 2 and 3 dimensions

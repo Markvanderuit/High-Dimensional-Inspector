@@ -30,22 +30,60 @@
 
 #pragma once
 
-// Field scaling parameter for 2/3d
+/**
+ * Log ouput parameters.
+ * 
+ * - avg timers: output average runtime of shaders throughout the program after minimization
+ * - large allocs: output info when a large nr. of buffers is allocated (eg at BVH construction)
+ * - field iter: output info on field computation each iteration
+ * - field resize: output info on field resizing when this occurs
+ */
+#define LOG_AVG_TIMERS
+#define LOG_LARGE_ALLOCS 
+// #define LOG_FIELD_ITER
+// #define LOG_FIELD_RESIZE
 
-// Field parameters
+/**
+ * Field resolution parameters. The size of the field and its growth over time heavily
+ * influence the accuracy and runtime of the method. 2.0 is a good ratio for 2D, but
+ * far too large for 3D as the field just becomes larger than N quickly. Keeping size 
+ * fixed may be nice for debugging, but should never be used in a real application!
+ * 
+ * There are different parameters for 2D and 3D.
+ */
 #define FIELD_DO_ADAPTIVE_RESOLUTION
-#define FIELD_MIN_SIZE 5
 #define FIELD_FIXED_SIZE 40
+#define FIELD_MIN_SIZE 5
 #define FIELD_PIXEL_RATIO_2D 2.0f
 #define FIELD_PIXEL_RATIO_3D 1.2f
 
-// Use wider subgroup-based traversal for embedding hierarchy in 2/3d
-// A bit finicky and unpredictable
+/**
+ * Dual hierarchy traversal parameters
+ * 
+ * - lvl difference: DH-traversal kicks in when both hierarchies are within x lvls of each other
+ * - large leaf: large leaf pairs are pushed on a work queue for computation in separate shader
+ */
+#define DUAL_BVH_LVL_DIFFERENCE 3
+#define DUAL_BVH_LARGE_LEAF 16
+
+/**
+ * Single hierarchy traversal parameters.
+ * The wider subgroup-based traversal might be slightly faster, but its honestly too close.
+ * 
+ * There are different parameters for 2D and 3D.
+ */
 // #define EMB_BVH_WIDE_TRAVERSAL_2D
 // #define EMB_BVH_WIDE_TRAVERSAL_3D
 
-// Node fan-out for embedding/field hierarchy in 2d
-// as well as log2 of said value
+/**
+ * Hierarchy construction parameters.
+ * 
+ * There are different parameters for 2D and 3D.
+ * 
+ * - kNode: node-level fan-out
+ * - logk: log2(kNode), a value that is used almost everywhere
+ * - kLeaf: leaf-level fan-out for the embedding hierarchy. Not used for field hierarchy.
+ */
 #ifndef EMB_BVH_WIDE_TRAVERSAL_2D
   #define BVH_KNODE_2D 4
   #define BVH_LOGK_2D 2
@@ -53,23 +91,12 @@
   #define BVH_KNODE_2D 16
   #define BVH_LOGK_2D 4
 #endif
-
 #ifndef EMB_BVH_WIDE_TRAVERSAL_3D
-  // Node fan-out for embedding/field hierarchy in 3d
-  // as well as log2 of said value
   #define BVH_KNODE_3D 8
   #define BVH_LOGK_3D 3
 #else
-  // Node fan-out for embedding/field hierarchy in 3d
-  // as well as log2 of said value
-  #define BVH_KNODE_3D 8
-  #define BVH_LOGK_3D 3
+  #define BVH_KNODE_3D 16
+  #define BVH_LOGK_3D 4
 #endif
-
-// Leaf fan-out for embedding hierarchy in 2/3d
 #define EMB_BVH_KLEAF_2D 4
 #define EMB_BVH_KLEAF_3D 4
-
-// Any leaf with mass > 16 is not interacted with during traversal
-// and is instead computed in a separate shader
-#define EMB_BVH_LARGE_LEAF 16

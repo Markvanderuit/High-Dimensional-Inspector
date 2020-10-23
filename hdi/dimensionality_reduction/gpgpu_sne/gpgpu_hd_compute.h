@@ -62,18 +62,6 @@ namespace hdi {
       void destr();
       void compute(const std::vector<float>& data);
 
-      void setLogger(utils::AbstractLog *logger) {
-        _logger = logger;
-      }
-
-      Buffers buffers() const {
-        return Buffers {
-          _buffers(BufferType::eLayout),
-          _buffers(BufferType::eNeighbours),
-          _buffers(BufferType::eSimilarities)
-        };
-      }
-
     private:
       enum class BufferType {
         eLayout,   
@@ -92,18 +80,36 @@ namespace hdi {
         Length
       };
 
+      enum class TimerType {
+        eExpansion,
+        eSimilarity,
+        eSymmetrize,
+
+        Length
+      };
+
       bool _isInit;
       TsneParameters _params;
       utils::AbstractLog *_logger;
       EnumArray<BufferType, GLuint> _buffers;
       EnumArray<ProgramType, ShaderProgram> _programs;
-
+      EnumArray<TimerType, GLtimer> _timers;
       float _time_knn;
-      DECL_TIMERS(
-        TIMR_EXPANSION,
-        TIMR_SIMILARITY,
-        TIMR_SYMMETRIZE
-      );
+
+    public:
+      void logTimerTotal() const;
+
+      void setLogger(utils::AbstractLog *logger) {
+        _logger = logger;
+      }
+
+      Buffers buffers() const {
+        return Buffers {
+          _buffers(BufferType::eLayout),
+          _buffers(BufferType::eNeighbours),
+          _buffers(BufferType::eSimilarities)
+        };
+      }
     };
   } // namespace dr
 } // namespace hdi

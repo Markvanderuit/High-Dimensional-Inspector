@@ -38,8 +38,6 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_shaders_3d_dual.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/field_compute_3d.h"
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/string_cast.hpp>
 
 // #define SKIP_SMALL_GRID   // Skip computation of active pixels for tiny fields, only for voxel grid computation
 
@@ -237,8 +235,8 @@ namespace hdi::dr {
 
     _fieldRenderer.init(&_textures(TextureType::eField));
 
-    INIT_TIMERS()
-    ASSERT_GL("Field3dCompute::init()");
+    glCreateTimers(_timers.size(), _timers.data());
+    glAssert("Field3dCompute::init()");
     _isInit = true;
   }
 
@@ -269,8 +267,8 @@ namespace hdi::dr {
       program.destroy();
     }
 
-    DSTR_TIMERS();
-    ASSERT_GL("Field3dCompute::destr()");
+    glDeleteTimers(_timers.size(), _timers.data());
+    glAssert("Field3dCompute::destr()");
     _isInit = false;
   }
 
@@ -289,7 +287,6 @@ namespace hdi::dr {
     // Rescale field texture as the required dimensions change
     if (_dims != dims) {
       _dims = dims;
-      utils::secureLogValue(_logger, "  Resizing field to", dr::to_string(_dims));
 
       glDeleteTextures(1, &_textures(TextureType::eField));
       glCreateTextures(GL_TEXTURE_3D, 1, &_textures(TextureType::eField));
@@ -313,7 +310,11 @@ namespace hdi::dr {
       
       glDeleteBuffers(1, &_buffers(BufferType::ePixels));
       glCreateBuffers(1, &_buffers(BufferType::ePixels));
-      glNamedBufferStorage(_buffers(BufferType::ePixels), product(_dims) * sizeof(uvec), nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePixels), product(_dims) * sizeof(uvec), nullptr, 0);\
+
+#ifdef LOG_FIELD_RESIZE
+      utils::secureLogValue(_logger, "  Resized field to", dr::to_string(_dims));
+#endif
     }
 
     // Build BVH structure over embedding
@@ -341,9 +342,9 @@ namespace hdi::dr {
     // Build hierarchy over flagged pixels if certain conditions are met
     const auto fieldBvhLayout = FieldBVH<3>::Layout(nPixels, _dims);
     const bool fieldBvhActive = _useFieldBvh
-      && iteration >= _params.removeExaggerationIter     // After early exaggeration phase
+      && iteration >= _params.removeExaggerationIter                       // After early exaggeration phase
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
-         static_cast<int>(fieldBvhLayout.nLvls)  < 3;       // Trees within certain depth of each other  
+         static_cast<int>(fieldBvhLayout.nLvls) < DUAL_BVH_LVL_DIFFERENCE; // Trees within certain depth of each other  
     if (fieldBvhActive) {
         _fieldBvh.compute(iteration, fieldBvhLayout, 
           _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
@@ -364,32 +365,20 @@ namespace hdi::dr {
     // Query field texture at all embedding positions
     queryField(n, positionBuffer, boundsBuffer, interpBuffer);
 
-    POLL_TIMERS();  
-    
-    if (iteration >= _params.iterations - 1) {
-      // Output timings after final run
-  #ifdef GL_TIMERS_ENABLED
-      utils::secureLog(_logger, "\nField computation");
-  #endif
-      LOG_TIMER(_logger, TIMR_FLAGS, "  Flags");
-      LOG_TIMER(_logger, TIMR_FIELD, "  Field");
-      if (fieldBvhActive) {
-        LOG_TIMER(_logger, TIMR_PUSH, "  Push");
-      }
-      LOG_TIMER(_logger, TIMR_INTERP, "  Interp");
-    } else {
-      // Output nice message during runtime
-      const std::string method = fieldBvhActive  ? "dual tree"
-                            : _useEmbeddingBvh ? "single tree"
-                                           : "full";
-      utils::secureLogValue(_logger,
-        std::string("  Field (") + method + ") ",
-        std::string("iter ") + std::to_string(iteration) 
-        + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
-        + std::string(" - ") + std::to_string(glTimers[TIMR_FIELD].lastMicros())
-        + std::string(" \xE6s")
-      );
-    }
+    glPollTimers(_timers.size(), _timers.data());  
+#ifdef LOG_FIELD_ITER
+    // Output nice message during runtime
+    const std::string method = fieldBvhActive  ? "dual tree"
+                          : _useEmbeddingBvh ? "single tree"
+                                          : "full";
+    utils::secureLogValue(_logger,
+      std::string("  Field (") + method + ") ",
+      std::string("iter ") + std::to_string(iteration) 
+      + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
+      + std::string(" - ") + std::to_string(GLtimers[TimerType::eField].lastMicros())
+      + std::string(" \xE6s")
+    );
+#endif
   }
 
   /**
@@ -399,7 +388,8 @@ namespace hdi::dr {
    * either in O(p N) or O(p log N) time, depending on the availability of a BVH over the embedding.
    */
   void Field3dCompute::compactField(unsigned n, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_FLAGS);
+    auto &timer = _timers(TimerType::eFlags);
+    timer.tick();
     
     // Reset queue head
     glClearNamedBufferSubData(_buffers(BufferType::ePixelsHead),
@@ -504,8 +494,8 @@ namespace hdi::dr {
                               _buffers(BufferType::ePixelsHeadReadback), 
                               0, 0, sizeof(uint));
     
-    ASSERT_GL("Fiel3dCompute::compute::flags()");
-    TOCK_TIMER(TIMR_FLAGS);
+    glAssert("Fiel3dCompute::compute::flags()");
+    timer.tock();
   }
 
   /**
@@ -514,7 +504,8 @@ namespace hdi::dr {
    * Compute full scalar and vector fields in O(p N) time.
    */
   void Field3dCompute::computeField(unsigned n, unsigned iteration, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_FIELD);
+    auto &timer = _timers(TimerType::eField);
+    timer.tick();
 
     // Set program uniforms
     auto &program = _programs(ProgramType::eField);
@@ -536,8 +527,8 @@ namespace hdi::dr {
     glDispatchComputeIndirect(0);
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
 
-    ASSERT_GL("Field3dCompute::compute::field()");
-    TOCK_TIMER(TIMR_FIELD);
+    glAssert("Field3dCompute::compute::field()");
+    timer.tock();
   }
 
   /**
@@ -547,7 +538,8 @@ namespace hdi::dr {
    * the embedding.
    */
   void Field3dCompute::computeFieldBvh(unsigned n, unsigned iteration, GLuint positionsBuffer, GLuint boundsBuffer) {
-    TICK_TIMER(TIMR_FIELD);
+    auto &timer = _timers(TimerType::eField);
+    timer.tick();
     
     // Get BVH structure
     const auto layout = _embeddingBvh.layout();
@@ -596,8 +588,8 @@ namespace hdi::dr {
     glDispatchComputeIndirect(0);
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
     
-    ASSERT_GL("Field3dCompute::compute::field()");
-    TOCK_TIMER(TIMR_FIELD);
+    glAssert("Field3dCompute::compute::field()");
+    timer.tock();
   }
 
   /**
@@ -610,7 +602,8 @@ namespace hdi::dr {
   void Field3dCompute::computeFieldDualBvh(unsigned n, unsigned iteration, GLuint positionsBuffer, GLuint boundsBuffer) {
     // Compute part of field through dual-hierarchy traversal
     {
-      TICK_TIMER(TIMR_FIELD);
+      auto &timer = _timers(TimerType::eField);
+      timer.tick();
 
       // Get BVH layout and buffers
       const auto eLayout = _embeddingBvh.layout();
@@ -713,12 +706,13 @@ namespace hdi::dr {
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       }
       
-      TOCK_TIMER(TIMR_FIELD);
+      timer.tock();
     }
 
     // Push forces down through FieldBvh
     {
-      TICK_TIMER(TIMR_PUSH);
+      auto &timer = _timers(TimerType::ePush);
+      timer.tick();
 
       // Get BVH data and buffers
       const auto fLayout = _fieldBvh.layout();
@@ -758,8 +752,8 @@ namespace hdi::dr {
       glDispatchComputeIndirect(0);
       glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
 
-      ASSERT_GL("Field3dCompute::compute::push()");
-      TOCK_TIMER(TIMR_PUSH);
+      glAssert("Field3dCompute::compute::push()");
+      timer.tock();
     }
   }
 
@@ -770,7 +764,8 @@ namespace hdi::dr {
    * in interpBuffer.
    */
   void Field3dCompute::queryField(unsigned n, GLuint positionsBuffer, GLuint boundsBuffer, GLuint interpBuffer) {
-    TICK_TIMER(TIMR_INTERP);
+    auto &timer = _timers(TimerType::eInterp);
+    timer.tick();
 
     auto &program = _programs(ProgramType::eInterp);
     program.bind();
@@ -788,7 +783,22 @@ namespace hdi::dr {
     glDispatchCompute(ceilDiv(n, 128u), 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-    ASSERT_GL("Field3dCompute::compute::interp()");
-    TOCK_TIMER(TIMR_INTERP);
+    glAssert("Field3dCompute::compute::interp()");
+    timer.tock();
+  }
+
+  void Field3dCompute::logTimerAverage() const {
+    if (_useEmbeddingBvh) {
+      _embeddingBvh.logTimerAverage();
+    }
+    if (_useFieldBvh) {
+      _fieldBvh.logTimerAverage();
+    }
+
+    utils::secureLog(_logger, "\nField computation");
+    LOG_TIMER(_logger, TimerType::eFlags, "  Flags");
+    LOG_TIMER(_logger, TimerType::eField, "  Field");
+    LOG_TIMER(_logger, TimerType::ePush, "  Push");
+    LOG_TIMER(_logger, TimerType::eInterp, "  Interp");
   }
 }

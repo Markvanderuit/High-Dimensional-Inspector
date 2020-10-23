@@ -28,27 +28,16 @@
  * OF SUCH DAMAGE.
  */
 
-#include <algorithm>
-#include <bitset>
-#define _USE_MATH_DEFINES
-#include <cmath>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh_shaders_3d.h"
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/string_cast.hpp>
-
-template <typename genType> 
-inline
-genType ceilDiv(genType n, genType div) {
-  return (n + div - 1) / div;
-}
 
 namespace hdi::dr {
   template <unsigned D>
   FieldBVH<D>::FieldBVH()
-  : _isInit(false), _logger(nullptr) { }
+  : _isInit(false),
+    _logger(nullptr) { }
 
   template <unsigned D>
   FieldBVH<D>::~FieldBVH() {
@@ -117,8 +106,8 @@ namespace hdi::dr {
     utils::secureLogValue(_logger, "      nLvls", _layout.nLvls);
     utils::secureLogValue(_logger, "      nNodes", _layout.nNodes);
 
-    INIT_TIMERS();
-    ASSERT_GL("FieldBVH::init()");
+    glCreateTimers(_timers.size(), _timers.data());
+    glAssert("FieldBVH::init()");
     _isInit = true;
   }
 
@@ -129,8 +118,8 @@ namespace hdi::dr {
       program.destroy();
     }
     glDeleteBuffers(_buffers.size(), _buffers.data());
-    DSTR_TIMERS();
-    ASSERT_GL("FieldBVH::destr()");
+    glDeleteTimers(_timers.size(), _timers.data());
+    glAssert("FieldBVH::destr()");
     _isInit = false;
   }
 
@@ -192,7 +181,8 @@ namespace hdi::dr {
     
     // Generate morton codes
     {
-      TICK_TIMER(TIMR_MORTON);
+      auto &timer = _timers(TimerType::eMorton);
+      timer.tick();
 
       auto &program = _programs(ProgramType::eMorton);
       program.bind();
@@ -209,15 +199,16 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(_layout.nPixels, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      TOCK_TIMER(TIMR_MORTON);
-      ASSERT_GL("FieldBVH::compute::morton()");
+      glAssert("FieldBVH::compute::morton()");
+      timer.tock();
     }
 
     // Delegate sorting of position indices over morton codes to the CUDA CUB library
     // This means we pay a cost for OpenGL-CUDA interopability, unfortunately.
     // Afterwards generate sorted list of positions based on sorted indices
     {
-      TICK_TIMER(TIMR_SORT);
+      auto &timer = _timers(TimerType::eSort);
+      timer.tick();
 
       _sorter.sort(_layout.nPixels, _layout.nLvls * logk);
 
@@ -232,13 +223,14 @@ namespace hdi::dr {
       glDispatchCompute(ceilDiv(_layout.nPixels, 256u), 1, 1);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      TOCK_TIMER(TIMR_SORT);
-      ASSERT_GL("FieldBVH::compute::sort()");
+      glAssert("FieldBVH::compute::sort()");
+      timer.tock();
     }
 
     // Perform subdivision
     {
-      TICK_TIMER(TIMR_SUBDIV);
+      auto &timer = _timers(TimerType::eSubdiv);
+      timer.tick();
 
       // Set leaf queue head to 0
       glClearNamedBufferData(_buffers(BufferType::eLeafHead), 
@@ -271,13 +263,14 @@ namespace hdi::dr {
         begin = end + 1;
       }
 
-      TOCK_TIMER(TIMR_SUBDIV);
-      ASSERT_GL("FieldBVH::compute::subdiv()");
+      glAssert("FieldBVH::compute::subdiv()");
+      timer.tock();
     }
 
     // Compute leaf data
     {
-      TICK_TIMER(TIMR_LEAF);
+      auto &timer = _timers(TimerType::eLeaf);
+      timer.tick();
       
       // Divide contents of BufferType::eLeafHead by workgroup size
       {
@@ -314,13 +307,14 @@ namespace hdi::dr {
       glDispatchComputeIndirect(0);
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-      TOCK_TIMER(TIMR_LEAF);
-      ASSERT_GL("FieldBVH::compute::leaf()");
+      glAssert("FieldBVH::compute::leaf()");
+      timer.tock();
     }
 
     // Compute auxiliary data
     {
-      TICK_TIMER(TIMR_BBOX);
+      auto &timer = _timers(TimerType::eBbox);
+      timer.tick();
       
       auto &program = _programs(ProgramType::eBbox);
       program.bind();
@@ -344,22 +338,21 @@ namespace hdi::dr {
         end = begin - 1;
       }
 
-      TOCK_TIMER(TIMR_BBOX);
-      ASSERT_GL("EmbeddingBVH::compute::bbox()");
+      glAssert("EmbeddingBVH::compute::bbox()");
+      timer.tock();
     }
 
-    // Output timer data on final iteration
-    POLL_TIMERS();
-    if (iteration == _params.iterations - 1) {
-#ifdef GL_TIMERS_ENABLED
-      utils::secureLog(_logger, "\nPixelBVH building");
-#endif
-      LOG_TIMER(_logger, TIMR_MORTON, "  Morton");
-      LOG_TIMER(_logger, TIMR_SORT, "  Sorting");
-      LOG_TIMER(_logger, TIMR_SUBDIV, "  Subdiv");
-      LOG_TIMER(_logger, TIMR_LEAF, "  Leaf");
-      LOG_TIMER(_logger, TIMR_BBOX, "  Bbox");
-    }
+    glPollTimers(_timers.size(), _timers.data());
+  }
+
+  template <unsigned D>
+  void FieldBVH<D>::logTimerAverage() const {
+    utils::secureLog(_logger, "\nPixelBVH building");
+    LOG_TIMER(_logger, TimerType::eMorton, "  Morton");
+    LOG_TIMER(_logger, TimerType::eSort, "  Sorting");
+    LOG_TIMER(_logger, TimerType::eSubdiv, "  Subdiv");
+    LOG_TIMER(_logger, TimerType::eLeaf, "  Leaf");
+    LOG_TIMER(_logger, TimerType::eBbox, "  Bbox");
   }
   
   // Explicit template instantiations

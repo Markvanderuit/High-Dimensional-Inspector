@@ -31,21 +31,34 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
-#include <deque>
 #include <numeric>
-#include <stdexcept>
-#include <glad/glad.h>
-
-#define GL_TIMERS_ENABLED // Enable/disable GL timers globally
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 
 namespace hdi::dr {
-  class GlTimer {
+  class GLtimer {
   public:
-    GlTimer()
+    // Types of values the timer can output
+    enum class ValueType {
+      eLast,    // Last recorded time
+      eAverage, // Average of recorded times
+      eTotal,   // Sum of recorded times
+
+      Length
+    };
+
+    // Time scales for values the timer can output
+    enum class TimeScale {
+      eSeconds,
+      eMillis,
+      eMicros
+    };
+
+  public:
+    GLtimer()
     : _isInit(false) { }
 
-    ~GlTimer() {
+    ~GLtimer() {
       if (_isInit) {
         dstr();
       }
@@ -59,6 +72,10 @@ namespace hdi::dr {
     }
 
     void dstr() {
+      if (!_isInit) {
+        return;
+      }
+
       glDeleteQueries(_handles.size(), _handles.data());
       _values.fill(0);
       _iteration = 0;
@@ -66,8 +83,7 @@ namespace hdi::dr {
     }
 
     void tick() {
-      // Start front timer
-      glBeginQuery(GL_TIME_ELAPSED, _handles[0]);
+      glBeginQuery(GL_TIME_ELAPSED, _handles(HandleType::eFront));
     }
     
     void tock() {
@@ -75,100 +91,72 @@ namespace hdi::dr {
     }
 
     void poll() {
-      // Poll back timer
-      glGetQueryObjecti64v(_handles[1], GL_QUERY_RESULT, &_values[TIMR_LAST_QUERY]);
-      _values[TIMR_TOTAL] += _values[TIMR_LAST_QUERY];
-      _values[TIMR_AVERAGE] = _values[TIMR_AVERAGE] 
-                             + (_values[TIMR_LAST_QUERY] - _values[TIMR_AVERAGE]) 
-                             / (++_iteration);
+      glGetQueryObjecti64v(_handles(HandleType::eBack), GL_QUERY_RESULT, &_values(ValueType::eLast));
+
+      // Incrementally update total and average stored values
+      _values(ValueType::eTotal) += _values(ValueType::eLast);
+      _values(ValueType::eAverage) = _values(ValueType::eAverage) 
+                                   + (_values(ValueType::eLast) - _values(ValueType::eAverage)) 
+                                   / (++_iteration);
 
       // Swap front and back timers
-      std::swap(_handles[0], _handles[1]);
+      std::swap(_handles(HandleType::eFront), _handles(HandleType::eBack));
     }
 
-    double lastMillis() const {
-      return static_cast<double>(_values[TIMR_LAST_QUERY]) / 1000000.0;
-    }
-
-    double lastMicros() const {
-      return static_cast<double>(_values[TIMR_LAST_QUERY]) / 1000.0;
-    }
-
-    double averageMillis() const {
-      return static_cast<double>(_values[TIMR_AVERAGE]) / 1000000.0;
-    }
-
-    double averageMicros() const {
-      return static_cast<double>(_values[TIMR_AVERAGE]) / 1000.0;
-    }
-
-    double totalMillis() const {
-      return static_cast<double>(_values[TIMR_TOTAL]) / 1000000.0;
-    }
-
-    double totalMicros() const {
-      return static_cast<double>(_values[TIMR_TOTAL]) / 1000.0;
+    template <ValueType type, TimeScale scale>
+    double get() const {
+      constexpr double div = (scale == TimeScale::eMicros) ? 1'000.0
+                           : (scale == TimeScale::eMillis) ? 1'000'000.0
+                           : 1'000'000'000.0;
+      return static_cast<double>(_values(type)) / div;
     }
 
   private:
-    enum ValueType {
-      TIMR_LAST_QUERY,
-      TIMR_AVERAGE,
-      TIMR_TOTAL,
+    enum class HandleType {
+      eFront,
+      eBack,
 
-      // Static enum length
-      ValueTypeLength 
+      Length
     };
 
     bool _isInit;
-    std::array<GLuint, 2> _handles;
-    GLuint _handle;
     unsigned _iteration;
-    std::array<GLint64, ValueTypeLength> _values;
+    EnumArray<HandleType, GLuint> _handles;
+    EnumArray<ValueType, GLint64> _values;
   };
 
-  #define DECL_TIMERS(...) \
-    enum GlTimerType { \
-      __VA_ARGS__, \
-      GlTimerTypeLength \
-    }; \
-    std::array<GlTimer, GlTimerTypeLength> glTimers;
+  inline
+  void glCreateTimers(GLsizei n, GLtimer *timers) {
+    for (GLsizei i = 0; i < n; ++i) {
+      timers[i].init();
+    }
+  }
 
-#ifdef GL_TIMERS_ENABLED
-  #define INIT_TIMERS() \
-    for (auto &t : glTimers) t.init();
+  inline
+  void glDeleteTimers(GLsizei n, GLtimer *timers) {
+    for (GLsizei i = 0; i < n; ++i) {
+      timers[i].dstr();
+    }
+  }
 
-  #define DSTR_TIMERS() \
-    for (auto &t : glTimers) t.dstr();
-    
-  #define TICK_TIMER(name) \
-    glTimers[name].tick();
-
-  #define TOCK_TIMER(name) \
-    glTimers[name].tock();
-
-  #define POLL_TIMERS() \
-    for (auto &t : glTimers) t.poll();
+  inline
+  void glPollTimers(GLsizei n, GLtimer *timers) {
+    for (GLsizei i = 0; i < n; ++i) {
+      timers[i].poll();
+    }
+  }
 
 #ifdef _WIN32
   #define LOG_TIMER(logger, name, str) \
     utils::secureLogValue(logger, \
       std::string(str) + " average (\xE6s)", \
-      std::to_string(glTimers[name].averageMicros()) \
+      std::to_string(_timers(name).get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
     );
 #else
   #define LOG_TIMER(logger, name, str) \
       utils::secureLogValue(logger, \
         std::string(str) + " average (\xC2\xB5s)", \
-        std::to_string(glTimers[name].averageMicros()) \
+        std::to_string(_timers(name).get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
       );
-#endif
-#else
-  #define INIT_TIMERS()
-  #define DSTR_TIMERS()
-  #define POLL_TIMERS()
-  #define TICK_TIMER(name)
-  #define TOCK_TIMER(name)
-  #define LOG_TIMER(logger, name, str)
 #endif
 }
