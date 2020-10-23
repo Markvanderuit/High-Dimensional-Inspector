@@ -15,8 +15,8 @@ GLSL(flags_comp, 450,
   layout(location = 2) uniform uint lvl;
   
   // Constants
-  const uint kNode = BVH_3D_KNODE;
-  const uint logk = BVH_3D_LOGK;
+  const uint kNode = BVH_KNODE_3D;
+  const uint logk = BVH_LOGK_3D;
 
   uint findLvl(uint i) {
     uint lvl = 0u;
@@ -144,8 +144,8 @@ GLSL(field_slice_src, 450,
   layout(location = 1) uniform uint outputDepth;
   
   // Constants
-  const uint kNode = BVH_3D_KNODE;
-  const uint logk = BVH_3D_LOGK;
+  const uint kNode = BVH_KNODE_3D;
+  const uint logk = BVH_LOGK_3D;
 
   uint findLvl(uint i) {
     uint lvl = 0u;

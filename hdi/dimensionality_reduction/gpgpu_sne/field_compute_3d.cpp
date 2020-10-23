@@ -101,8 +101,8 @@ namespace hdi::dr {
     _useFieldBvh = _params.dualHierarchyTheta > 0.0;
     _useVoxelGrid = !_useEmbeddingBvh && !_useFieldBvh;
 
-    constexpr uint kNode = BVH_3D_KNODE;
-    constexpr uint logk = BVH_3D_LOGK;
+    constexpr uint kNode = BVH_KNODE_3D;
+    constexpr uint logk = BVH_LOGK_3D;
 
     // Build shader programs
     try {
@@ -117,11 +117,11 @@ namespace hdi::dr {
       _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, divide_dispatch_src);
       _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
       _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
-#ifdef EMB_BVH_3D_WIDE_TRAVERSAL
+#ifdef EMB_BVH_WIDE_TRAVERSAL_3D
       _programs(ProgramType::eFieldBvh).addShader(COMPUTE, field_bvh_wide_src); 
 #else
       _programs(ProgramType::eFieldBvh).addShader(COMPUTE, field_bvh_src); 
-#endif // EMB_BVH_3D_WIDE_TRAVERSAL
+#endif // EMB_BVH_WIDE_TRAVERSAL_3D
       _programs(ProgramType::eFieldDual).addShader(COMPUTE, field_bvh_dual_src); 
       _programs(ProgramType::eFieldDualLeaf).addShader(COMPUTE, field_bvh_dual_leaf_src);
       _programs(ProgramType::ePush).addShader(COMPUTE, push_src); 
@@ -283,8 +283,8 @@ namespace hdi::dr {
    */
   void Field3dCompute::compute(uvec dims, unsigned iteration, unsigned n,
                                 GLuint positionBuffer, GLuint boundsBuffer, GLuint interpBuffer) {
-    constexpr uint kNode = BVH_3D_KNODE;
-    constexpr uint logk = BVH_3D_LOGK;
+    constexpr uint kNode = BVH_KNODE_3D;
+    constexpr uint logk = BVH_LOGK_3D;
 
     // Rescale field texture as the required dimensions change
     if (_dims != dims) {
@@ -557,8 +557,8 @@ namespace hdi::dr {
     {
       auto &program = _programs(ProgramType::eDivideDispatch);
       program.bind();
-  #ifdef EMB_BVH_3D_WIDE_TRAVERSAL
-      program.uniform1ui("div", 256 / BVH_3D_KNODE);
+  #ifdef EMB_BVH_WIDE_TRAVERSAL_3D
+      program.uniform1ui("div", 256 / BVH_KNODE_3D);
   #else
       program.uniform1ui("div", 256);
   #endif // USE_WIDE_BVH
@@ -636,7 +636,7 @@ namespace hdi::dr {
       // Bind dispatch divide program and set uniform values
       auto &_program = _programs(ProgramType::eDivideDispatch);
       _program.bind();
-      _program.uniform1ui("div", 256 / BVH_3D_KNODE); 
+      _program.uniform1ui("div", 256 / BVH_KNODE_3D); 
       
       // Bind buffers reused below
       glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
@@ -738,7 +738,7 @@ namespace hdi::dr {
 
       auto &program = _programs(ProgramType::ePush);
       program.bind();
-      program.uniform1ui("kNode", BVH_3D_KNODE);
+      program.uniform1ui("kNode", BVH_KNODE_3D);
 
       // Bind buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, fBuffers.node0);

@@ -32,16 +32,10 @@
 #include <random>
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_sne_compute_shaders_3d.h"
-
-// Magic numbers for the field computation
-constexpr bool doAdaptiveResolution = true;
-constexpr unsigned minFieldSize = 5;                // 5 is default
-constexpr unsigned fixedFieldSize = 40;             // 40 is default
-constexpr float pixelRatio = 1.4f;                  // 2.0 in 2d and >= 1.35 in 3d seem to work fine
-constexpr float boundsPadding = 0.1f;               // Padding to forcedly grow embedding
 
 namespace hdi::dr {
   /**
@@ -235,7 +229,7 @@ namespace hdi::dr {
       auto &program = _programs(ProgramType::eBounds);
       program.bind();
       program.uniform1ui("nPoints", n);
-      program.uniform1f("padding", boundsPadding);
+      program.uniform1f("padding", 0.1f);
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePosition));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eBoundsReduceAdd));
@@ -256,13 +250,17 @@ namespace hdi::dr {
     // Compute field approximation, delegated to subclass
     {
       // Copy bounds back to host (hey look a halt)
+      // FIXME Maybe speed this up by copying between buffers earlier on
       glGetNamedBufferSubData(_buffers(BufferType::eBounds), 0, sizeof(Bounds),  &_bounds);
 
       // Determine field texture dimensions
-      vec range = _bounds.range();
-      uvec dims = doAdaptiveResolution
-                ? dr::max(uvec(range * pixelRatio), uvec(minFieldSize))
-                : uvec(fixedFieldSize);
+#ifdef FIELD_DO_ADAPTIVE_RESOLUTION
+      const vec range = _bounds.range();
+      const float ratio = D == 2 ? FIELD_PIXEL_RATIO_2D : FIELD_PIXEL_RATIO_3D;
+      const uvec dims = dr::max(uvec(range * ratio), uvec(FIELD_MIN_SIZE));
+#else
+      const uvec dims = uvec(FIELD_FIXED_SIZE);
+#endif
 
       // Delegate to subclass depending on dimension of embedding
       if constexpr (D == 2) {

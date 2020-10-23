@@ -150,11 +150,11 @@ namespace hdi::dr::_2d {
       // Check if invoc exceeds range of child nodes we want to compute
       const uint i = rangeBegin 
                    + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
-                   / BVH_2D_KNODE;
+                   / BVH_KNODE_2D;
       if (i > rangeEnd) {
         return;
       }
-      const uint t = gl_LocalInvocationID.x % BVH_2D_KNODE;
+      const uint t = gl_LocalInvocationID.x % BVH_KNODE_2D;
 
       // Load parent range
       uint mass = uint(node0Buffer[i].w);
@@ -172,7 +172,7 @@ namespace hdi::dr::_2d {
         // Then set node ranges for left and right child based on split
         // If a range is too small to split, it will be passed to the leftmost invocation only
         uint end = begin + mass - 1;
-        for (uint j = BVH_2D_KNODE; j > 1; j /= 2) {
+        for (uint j = BVH_KNODE_2D; j > 1; j /= 2) {
           bool isLeft = (t % j) < (j / 2);
           if (mass > 1) {
             // Node is large enough, split it
@@ -195,7 +195,7 @@ namespace hdi::dr::_2d {
       }
 
       // Store node data (each invoc stores their own child node)
-      uint j = i * BVH_2D_KNODE + 1 + t;
+      uint j = i * BVH_KNODE_2D + 1 + t;
       node0Buffer[j] = vec4(0, 0, 0, mass);
       node1Buffer[j] = vec4(0, 0, 0, begin);
 
@@ -341,8 +341,8 @@ namespace hdi::dr::_2d {
       if (i > rangeEnd) {
         return;
       }
-      const uint s = gl_LocalInvocationID.x / BVH_2D_KNODE;
-      const uint t = gl_LocalInvocationID.x % BVH_2D_KNODE;
+      const uint s = gl_LocalInvocationID.x / BVH_KNODE_2D;
+      const uint t = gl_LocalInvocationID.x % BVH_KNODE_2D;
 
       // Read in node data per invoc, and let first invoc store in shared memory
       const Node node = read(i);
@@ -351,8 +351,8 @@ namespace hdi::dr::_2d {
       }
       barrier();
 
-      // Reduce into shared memory over BVH_2D_KNODE invocs
-      for (uint _t = 1; _t < BVH_2D_KNODE; _t++) {
+      // Reduce into shared memory over BVH_KNODE_2D invocs
+      for (uint _t = 1; _t < BVH_KNODE_2D; _t++) {
         if (t == _t && node.node0.w != 0f) {
           sharedNode[s] = reduce(node, sharedNode[s]);
         }
@@ -361,7 +361,7 @@ namespace hdi::dr::_2d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = (i - 1) / BVH_2D_KNODE;
+        uint j = (i - 1) / BVH_KNODE_2D;
         write(j, sharedNode[s]);
       }
     }

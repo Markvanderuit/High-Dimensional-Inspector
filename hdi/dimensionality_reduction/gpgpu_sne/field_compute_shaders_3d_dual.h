@@ -73,15 +73,15 @@ GLSL(field_bvh_dual_src, 450,
   layout(location = 2) uniform float theta2;  // Squared approximation param. for Barnes-Hut
 
   // Constants
-  const uint thread = gl_LocalInvocationID.x % BVH_3D_KNODE;
+  const uint thread = gl_LocalInvocationID.x % BVH_KNODE_3D;
 
   float sdot(in vec3 v) {
     return dot(v, v);
   }
 
   void main() {
-    // Each BVH_3D_KNODE invocations share a single node pair to subdivide
-    const uint i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / BVH_3D_KNODE;
+    // Each BVH_KNODE_3D invocations share a single node pair to subdivide
+    const uint i = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / BVH_KNODE_3D;
     if (i >= iQueueHead) {
       return;
     }
@@ -116,12 +116,12 @@ GLSL(field_bvh_dual_src, 450,
     {
       uint e = pair.e;
       uint f = pair.f;
-      do { eLvl++; } while ((e = (e - 1) >> BVH_3D_LOGK) > 0);
-      do { fLvl++; } while ((f = (f - 1) >> BVH_3D_LOGK) > 0);
+      do { eLvl++; } while ((e = (e - 1) >> BVH_LOGK_3D) > 0);
+      do { fLvl++; } while ((f = (f - 1) >> BVH_LOGK_3D) > 0);
     }
 
     // Test whether either of these nodes can subdivide (alternatively, one would be a leaf node)
-    bool eCanSubdiv = eLvl < eLvls - 1 && eNode.extent > EMB_BVH_3D_KLEAF;
+    bool eCanSubdiv = eLvl < eLvls - 1 && eNode.extent > EMB_BVH_KLEAF_3D;
     bool fCanSubdiv = fLvl < fLvls - 1 && fNode.extent > 1;
 
     // Decision is based on (a) is anyone a leaf already and (b) which bbox has the larger diameter
@@ -130,7 +130,7 @@ GLSL(field_bvh_dual_src, 450,
     // Perform subdivision on one hierarchy
     if (fDidSubdiv) {
       // Step down in field hierarchy one level, offset thread for fanout
-      pair.f = pair.f * BVH_3D_KNODE + 1 + thread;
+      pair.f = pair.f * BVH_KNODE_3D + 1 + thread;
 
       // Load new field node
       const vec4 _fNode0 = fNode0Buffer[pair.f]; // bbox minima, range extent
@@ -141,7 +141,7 @@ GLSL(field_bvh_dual_src, 450,
       fCanSubdiv = ++fLvl < fLvls - 1 && fNode.extent > 1;
     } else {
       // Step down in embedding hierarchy one level, offset thread for fanout
-      pair.e = pair.e * BVH_3D_KNODE + 1 + thread;
+      pair.e = pair.e * BVH_KNODE_3D + 1 + thread;
 
       // Load new embedding node
       const vec4 _eNode0 = eNode0Buffer[pair.e]; // bbox center, range extent
@@ -149,7 +149,7 @@ GLSL(field_bvh_dual_src, 450,
       eNode = Node(_eNode0.xyz, uint(_eNode1.w), _eNode1.xyz, uint(_eNode0.w));
 
       // Test if this node can still subdivide (alternatively, it is a leaf node)
-      eCanSubdiv = ++eLvl < eLvls - 1 && eNode.extent > EMB_BVH_3D_KLEAF;
+      eCanSubdiv = ++eLvl < eLvls - 1 && eNode.extent > EMB_BVH_KLEAF_3D;
     }
 
     // Test for a dead end in the hierarchy, but keep
@@ -208,8 +208,8 @@ GLSL(field_bvh_dual_src, 450,
       atomicAdd(fFieldBuffer[addr.w], field.w);
     } else if (!fDidSubdiv) {
       // All threads can enter this so the subgroup can be used without inactive invocations
-      // When the embedding hierarchy is subdivided, BVH_3D_KNODE invocations can write to the same field node
-      field = subgroupClusteredAdd(field, BVH_3D_KNODE);
+      // When the embedding hierarchy is subdivided, BVH_KNODE_3D invocations can write to the same field node
+      field = subgroupClusteredAdd(field, BVH_KNODE_3D);
       if (thread < 4 && field != vec4(0)) {
         atomicAdd(fFieldBuffer[4 * pair.f + thread], field[thread]);
       }
@@ -322,7 +322,7 @@ GLSL(push_src, 450,
     
     // Push forces down by ascending up tree to root
     vec4 field = vec4(0); // fieldBuffer[0]; // ignore root, it will never approximate
-    for (int k = int(i); k > 0; k = (k - 1) >> BVH_3D_LOGK) {
+    for (int k = int(i); k > 0; k = (k - 1) >> BVH_LOGK_3D) {
       field += fieldBuffer[k];
     }
 

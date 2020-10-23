@@ -25,8 +25,8 @@ GLSL(flags_comp, 450,
   layout(location = 1) uniform float theta;   // Approximation param
 
   // Constants
-  const uint kNode = BVH_3D_KNODE;
-  const uint logk = BVH_3D_LOGK;
+  const uint kNode = BVH_KNODE_3D;
+  const uint logk = BVH_LOGK_3D;
   const float theta2 = theta * theta;
 
   float approx(vec3 pos, uint idx) {

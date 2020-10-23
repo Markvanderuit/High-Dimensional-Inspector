@@ -66,7 +66,7 @@ namespace hdi::dr {
     _layout = layout;
     _reservedNodes = _layout.nNodes;
 
-    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
+    constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
 
     // Create program objects
     {
@@ -142,8 +142,8 @@ namespace hdi::dr {
                             GLuint boundsBuffer) {
     _layout = layout;
 
-    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
-    constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+    constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
+    constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
 
     // Available memory for the tree becomes too small as the nr. of pixels to compute keeps
     // growing aggressively throughout the gradient descent

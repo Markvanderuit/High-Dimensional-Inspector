@@ -30,36 +30,45 @@
 
 #pragma once
 
+// Field scaling parameter for 2/3d
+
+// Field parameters
+#define FIELD_DO_ADAPTIVE_RESOLUTION
+#define FIELD_MIN_SIZE 5
+#define FIELD_FIXED_SIZE 40
+#define FIELD_PIXEL_RATIO_2D 2.0f
+#define FIELD_PIXEL_RATIO_3D 1.2f
+
 // Use wider subgroup-based traversal for embedding hierarchy in 2/3d
 // A bit finicky and unpredictable
-// #define EMB_BVH_2D_WIDE_TRAVERSAL
-// #define EMB_BVH_3D_WIDE_TRAVERSAL
+// #define EMB_BVH_WIDE_TRAVERSAL_2D
+// #define EMB_BVH_WIDE_TRAVERSAL_3D
 
 // Node fan-out for embedding/field hierarchy in 2d
 // as well as log2 of said value
-#ifndef EMB_BVH_2D_WIDE_TRAVERSAL
-  #define BVH_2D_KNODE 4
-  #define BVH_2D_LOGK 2
+#ifndef EMB_BVH_WIDE_TRAVERSAL_2D
+  #define BVH_KNODE_2D 4
+  #define BVH_LOGK_2D 2
 #else
-  #define BVH_2D_KNODE 16
-  #define BVH_2D_LOGK 4
+  #define BVH_KNODE_2D 16
+  #define BVH_LOGK_2D 4
 #endif
 
-#ifndef EMB_BVH_3D_WIDE_TRAVERSAL
+#ifndef EMB_BVH_WIDE_TRAVERSAL_3D
   // Node fan-out for embedding/field hierarchy in 3d
   // as well as log2 of said value
-  #define BVH_3D_KNODE 8
-  #define BVH_3D_LOGK 3
+  #define BVH_KNODE_3D 8
+  #define BVH_LOGK_3D 3
 #else
   // Node fan-out for embedding/field hierarchy in 3d
   // as well as log2 of said value
-  #define BVH_3D_KNODE 8
-  #define BVH_3D_LOGK 3
+  #define BVH_KNODE_3D 8
+  #define BVH_LOGK_3D 3
 #endif
 
 // Leaf fan-out for embedding hierarchy in 2/3d
-#define EMB_BVH_2D_KLEAF 4
-#define EMB_BVH_3D_KLEAF 4
+#define EMB_BVH_KLEAF_2D 4
+#define EMB_BVH_KLEAF_3D 4
 
 // Any leaf with mass > 16 is not interacted with during traversal
 // and is instead computed in a separate shader

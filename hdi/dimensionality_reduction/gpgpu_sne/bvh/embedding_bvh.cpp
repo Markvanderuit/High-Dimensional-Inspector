@@ -67,7 +67,7 @@ namespace hdi::dr {
     _params = params;
     _layout = layout;
     
-    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
+    constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
 
     // Create program objects
     {
@@ -156,8 +156,8 @@ namespace hdi::dr {
                        unsigned iteration,
                        GLuint posBuffer,
                        GLuint boundsBuffer) {
-    constexpr uint kNode = D == 2 ? BVH_2D_KNODE : BVH_3D_KNODE;
-    constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+    constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
+    constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
 
     // Generate morton codes
     if (rebuild) {

@@ -55,7 +55,7 @@ namespace hdi::dr {
       Layout(uint nPos) 
       : nPos(nPos)
       {
-        constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+        constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
         nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPos) / logk));
         nNodes = 0u;
         for (uint i = 0u; i < nLvls; i++) {

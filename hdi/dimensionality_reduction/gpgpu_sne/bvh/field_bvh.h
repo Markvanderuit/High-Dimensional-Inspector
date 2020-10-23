@@ -63,7 +63,7 @@ namespace hdi::dr {
       : nPixels(nPixels),
         dims(dims)
       {
-        constexpr uint logk = D == 2 ? BVH_2D_LOGK : BVH_3D_LOGK;
+        constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
         size_t nPixelsTotal = product(dims);
         nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPixelsTotal) / logk));
         nNodes = 0u;

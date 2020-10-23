@@ -92,11 +92,11 @@ namespace hdi::dr {
       _programs(ProgramType::eInterp).addShader(COMPUTE, interp_src);
 
       if (_useBvh) {
-#ifdef EMB_BVH_2D_WIDE_TRAVERSAL
+#ifdef EMB_BVH_WIDE_TRAVERSAL_2D
         _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_wide_src); 
 #else
         _programs(ProgramType::eField).addShader(COMPUTE, field_bvh_src); 
-#endif // EMB_BVH_2D_WIDE_TRAVERSAL
+#endif // EMB_BVH_WIDE_TRAVERSAL_2D
       } else {
         _programs(ProgramType::eField).addShader(COMPUTE, field_src); 
       }
@@ -392,11 +392,11 @@ namespace hdi::dr {
     {
       auto &program = _programs(ProgramType::eDispatch);
       program.bind();
-  #ifdef EMB_BVH_2D_WIDE_TRAVERSAL
-      program.uniform1ui("div", 256 / BVH_2D_KNODE);
+  #ifdef EMB_BVH_WIDE_TRAVERSAL_2D
+      program.uniform1ui("div", 256 / BVH_KNODE_2D);
   #else
       program.uniform1ui("div", 256);
-  #endif // EMB_BVH_2D_WIDE_TRAVERSAL
+  #endif // EMB_BVH_WIDE_TRAVERSAL_2D
 
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePixelsHead));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));

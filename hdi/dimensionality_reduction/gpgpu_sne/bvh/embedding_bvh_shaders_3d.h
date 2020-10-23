@@ -144,18 +144,18 @@ namespace hdi::dr::_3d {
       // Check if invoc exceeds range of child nodes we want to compute
       const uint i = rangeBegin 
                    + (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) 
-                   / BVH_3D_KNODE;
+                   / BVH_KNODE_3D;
       if (i > rangeEnd) {
         return;
       }
-      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
+      const uint t = gl_LocalInvocationID.x % BVH_KNODE_3D;
 
       // Load parent range
       uint begin = uint(node1Buffer[i].w);
       uint mass = uint(node0Buffer[i].w);
 
       // Subdivide if the mass is large enough
-      if (mass <= EMB_BVH_3D_KLEAF) {
+      if (mass <= EMB_BVH_KLEAF_3D) {
         begin = 0;
         mass = 0;
       } else {
@@ -163,9 +163,9 @@ namespace hdi::dr::_3d {
         // Then set node ranges for left and right child based on split
         // If a range is too small to split, it will be passed to the leftmost invocation only
         uint end = begin + mass - 1;
-        for (uint j = BVH_3D_KNODE; j > 1; j /= 2) {
+        for (uint j = BVH_KNODE_3D; j > 1; j /= 2) {
           bool isLeft = (t % j) < (j / 2);
-          if (mass > EMB_BVH_3D_KLEAF) {
+          if (mass > EMB_BVH_KLEAF_3D) {
             // Node is large enough, split it
             uint split = findSplit(begin, end);
             begin = isLeft ? begin : split + 1;
@@ -183,12 +183,12 @@ namespace hdi::dr::_3d {
       }
 
       // Store node data (each invoc stores their own child node)
-      uint j = i * BVH_3D_KNODE + 1 + t;
+      uint j = i * BVH_KNODE_3D + 1 + t;
       node0Buffer[j] = vec4(0, 0, 0, mass);
       node1Buffer[j] = vec4(0, 0, 0, begin);
 
       // Yeet node id on leaf queue if... well if they are a leaf node
-      if (mass > 0 && (isBottom || mass <= EMB_BVH_3D_KLEAF)) {
+      if (mass > 0 && (isBottom || mass <= EMB_BVH_KLEAF_3D)) {
         leafBuffer[atomicAdd(leafHead, 1)] = j;
       }
     }
@@ -324,8 +324,8 @@ namespace hdi::dr::_3d {
       if (i > rangeEnd) {
         return;
       }
-      const uint s = gl_LocalInvocationID.x / BVH_3D_KNODE;
-      const uint t = gl_LocalInvocationID.x % BVH_3D_KNODE;
+      const uint s = gl_LocalInvocationID.x / BVH_KNODE_3D;
+      const uint t = gl_LocalInvocationID.x % BVH_KNODE_3D;
 
       // Read in node data per invoc, and let first invoc store in shared memory
       const Node node = read(i);
@@ -334,8 +334,8 @@ namespace hdi::dr::_3d {
       }
       barrier();
 
-      // Reduce into shared memory over BVH_3D_KNODE invocs
-      for (uint _t = 1; _t < BVH_3D_KNODE; _t++) {
+      // Reduce into shared memory over BVH_KNODE_3D invocs
+      for (uint _t = 1; _t < BVH_KNODE_3D; _t++) {
         if (t == _t && node.node0.w != 0f) {
           sharedNode[s] = reduce(node, sharedNode[s]);
         }
@@ -344,7 +344,7 @@ namespace hdi::dr::_3d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = (i - 1) / BVH_3D_KNODE;
+        uint j = (i - 1) / BVH_KNODE_3D;
         write(j, sharedNode[s]);
       }
     }
