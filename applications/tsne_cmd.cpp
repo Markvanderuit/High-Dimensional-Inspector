@@ -1,5 +1,4 @@
 /*
-*
 * Copyright (c) 2014, Nicola Pezzotti (Delft University of Technology)
 * All rights reserved.
 *
@@ -27,18 +26,17 @@
 * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
 * OF SUCH DAMAGE.
-*
 */
 
 #include <cstdlib>
-#include <fstream>
+#include <numeric>
 #include <string>
 #include <cxxopts/cxxopts.hpp>
+#include "hdi/utils/io.h"
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/scoped_timers.h"
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/debug/utils/window.hpp"
-#include "hdi/debug/utils/input.hpp"
 #include "hdi/debug/renderer/renderer.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_tsne.h"
 #include "hdi/dimensionality_reduction/evaluation.h"
@@ -48,13 +46,13 @@ using uint = unsigned;
 // Required CLI parameters
 std::string inputFileName;
 std::string outputFileName;
+hdi::dr::TsneParameters params;
 
 // Optional CLI parameters with default values
-hdi::dr::TsneParameters params;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doVisualisation = false;
-bool doLabelExtraction = false;
+bool doLabels = false;
 
 // Timer values
 float data_loading_time = 0.f;
@@ -71,40 +69,11 @@ constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
                            | hdi::dbg::WindowInfo::bResizable;
 constexpr uint windowWidth = 2560u;
 constexpr uint windowHeight = 1440u;
-constexpr char *windowTitle = "GPGPU tSNE";
-
-void loadData(std::vector<float> &data, std::vector<uint> &labels, const std::string &fileName) {
-  std::ifstream inputFile(fileName, std::ios::in | std::ios::binary);
-  if (!inputFile) {
-    throw std::runtime_error("Input file cannot be found");
-  }
-  
-  // Allocate space to store point vectors and labels
-  data = std::vector<float>(params.n * params.nHighDimensions);
-  if (doLabelExtraction) {
-    labels = std::vector<uint>(params.n);
-  }
-  
-  if (doLabelExtraction) {
-    // Read data in iteratively
-    for (uint i = 0; i < params.n; ++i) {
-      // Read 4-byte label if label extraction is required
-      if (doLabelExtraction) {
-        inputFile.read((char *) &labels[i], sizeof(uint));
-      }
-
-      // Read point data for entire row
-      inputFile.read((char *) &data[i * params.nHighDimensions], params.nHighDimensions * sizeof(float));
-    }
-  } else {
-    // Read data in single function call
-    inputFile.read((char *) data.data(), data.size() * sizeof(float));
-  }  
-}
+constexpr char *windowTitle = "tSNE";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   // Configure command line options
-  cxxopts::Options options("Gpgpu T-SNE", "Compute low-dimensional embedding from given high-dimensional data");
+  cxxopts::Options options(windowTitle, "Compute low-dimensional embedding from given high-dimensional data");
   options.add_options()
     ("input", "Input binary data file (required)", cxxopts::value<std::string>())
     ("output", "Output binary data file (required)", cxxopts::value<std::string>())
@@ -169,7 +138,7 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     doVisualisation = result["vis"].as<bool>();
   }
   if (result.count("lbl")) {
-    doLabelExtraction = result["lbl"].as<bool>();
+    doLabels = result["lbl"].as<bool>();
   }
 }
 
@@ -187,7 +156,14 @@ int main(int argc, char *argv[]) {
     {
       hdi::utils::secureLog(&logger, "Loading data...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
-      loadData(data, labels, inputFileName);
+      hdi::utils::readBinaryFile(
+        inputFileName,
+        data,
+        labels,
+        params.n,
+        params.nHighDimensions,
+        doLabels
+      );
     }
 
     // Create an opengl context (and visible window, if we want one for the visual debugger)
@@ -198,8 +174,7 @@ int main(int argc, char *argv[]) {
     window.enableVsync(false);
 
     // Inputmanager and rendermanager handle input/rendering of visual debugger components
-    hdi::dbg::InputManager inputManager(window);
-    hdi::dbg::RenderManager renderManager;
+    hdi::dbg::RenderManager renderManager(window);
     if (doVisualisation) {
       renderManager.init(params.nLowDimensions, labels);
     }
@@ -227,9 +202,7 @@ int main(int argc, char *argv[]) {
         // Process debug render components
         if (doVisualisation) {
           window.processEvents();
-          inputManager.processInputs();
           renderManager.render();
-          inputManager.render();
           window.display();
         }
       }
@@ -263,12 +236,17 @@ int main(int argc, char *argv[]) {
     }
 
     // Output embedding file
-    hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
     {
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
-      const std::vector<float> embedding = tSNE.getRawEmbedding();
-      std::ofstream output_file(outputFileName, std::ios::out | std::ios::binary);
-      output_file.write(reinterpret_cast<const char*>(embedding.data()), embedding.size() * sizeof(float));
+      hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
+      hdi::utils::writeBinaryFile(
+        outputFileName,
+        tSNE.getRawEmbedding(),
+        labels,
+        params.n,
+        params.nLowDimensions,
+        doLabels
+      );
     }
 
     // Output computation timings
@@ -277,7 +255,7 @@ int main(int argc, char *argv[]) {
     hdi::utils::secureLogValue(&logger, "  Similarities (s)", similarities_comp_time);
     hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", gradient_desc_comp_time);
     if (doKlDivergence) {
-      hdi::utils::secureLogValue(&logger, "  KL computation (s)", kl_divergence_comp_time);
+      hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kl_divergence_comp_time);
     }
     if (doNNPreservation) {
       hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnp_comp_time);
@@ -290,9 +268,7 @@ int main(int argc, char *argv[]) {
       // Spin render loop until window is closed
       while (window.canDisplay()) {
         window.processEvents();
-        inputManager.processInputs();
         renderManager.render();
-        inputManager.render();
         window.display();
       }
 

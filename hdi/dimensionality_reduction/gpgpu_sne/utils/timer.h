@@ -31,7 +31,6 @@
 #pragma once
 
 #include <algorithm>
-#include <numeric>
 #include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 
