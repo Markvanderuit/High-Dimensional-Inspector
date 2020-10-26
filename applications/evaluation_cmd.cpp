@@ -63,7 +63,7 @@ float simComputationTime = 0.f;
 float kldComputationTime = 0.f;
 float nnpComputationTime = 0.f;
 
-constexpr char *programTitle = "Evaluation";
+constexpr const char *programTitle = "Evaluation";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   // Configure command line options

@@ -102,10 +102,10 @@ namespace hdi::dr {
       std::swap(_handles(HandleType::eFront), _handles(HandleType::eBack));
     }
 
-    template <ValueType type, TimeScale scale>
+    template <GLtimer::ValueType type, GLtimer::TimeScale scale>
     double get() const {
-      constexpr double div = (scale == TimeScale::eMicros) ? 1'000.0
-                           : (scale == TimeScale::eMillis) ? 1'000'000.0
+      constexpr double div = (scale == GLtimer::TimeScale::eMicros) ? 1'000.0
+                           : (scale == GLtimer::TimeScale::eMillis) ? 1'000'000.0
                            : 1'000'000'000.0;
       return static_cast<double>(_values(type)) / div;
     }
@@ -149,13 +149,13 @@ namespace hdi::dr {
   #define LOG_TIMER(logger, name, str) \
     utils::secureLogValue(logger, \
       std::string(str) + " average (\xE6s)", \
-      std::to_string(_timers(name).get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
+      std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
     );
 #else
   #define LOG_TIMER(logger, name, str) \
-      utils::secureLogValue(logger, \
-        std::string(str) + " average (\xC2\xB5s)", \
-        std::to_string(_timers(name).get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
-      );
+    utils::secureLogValue(logger, \
+      std::string(str) + " average (\xC2\xB5s)", \
+      std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
+    );
 #endif
 }

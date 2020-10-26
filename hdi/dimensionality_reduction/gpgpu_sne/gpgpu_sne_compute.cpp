@@ -91,7 +91,7 @@ namespace hdi::dr {
         do {
           r = 0.f;
           for (uint j = 0; j < D; ++j) {
-            v[j] = 2 * (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX + 1)) - 1;
+            v[j] = 2.f * (static_cast<float>(std::rand()) / (static_cast<float>(RAND_MAX) + 1.f)) - 1.f;
           }
           r = dr::dot(v, v);
         } while (r > 1.f || r == 0.f);

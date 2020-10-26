@@ -69,7 +69,7 @@ constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
                            | hdi::dbg::WindowInfo::bResizable;
 constexpr uint windowWidth = 2560u;
 constexpr uint windowHeight = 1440u;
-constexpr char *windowTitle = "tSNE";
+constexpr const char *windowTitle = "tSNE";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   // Configure command line options
