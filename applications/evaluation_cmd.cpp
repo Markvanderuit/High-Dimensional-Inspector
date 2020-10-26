@@ -43,6 +43,7 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_hd_compute.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/gpgpu_kld_compute.h"
+#include "hdi/dimensionality_reduction/evaluation.h"
 
 using uint = unsigned;
 
@@ -52,12 +53,15 @@ std::string lInputFileName;
 hdi::dr::TsneParameters params;
 
 // Optional CLI parameters with default values
+bool doKlDivergence = false;
+bool doNNPreservation = false;
 bool doLabels = false;
 
 // Timer values
 float dataLoadingTime = 0.f;
 float simComputationTime = 0.f;
 float kldComputationTime = 0.f;
+float nnpComputationTime = 0.f;
 
 constexpr char *programTitle = "Evaluation";
 
@@ -72,6 +76,8 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("ldims", "number of low-dimensional input dims (required)", cxxopts::value<unsigned>())
     ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<float>())
     ("h,help", "Print help and exit")
+    ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
+    ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ;
   options.parse_positional({"hinput", "linput", "size", "hdims", "ldims"});
@@ -100,6 +106,12 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   if (result.count("perplexity")) {
     params.perplexity = result["perplexity"].as<float>();
   }
+  if (result.count("kld")) {
+    doKlDivergence = result["kld"].as<bool>();
+  }
+  if (result.count("nnp")) {
+    doNNPreservation = result["nnp"].as<bool>();
+  }
   if (result.count("lbl")) {
     doLabels = result["lbl"].as<bool>();
   }
@@ -112,6 +124,11 @@ int main(int argc, char *argv[]) {
 
     // Pass input arguments and parse them, setting parameters
     parseCli(&logger, argc, argv);
+
+    if (!doKlDivergence && !doNNPreservation) {
+      hdi::utils::secureLog(&logger, "No evaluation metric selected. Use [-h] for help information.");
+      std::exit(0);
+    }
 
     // Load input data and labels
     std::vector<float> data;
@@ -148,7 +165,7 @@ int main(int argc, char *argv[]) {
     hdi::dr::GpgpuKldCompute<3> kld3dCompute;
 
     // Construct high-dimensional joint similarity distribution
-    {
+    if (doKlDivergence) {
       hdi::utils::secureLog(&logger, "Computing joint similarities...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(simComputationTime);
       hdCompute.init(params);
@@ -180,7 +197,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Compute KL-divergence
-    {
+    if (doKlDivergence) {
       hdi::utils::secureLog(&logger, "\nComputing KL-divergence...");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kldComputationTime);
       float kld;
@@ -192,11 +209,36 @@ int main(int argc, char *argv[]) {
       hdi::utils::secureLogValue(&logger, "  KL Divergence", kld);
     }
 
+    // Compute mearest neighbour preservation if requested
+    if (doNNPreservation) {
+      hdi::utils::secureLog(&logger, "\nComputing NNP...");  
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnpComputationTime);
+
+      // Prepare data storage
+      std::vector<float> precision;
+      std::vector<float> recall;
+      std::vector<unsigned> points(params.n);
+      std::iota(points.begin(), points.end(), 0);
+
+      // Compute p/r... which is an extremely stupid computation that takes basically forever
+      hdi::dr::computePrecisionRecall(data, embedding, params, points, precision, recall, 30);
+
+      // Just dump in cout for now
+      for (int i = 0; i < precision.size(); i++) {
+        std::cout << precision[i] << ", " << recall[i] << '\n';
+      }
+    }
+
     // Output computation timings
     hdi::utils::secureLog(&logger, "\nTimings");
     hdi::utils::secureLogValue(&logger, "  Data loading (s)", dataLoadingTime);
-    hdi::utils::secureLogValue(&logger, "  Similarities (s)", simComputationTime);
-    hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
+    if (doKlDivergence) {
+      hdi::utils::secureLogValue(&logger, "  Similarities (s)", simComputationTime);
+      hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
+    }
+    if (doNNPreservation) {
+      hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnpComputationTime);
+    }
 
     // Clean up
     glDeleteBuffers(1, &positionsBuffer);
