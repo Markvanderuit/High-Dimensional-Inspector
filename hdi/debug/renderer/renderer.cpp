@@ -47,8 +47,9 @@ namespace hdi::dbg {
     // Override and implement
   }
 
-  RenderManager::RenderManager()
-  : _isInit(false)
+  RenderManager::RenderManager(const Window &window)
+  : _isInit(false),
+    _input(window)
   { }
 
   RenderManager::~RenderManager()
@@ -109,6 +110,7 @@ namespace hdi::dbg {
 
   void RenderManager::render()
   {
+    _input.processInputs();
     _trackball.compute();
 
     // Get window pointer
@@ -181,6 +183,8 @@ namespace hdi::dbg {
       0, 0, size.x, size.y,
       GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST  
     );
+
+    _input.render();
   }
 
   void RenderManager::addRenderComponent(RenderComponent *ptr)

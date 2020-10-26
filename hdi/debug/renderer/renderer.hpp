@@ -3,6 +3,8 @@
 #include <vector>
 #include <set>
 #include <glad/glad.h>
+#include "hdi/debug/utils/window.hpp"
+#include "hdi/debug/utils/input.hpp"
 #include "hdi/debug/utils/trackball.hpp"
 
 namespace hdi::dbg {
@@ -37,7 +39,7 @@ namespace hdi::dbg {
     typedef unsigned uint;
     
   public:
-    RenderManager();
+    RenderManager(const Window &window);
     ~RenderManager();
     
     // Management
@@ -57,6 +59,7 @@ namespace hdi::dbg {
   private:
     bool _isInit;
     uint _nDimensions;
+    InputManager _input;
     Trackball _trackball;
     GLuint _labels;
     GLuint _framebuffer;
