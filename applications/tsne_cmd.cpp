@@ -49,18 +49,18 @@ std::string outputFileName;
 hdi::dr::TsneParameters params;
 
 // Optional CLI parameters with default values
-bool doKlDivergence = false;
-bool doNNPreservation = false;
+bool doKldComputation = false;
+bool doNnpComputation = false;
 bool doVisualisation = false;
 bool doLabels = false;
 
 // Timer values
-float data_loading_time = 0.f;
-float similarities_comp_time = 0.f;
-float gradient_desc_comp_time = 0.f;
-float kl_divergence_comp_time = 0.f;
-float nnp_comp_time = 0.f;
-float data_saving_time = 0.f;
+float dataLoadingTime = 0.f;
+float simComputationTime = 0.f;
+float minComputationTime = 0.f;
+float kldComputationTime = 0.f;
+float nnpComputationTime = 0.f;
+float dataSavingTime = 0.f;
 
 // Visual debugger default window settings
 constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
@@ -129,10 +129,10 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     params.dualHierarchyTheta = result["theta2"].as<float>();
   }
   if (result.count("kld")) {
-    doKlDivergence = result["kld"].as<bool>();
+    doKldComputation = result["kld"].as<bool>();
   }
   if (result.count("nnp")) {
-    doNNPreservation = result["nnp"].as<bool>();
+    doNnpComputation = result["nnp"].as<bool>();
   }
   if (result.count("vis")) {
     doVisualisation = result["vis"].as<bool>();
@@ -155,7 +155,7 @@ int main(int argc, char *argv[]) {
     std::vector<uint> labels;
     {
       hdi::utils::secureLog(&logger, "Loading data...");
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_loading_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(dataLoadingTime);
       hdi::utils::readBinaryFile(
         inputFileName,
         data,
@@ -184,7 +184,7 @@ int main(int argc, char *argv[]) {
     hdi::dr::GpgpuTSNE tSNE;
     tSNE.setLogger(&logger);
     {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(similarities_comp_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(simComputationTime);
       tSNE.init(data, params);
     }
 
@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
 
     // Perform tSNE minimization
     {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(gradient_desc_comp_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(minComputationTime);
       for (uint i = 0; i < params.iterations; ++i) {
         tSNE.iterate();
         
@@ -209,16 +209,16 @@ int main(int argc, char *argv[]) {
     }
     
     // Compute KL-divergence if requested
-    if (doKlDivergence) {
+    if (doKldComputation) {
       hdi::utils::secureLog(&logger, "\nComputing KL-Divergence...");  
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kl_divergence_comp_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kldComputationTime);
       hdi::utils::secureLogValue(&logger, "  KL Divergence", tSNE.getKLDivergence());
     } 
     
     // Compute mearest neighbour preservation if requested
-    if (doNNPreservation) {
+    if (doNnpComputation) {
       hdi::utils::secureLog(&logger, "\nComputing NNP...");  
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnp_comp_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnpComputationTime);
 
       // Prepare data storage
       std::vector<float> precision;
@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
 
     // Output embedding file
     {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(data_saving_time);
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(dataSavingTime);
       hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
       hdi::utils::writeBinaryFile(
         outputFileName,
@@ -251,16 +251,16 @@ int main(int argc, char *argv[]) {
 
     // Output computation timings
     hdi::utils::secureLog(&logger, "\nTimings");
-    hdi::utils::secureLogValue(&logger, "  Data loading (s)", data_loading_time);
-    hdi::utils::secureLogValue(&logger, "  Similarities (s)", similarities_comp_time);
-    hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", gradient_desc_comp_time);
-    if (doKlDivergence) {
-      hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kl_divergence_comp_time);
+    hdi::utils::secureLogValue(&logger, "  Data loading (s)", dataLoadingTime);
+    hdi::utils::secureLogValue(&logger, "  Similarities (s)", simComputationTime);
+    hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", minComputationTime);
+    if (doKldComputation) {
+      hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
     }
-    if (doNNPreservation) {
-      hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnp_comp_time);
+    if (doNnpComputation) {
+      hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnpComputationTime);
     }
-    hdi::utils::secureLogValue(&logger, "  Data saving (s)", data_saving_time);
+    hdi::utils::secureLogValue(&logger, "  Data saving (s)", dataSavingTime);
 
     if (doVisualisation) {
       window.enableVsync(true);
