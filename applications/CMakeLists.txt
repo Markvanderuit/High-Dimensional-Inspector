@@ -11,19 +11,21 @@ function(addProject Name Sources)
     hdidebug
     hdidimensionalityreduction
   )
+
   if (OpenMP_CXX_FOUND) 
     target_link_libraries(${Name} OpenMP::OpenMP_CXX)
   endif()
+
+  # Copy over libopenblas shared libraries for FAISS dependency (ugh) 
+  if (MSVC) 
+    add_custom_command(TARGET ${Name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/third_party/openblas/Win/bin
+        $<TARGET_FILE_DIR:${Name}>)
+  endif()
 endfunction()
 
-addProject(embedding_renderer_cmd embedding_renderer_cmd.cpp)
-addProject(gpgpu_tsne_cmd gpgpu_tsne_cmd.cpp)
+addProject(renderer_cmd renderer_cmd.cpp)
+addProject(tsne_cmd tsne_cmd.cpp)
 addProject(simulation_generator_cmd simulation_generator_cmd.cpp)
-
-# Copy over libopenblas shared libraries for FAISS dependency (ugh) 
-if (MSVC)
-  add_custom_command(TARGET gpgpu_tsne_cmd POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-      ${CMAKE_SOURCE_DIR}/third_party/openblas/Win/bin
-      $<TARGET_FILE_DIR:gpgpu_tsne_cmd>)
-endif()
+addProject(evaluation_cmd evaluation_cmd.cpp)

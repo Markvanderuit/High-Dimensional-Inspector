@@ -1,5 +1,4 @@
 /*
-*
 * Copyright (c) 2014, Nicola Pezzotti (Delft University of Technology)
 * All rights reserved.
 *
@@ -27,8 +26,8 @@
 * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
 * OF SUCH DAMAGE.
-*
 */
+
 
 #include "hdi/utils/cout_log.h"
 #include "hdi/utils/log_helper_functions.h"
