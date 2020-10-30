@@ -53,6 +53,7 @@ bool doKldComputation = false;
 bool doNnpComputation = false;
 bool doVisualisation = false;
 bool doLabels = false;
+std::string runtimeFileName;
 
 // Timer values
 float dataLoadingTime = 0.f;
@@ -89,6 +90,7 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("vis", "Run the OpenGL visualization", cxxopts::value<bool>())
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
     ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
+    ("txt", "Values output text file", cxxopts::value<std::string>())
     ;
   options.parse_positional({"input", "output", "size", "dims"});
   options.positional_help("<input> <output> <size> <dims>");
@@ -139,6 +141,9 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   }
   if (result.count("lbl")) {
     doLabels = result["lbl"].as<bool>();
+  }
+  if (result.count("txt")) {
+    runtimeFileName = result["txt"].as<std::string>();
   }
 }
 
@@ -207,12 +212,28 @@ int main(int argc, char *argv[]) {
         }
       }
     }
+
+    // Write embedding to file
+    {
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(dataSavingTime);
+      hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
+      hdi::utils::writeBinaryFile(
+        outputFileName,
+        tSNE.getRawEmbedding(),
+        labels,
+        params.n,
+        params.nLowDimensions,
+        doLabels
+      );
+    }
     
     // Compute KL-divergence if requested
+    float kld = 0.f;
     if (doKldComputation) {
       hdi::utils::secureLog(&logger, "\nComputing KL-Divergence...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(kldComputationTime);
-      hdi::utils::secureLogValue(&logger, "  KL Divergence", tSNE.getKLDivergence());
+      kld = tSNE.getKLDivergence();
+      hdi::utils::secureLogValue(&logger, "  KL Divergence", kld);
     } 
     
     // Compute mearest neighbour preservation if requested
@@ -235,18 +256,16 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Output embedding file
-    {
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(dataSavingTime);
-      hdi::utils::secureLog(&logger, "\nWriting embedding to file...");
-      hdi::utils::writeBinaryFile(
-        outputFileName,
-        tSNE.getRawEmbedding(),
-        labels,
-        params.n,
-        params.nLowDimensions,
-        doLabels
-      );
+    // Write runtime to file
+    if (!runtimeFileName.empty()) {
+      hdi::utils::secureLog(&logger, "\nWriting values to file...");
+      std::vector<std::string> values = {
+        "time " + std::to_string(simComputationTime + minComputationTime),
+        "kld " + std::to_string(kld),
+        "simTime " + std::to_string(simComputationTime),
+        "minTime " + std::to_string(minComputationTime)
+      };
+      hdi::utils::writeTextValuesFile(runtimeFileName, values);
     }
 
     // Output computation timings
