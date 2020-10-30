@@ -93,7 +93,7 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, embedding.positionsBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eQij));
       
-      const uint step = 1024;
+      const uint step = 512;
       const uint end = n;
       for (int begin = 0; begin < end; begin += step) {
         program.uniform1ui("begin", begin);
@@ -146,7 +146,7 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, distribution.similaritiesBuffer);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::eKlc));
 
-      const uint step = 1024;
+      const uint step = 512;
       const uint end = n;
       for (int begin = 0; begin < end; begin += step) {
         program.uniform1ui("begin", begin);
