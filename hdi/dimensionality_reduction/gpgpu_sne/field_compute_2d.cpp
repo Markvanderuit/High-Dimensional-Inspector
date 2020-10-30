@@ -264,7 +264,7 @@ namespace hdi::dr {
       std::string("  Field"), \
       std::string("iter ") + std::to_string(iteration) 
       + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
-      + std::string(" - ") + std::to_string(GLtimers[TimerType::eField].lastMicros())
+      + std::string(" - ") + std::to_string(_timers(TimerType::eField).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>())
       + std::string(" \xE6s")
     );
 #endif
