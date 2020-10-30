@@ -43,7 +43,7 @@ using uint = unsigned;
 
 constexpr uint kMax = 192;       // Would not recommend exceeeding this value for 1M+ vector datasets
 constexpr uint nProbe = 12;      // Painfully large memory impact
-constexpr uint nListMult = 4;   // Painfully large memory impact
+constexpr uint nListMult = 1;   // Painfully large memory impact
 
 namespace hdi {
   namespace dr {
@@ -201,7 +201,7 @@ namespace hdi {
         program.uniform1ui("kNeighbours", k);
         program.uniform1f("perplexity", _params.perplexity);
         program.uniform1ui("nIters", 200);
-        program.uniform1f("epsilon", 1e-5);
+        program.uniform1f("epsilon", 1e-4);
 
         // Set buffer bindings
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, tempNeighboursBuffer);
