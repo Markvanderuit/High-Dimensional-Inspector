@@ -40,8 +40,8 @@
  */
 #define LOG_AVG_TIMERS
 #define LOG_LARGE_ALLOCS 
-// #define LOG_FIELD_ITER
-// #define LOG_FIELD_RESIZE
+#define LOG_FIELD_ITER
+#define LOG_FIELD_RESIZE
 
 /**
  * Gradient descent parameters. We use two collections of values. The former (from HDI) provides
@@ -71,7 +71,7 @@
 #define FIELD_FIXED_SIZE 40
 #define FIELD_MIN_SIZE 5
 #define FIELD_PIXEL_RATIO_2D 2.0f
-#define FIELD_PIXEL_RATIO_3D 1.4f
+#define FIELD_PIXEL_RATIO_3D 1.2f
 
 /**
  * Dual hierarchy traversal parameters

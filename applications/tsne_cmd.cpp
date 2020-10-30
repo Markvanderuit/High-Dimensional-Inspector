@@ -270,16 +270,16 @@ int main(int argc, char *argv[]) {
 
     // Output computation timings
     hdi::utils::secureLog(&logger, "\nTimings");
-    hdi::utils::secureLogValue(&logger, "  Data loading (s)", dataLoadingTime);
+    hdi::utils::secureLogValue(&logger, "  Data load (s)", dataLoadingTime);
     hdi::utils::secureLogValue(&logger, "  Similarities (s)", simComputationTime);
-    hdi::utils::secureLogValue(&logger, "  Gradient descent (s)", minComputationTime);
+    hdi::utils::secureLogValue(&logger, "  Minimization (s)", minComputationTime);
     if (doKldComputation) {
       hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
     }
     if (doNnpComputation) {
       hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnpComputationTime);
     }
-    hdi::utils::secureLogValue(&logger, "  Data saving (s)", dataSavingTime);
+    hdi::utils::secureLogValue(&logger, "  Data save (s)", dataSavingTime);
 
     if (doVisualisation) {
       window.enableVsync(true);

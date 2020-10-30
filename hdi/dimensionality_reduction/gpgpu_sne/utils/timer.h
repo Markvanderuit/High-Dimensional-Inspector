@@ -145,17 +145,23 @@ namespace hdi::dr {
     }
   }
 
-#ifdef _WIN32
-  #define LOG_TIMER(logger, name, str) \
-    utils::secureLogValue(logger, \
-      std::string(str) + " average (\xE6s)", \
-      std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
-    );
-#else
-  #define LOG_TIMER(logger, name, str) \
-    utils::secureLogValue(logger, \
-      std::string(str) + " average (\xC2\xB5s)", \
-      std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
-    );
-#endif
+
+#define LOG_TIMER(logger, name, str) \
+  utils::secureLogValue(logger, \
+    std::string(str) + " total (ms)", \
+    std::to_string(_timers(name).template get<GLtimer::ValueType::eTotal, GLtimer::TimeScale::eMillis>()) \
+  );
+// #ifdef _WIN32
+//   #define LOG_TIMER(logger, name, str) \
+//     utils::secureLogValue(logger, \
+//       std::string(str) + " average (\xE6s)", \
+//       std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
+//     );
+// #else
+//   #define LOG_TIMER(logger, name, str) \
+//     utils::secureLogValue(logger, \
+//       std::string(str) + " average (\xC2\xB5s)", \
+//       std::to_string(_timers(name).template get<GLtimer::ValueType::eAverage, GLtimer::TimeScale::eMicros>()) \
+//     );
+// #endif
 }
