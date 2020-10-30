@@ -28,6 +28,7 @@
 * OF SUCH DAMAGE.
 */
 
+#include <iostream> 
 #include <fstream>
 #include <stdexcept>
 #include "hdi/utils/io.h"
@@ -81,6 +82,19 @@ namespace hdi::utils {
       }
     } else {
       ofs.write((char *) data.data(), data.size() * sizeof(float));
+    }
+  }
+
+  
+  void writeTextValuesFile(const std::string &fileName, const std::vector<std::string> &values)
+  {
+    std::ofstream ofs (fileName, std::ios::out);
+    if (!ofs) {
+      throw std::runtime_error("Output file cannot be accessed: " + fileName);
+    }
+
+    for (const auto &v : values) {
+      ofs << v << '\n';
     }
   }
 } // namespace hdi::utils

@@ -61,4 +61,12 @@ namespace hdi::utils {
                        uint n,
                        uint d,
                        bool withLabels = false);
+
+  /**
+   * writeTextValuesFile
+   * 
+   * Write a text file, storing specified string values. Useful for outputting time/kl divergence.
+   */
+  void writeTextValuesFile(const std::string &fileName,
+                           const std::vector<std::string> &values);
 } // namespace hdi::utils
