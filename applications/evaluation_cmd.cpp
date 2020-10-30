@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <numeric>
 #include <string>
 #include <glm/glm.hpp>
@@ -56,6 +57,7 @@ hdi::dr::TsneParameters params;
 bool doKlDivergence = false;
 bool doNNPreservation = false;
 bool doLabels = false;
+std::string runtimeFileName;
 
 // Timer values
 float dataLoadingTime = 0.f;
@@ -79,6 +81,7 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
     ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
+    ("txt", "Values output text file", cxxopts::value<std::string>())
     ;
   options.parse_positional({"hinput", "linput", "size", "hdims", "ldims"});
   options.positional_help("<hinput> <linput> <size> <hdims> <ldims>");
@@ -114,6 +117,9 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   }
   if (result.count("lbl")) {
     doLabels = result["lbl"].as<bool>();
+  }
+  if (result.count("txt")) {
+    runtimeFileName = result["txt"].as<std::string>();
   }
 }
 
@@ -196,6 +202,11 @@ int main(int argc, char *argv[]) {
       glNamedBufferStorage(positionsBuffer, buffer.size() * sizeof(vec), buffer.data(), 0);
     }
 
+    std::ofstream ofs;
+    if (!runtimeFileName.empty()) {
+      ofs = std::ofstream(runtimeFileName, std::ios::out);
+    }
+
     // Compute KL-divergence
     if (doKlDivergence) {
       hdi::utils::secureLog(&logger, "\nComputing KL-divergence...");
@@ -207,6 +218,9 @@ int main(int argc, char *argv[]) {
         kld = kld3dCompute.compute({positionsBuffer}, hdCompute.buffers(), params);
       }
       hdi::utils::secureLogValue(&logger, "  KL Divergence", kld);
+      if (ofs) {
+        ofs << "kld " << std::to_string(kld) << '\n';
+      }
     }
 
     // Compute mearest neighbour preservation if requested
@@ -227,6 +241,10 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < precision.size(); i++) {
         std::cout << precision[i] << ", " << recall[i] << '\n';
       }
+    }
+
+    if (ofs) {
+      ofs.close();
     }
 
     // Output computation timings
