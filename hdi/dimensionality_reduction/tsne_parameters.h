@@ -31,6 +31,7 @@
 */
 
 #pragma once
+#include "hdi/dimensionality_reduction/gpgpu_sne/constants.h"
 
 namespace hdi::dr {
   class TsneParameters {
@@ -63,8 +64,8 @@ namespace hdi::dr {
     // Gradient descent parameters
     float minimumGain = 0.1f;
     float eta = 200.f;
-    float momentum = 0.2f;
-    float finalMomentum = 0.5f;
-    float exaggerationFactor = 4.f;
+    float momentum = GRAD_MOMENTUM;
+    float finalMomentum = GRAD_FINAL_MOMENTUM;
+    float exaggerationFactor = GRAD_EXAGGERATION_FACTOR;
   };
 } // hdi::dr

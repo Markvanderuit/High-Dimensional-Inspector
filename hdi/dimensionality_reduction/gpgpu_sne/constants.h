@@ -44,6 +44,22 @@
 // #define LOG_FIELD_RESIZE
 
 /**
+ * Gradient descent parameters. We use two collections of values. The former (from HDI) provides
+ * better results for small datasets such as MNIST/Fashion-MNIST, while the latter (from CUDA-tSNE) 
+ * does the same for much larger datasets such as ImageNet and Word2Vec.
+ */
+#define USE_CUDA_GRAD_PARAMS
+#ifndef USE_CUDA_GRAD_PARAMS
+#define GRAD_MOMENTUM 0.2f
+#define GRAD_FINAL_MOMENTUM 0.5f
+#define GRAD_EXAGGERATION_FACTOR 4.f
+#else
+#define GRAD_MOMENTUM 0.5f
+#define GRAD_FINAL_MOMENTUM 0.8f
+#define GRAD_EXAGGERATION_FACTOR 12.f
+#endif
+
+/**
  * Field resolution parameters. The size of the field and its growth over time heavily
  * influence the accuracy and runtime of the method. 2.0 is a good ratio for 2D, but
  * far too large for 3D as the field just becomes larger than N quickly. Keeping size 
@@ -55,7 +71,7 @@
 #define FIELD_FIXED_SIZE 40
 #define FIELD_MIN_SIZE 5
 #define FIELD_PIXEL_RATIO_2D 2.0f
-#define FIELD_PIXEL_RATIO_3D 1.2f
+#define FIELD_PIXEL_RATIO_3D 1.4f
 
 /**
  * Dual hierarchy traversal parameters
