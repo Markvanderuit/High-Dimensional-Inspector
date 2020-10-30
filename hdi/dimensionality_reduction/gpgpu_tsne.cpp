@@ -52,8 +52,17 @@ namespace hdi::dr {
 
   void GpgpuTSNE::init(const std::vector<float>& data, TsneParameters params)
   {
-    utils::secureLog(_logger, "Initializing tSNE...");
     _params = params;
+
+    // Output params
+    utils::secureLog(_logger, "Initializing tSNE...");
+    utils::secureLogValue(_logger, "  Points", _params.n);
+    utils::secureLogValue(_logger, "  High dimensions", _params.nHighDimensions);
+    utils::secureLogValue(_logger, "  Low dimensions", _params.nLowDimensions);
+    utils::secureLogValue(_logger, "  Perplexity", _params.perplexity);
+    utils::secureLogValue(_logger, "  Iterations", _params.iterations);
+    utils::secureLogValue(_logger, "  Theta (single hierarchy)", _params.singleHierarchyTheta);
+    utils::secureLogValue(_logger, "  Theta (dual hierarchy)", _params.dualHierarchyTheta);
 
     hdi::utils::secureLog(_logger, "Computing joint probability distribution");  
     _gpgpuHdCompute.init(_params);
