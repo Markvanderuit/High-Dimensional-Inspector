@@ -188,12 +188,6 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::ePairsOutputHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsLeafHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
 
-      // Stored cpu-side so we can read them back quickly. Copy over when there is time left.
-      glNamedBufferStorage(_buffers(BufferType::ePairsInputHeadReadback), 
-        sizeof(glm::uvec4), glm::value_ptr(dispatch), GL_CLIENT_STORAGE_BIT);
-      glNamedBufferStorage(_buffers(BufferType::ePairsOutputHeadReadback), 
-        sizeof(glm::uvec4), glm::value_ptr(dispatch), GL_CLIENT_STORAGE_BIT);
-
       // Init BufferType::ePairsInit to initialize hierarchy traversal starting node pairs
       {
         // Start levels for the field/embedding hierarchies
@@ -346,8 +340,12 @@ namespace hdi::dr {
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
          static_cast<int>(fieldBvhLayout.nLvls) < DUAL_BVH_LVL_DIFFERENCE; // Trees within certain depth of each other  
     if (fieldBvhActive) {
-        _fieldBvh.compute(iteration, fieldBvhLayout, 
-          _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
+      _fieldBvh.compute(iteration, fieldBvhLayout, 
+        _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
+      if (_fieldBvh.didResize()) {
+        _fieldBVHRenderer.destr();
+        _fieldBVHRenderer.init(_fieldBvh, boundsBuffer);
+      }
     }
 
     // Perform field computation
@@ -576,8 +574,6 @@ namespace hdi::dr {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, boundsBuffer);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::ePixels));
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::ePixelsHead));
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _buffers(BufferType::ePairsLeaf));
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, _buffers(BufferType::ePairsLeafHead));
 
     // Bind output image
     glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -669,7 +665,6 @@ namespace hdi::dr {
         // Swap input and output queue buffer handles
         std::swap(_buffers(BufferType::ePairsInput), _buffers(BufferType::ePairsOutput));
         std::swap(_buffers(BufferType::ePairsInputHead), _buffers(BufferType::ePairsOutputHead));
-        std::swap(_buffers(BufferType::ePairsInputHeadReadback), _buffers(BufferType::ePairsOutputHeadReadback));
       }
 
       // Compute forces in the remaining large leaves

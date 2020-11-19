@@ -95,8 +95,6 @@ namespace hdi::dr {
       ePairsOutput,
       ePairsInputHead,
       ePairsOutputHead,
-      ePairsInputHeadReadback,
-      ePairsOutputHeadReadback,
 
       Length
     };
@@ -149,7 +147,7 @@ namespace hdi::dr {
     
     // Subcomponents for the debug renderer
     dbg::FieldRenderer<3> _fieldRenderer;
-    dbg::EmbeddingBVHRenderer _embeddingBVHRenderer;
+    dbg::EmbeddingBVHRenderer<3> _embeddingBVHRenderer;
     dbg::FieldBVHRenderer<3> _fieldBVHRenderer;
 
     // Misc

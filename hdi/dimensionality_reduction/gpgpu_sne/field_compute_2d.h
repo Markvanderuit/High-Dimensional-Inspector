@@ -38,7 +38,10 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
 #include "hdi/debug/renderer/field.hpp"
+#include "hdi/debug/renderer/embedding_bvh.hpp" 
+#include "hdi/debug/renderer/field_bvh.hpp" 
 
 namespace hdi::dr {
   /**
@@ -47,7 +50,7 @@ namespace hdi::dr {
    * Class which computes the scalar and vector field components required for the tSNE 
    * minimization fully on the GPU. Manages subclasses and subcomponents such as tree
    * structures. Can perform full computation in O(p N) time, single tree approximation
-   * in O(p log N) time. Dual tree approximation is not currently available.
+   * in O(p log N) time, dual hierarchy approximation in O(log P log N) time.
    */
   class Field2dCompute {
     using Bounds = AlignedBounds<2>;
@@ -59,16 +62,16 @@ namespace hdi::dr {
     ~Field2dCompute();
 
     void init(const TsneParameters& params,
-                    GLuint position_buff,
-                    GLuint bounds_buff,
+                    GLuint positionBuffer,
+                    GLuint boundsBuffer,
                     unsigned n);
     void destr();
     void compute(uvec dims, 
                  unsigned iteration, 
                  unsigned n,
-                 GLuint position_buff, 
-                 GLuint bounds_buff, 
-                 GLuint interp_buff);
+                 GLuint positionBuffer, 
+                 GLuint boundsBuffer, 
+                 GLuint interpBuffer);
 
   private:
     enum class BufferType {
@@ -78,6 +81,20 @@ namespace hdi::dr {
       ePixels,
       ePixelsHead,
       ePixelsHeadReadback,
+      
+      // Queue + head with default list of node pairs for start of hierarchy traversal
+      ePairsInit,
+      ePairsInitHead,
+      
+      // Queue + head for list of node pairs which form large leaves during traversal
+      ePairsLeaf,
+      ePairsLeafHead,
+
+      // Queues + heads for list of node pairs for iterative traversal of hierarchy
+      ePairsInput,
+      ePairsOutput,
+      ePairsInputHead,
+      ePairsOutputHead,
 
       Length
     };
@@ -85,9 +102,17 @@ namespace hdi::dr {
     enum class ProgramType {
       eDispatch,
       eStencil,
-      ePixels,
       eField,
       eInterp,
+
+      // Single hierarchy program
+      ePixels,
+      eFieldBvh,
+
+      // Dual hierarchy programs
+      eFieldDual,
+      eFieldDualLeaf,
+      ePush,
 
       Length
     };
@@ -95,6 +120,7 @@ namespace hdi::dr {
     enum class TimerType {
       eStencil, 
       eField, 
+      ePush,
       eInterp,
       
       Length
@@ -108,7 +134,8 @@ namespace hdi::dr {
     };
 
     // BVH Subcomponent
-    EmbeddingBVH<2> _bvh;
+    EmbeddingBVH<2> _embeddingBvh;
+    FieldBVH<2> _fieldBvh;
 
     // Pretty much all program, buffer and texture handles
     EnumArray<BufferType, GLuint> _buffers;
@@ -118,16 +145,21 @@ namespace hdi::dr {
 
     // Subcomponent for debug renderer
     dbg::FieldRenderer<2> _fieldRenderer;
+    dbg::EmbeddingBVHRenderer<2> _embeddingBVHRenderer;
+    dbg::FieldBVHRenderer<2> _fieldBVHRenderer;
 
     // Misc
     bool _isInit;
     uvec _dims;
     TsneParameters _params;
     utils::AbstractLog* _logger;
-    bool _useBvh;
+    bool _useEmbeddingBvh;
+    bool _useFieldBvh;
     GLuint _stencilVao;
     GLuint _stencilFbo;
     uint _bvhRebuildIters;
+    uint _startLvl;
+    size_t _pairsInitSize;
 
   private:
     // Functions called by Field2dCompute::compute()
@@ -142,6 +174,10 @@ namespace hdi::dr {
                          unsigned iteration,
                          GLuint positionsBuffer,
                          GLuint boundsBuffer);
+    void computeFieldDualBvh(unsigned n,
+                             unsigned iteration,
+                             GLuint positionsBuffer,
+                             GLuint boundsBuffer);
     void queryField(unsigned n,
                     GLuint positionsBuffer,
                     GLuint boundsBuffer,
