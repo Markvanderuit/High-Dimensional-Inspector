@@ -52,8 +52,6 @@ static void mouseScrollCallback(GLFWwindow* window, double x_scroll, double y_sc
 }
 
 namespace hdi::dbg {
-  InputManager * InputManager::_currentManager = nullptr;
-
   InputComponent::InputComponent(bool isInit)
   : _isInit(isInit)
   {
@@ -71,18 +69,18 @@ namespace hdi::dbg {
   
   void InputComponent::init()
   {
-    auto *ptr = InputManager::currentManager();
-    if (ptr) {
-      ptr->addInputComponent(this);
+    auto &manager = InputManager::instance();
+    if (manager.isInit()) {
+      manager.addInputComponent(this);
       _isInit = true;
     }
   }
 
   void InputComponent::destr()
   {
-    auto *ptr = InputManager::currentManager();
-    if (_isInit && ptr) {
-      ptr->removeInputComponent(this);
+    auto &manager = InputManager::instance();
+    if (manager.isInit()) {
+      manager.removeInputComponent(this);
     }
     _isInit = false;
   }
@@ -107,8 +105,22 @@ namespace hdi::dbg {
     // ...
   }
 
-  InputManager::InputManager(const Window &window)
+  InputManager::InputManager()
+  : _isInit(false)
+  {  }
+
+  InputManager::~InputManager()
   {
+    if (_isInit) {
+      destr();
+    }
+  }
+  
+  void InputManager::init(const Window &window) {
+    if (_isInit) {
+      return;
+    }
+
     // Register input callbacks
     GLFWwindow *handle = (GLFWwindow *) window.handle();
     glfwSetWindowUserPointer(handle, this);
@@ -125,17 +137,22 @@ namespace hdi::dbg {
     ImGui_ImplGlfw_InitForOpenGL((GLFWwindow *) window.handle(), true);
     ImGui_ImplOpenGL3_Init(version);
 
-    _currentManager = this;
+    _isInit = true;
   }
+  
+  void InputManager::destr() {
+    if (!_isInit) {
+      return;
+    }
 
-  InputManager::~InputManager()
-  {
+    // Shut down imgui
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-    _currentManager = nullptr;
-  }
 
+    _isInit = false;
+  }
+  
   void InputManager::processInputs() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -187,10 +204,5 @@ namespace hdi::dbg {
     for (auto &ptr : _components) {
       ptr->mouseScrollInput(xScroll, yScroll);
     }
-  }
-
-  InputManager * InputManager::currentManager()
-  {
-    return _currentManager;
   }
 }

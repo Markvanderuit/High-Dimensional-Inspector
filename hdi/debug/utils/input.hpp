@@ -25,8 +25,9 @@ namespace hdi::dbg {
 
   class InputManager {
   public:
-    InputManager(const Window &window);
-    ~InputManager();
+    // Lifetime management
+    void init(const Window &window);
+    void destr();
 
     // Copy constr/operator is explicitly deleted
     InputManager(const InputManager&) = delete;
@@ -54,11 +55,20 @@ namespace hdi::dbg {
     void forwardMouseScrollInput(double xScroll, double yScroll);
 
     // Static access
-    static InputManager *currentManager();
+    static auto& instance() {
+      static InputManager m;
+      return m;
+    }
+
+    bool isInit() const {
+      return _isInit;
+    }
 
   private:
+    InputManager();
+    ~InputManager();
+    
+    bool _isInit;
     std::set<InputComponent *> _components;
-
-    static InputManager *_currentManager;
   };
 }
