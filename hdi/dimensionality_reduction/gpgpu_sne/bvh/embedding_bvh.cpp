@@ -38,6 +38,7 @@ namespace hdi::dr {
   template <unsigned D>
   EmbeddingBVH<D>::EmbeddingBVH()
   : _isInit(false),
+    _iteration(0),
     _logger(nullptr) { }
 
   template <unsigned D>
@@ -141,9 +142,12 @@ namespace hdi::dr {
 
   template <unsigned D>
   void EmbeddingBVH<D>::compute(bool rebuild, 
-                       unsigned iteration,
-                       GLuint posBuffer,
-                       GLuint boundsBuffer) {
+                                GLuint posBuffer,
+                                GLuint boundsBuffer) {
+    if (rebuild) {
+      _iteration++;
+    }
+
     constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
     constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
 
@@ -303,7 +307,7 @@ namespace hdi::dr {
 
   template <unsigned D>
   void EmbeddingBVH<D>::logTimerAverage() const {
-    utils::secureLog(_logger, "\nPointBVH building");
+    utils::secureLogValue(_logger, "\nPointBVH builds", _iteration);
     LOG_TIMER(_logger, TimerType::eMorton, "  Morton");
     LOG_TIMER(_logger, TimerType::eSort, "  Sorting");
     LOG_TIMER(_logger, TimerType::eSubdiv, "  Subdiv");

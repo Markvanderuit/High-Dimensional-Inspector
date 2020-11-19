@@ -82,7 +82,6 @@ namespace hdi::dr {
               GLuint boundsBuffer);         // Handle to embedding bounds buffer
     void destr();
     void compute(bool rebuild,              // Rebuild full tree on iteration?
-                 unsigned iteration,        // Iteration of gradient descent
                  GLuint posBuffer,          // Handle to embedding positions buffer
                  GLuint boundsBuffer);      // Handle to embedding bounds buffer
 
@@ -127,6 +126,7 @@ namespace hdi::dr {
     };
 
     bool _isInit;
+    uint _iteration;
     Layout _layout;
     TsneParameters _params;
     InteropPairSorter _sorter;
