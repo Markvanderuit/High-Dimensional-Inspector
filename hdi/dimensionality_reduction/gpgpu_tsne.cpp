@@ -63,6 +63,7 @@ namespace hdi::dr {
     utils::secureLogValue(_logger, "  Iterations", _params.iterations);
     utils::secureLogValue(_logger, "  Theta (single hierarchy)", _params.singleHierarchyTheta);
     utils::secureLogValue(_logger, "  Theta (dual hierarchy)", _params.dualHierarchyTheta);
+    utils::secureLogValue(_logger, "  Field scaling", _params.nLowDimensions == 2 ? _params.texture2dScaling : _params.texture3dScaling);
 
     hdi::utils::secureLog(_logger, "Computing joint probability distribution");  
     _gpgpuHdCompute.init(_params);

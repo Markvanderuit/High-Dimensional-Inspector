@@ -55,6 +55,8 @@ namespace hdi::dr {
     // Barnes-Hut approximation parameters
     float singleHierarchyTheta = 0.5f;
     float dualHierarchyTheta = 0.5f;
+    float texture2dScaling = 2.f;
+    float texture3dScaling = 1.2f;
 
     // Gradient descent switching iterations
     uint momentumSwitchIter = 250;

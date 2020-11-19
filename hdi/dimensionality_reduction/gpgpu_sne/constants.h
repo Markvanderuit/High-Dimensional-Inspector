@@ -48,7 +48,7 @@
  * better results for small datasets such as MNIST/Fashion-MNIST, while the latter (from CUDA-tSNE) 
  * does the same for much larger datasets such as ImageNet and Word2Vec.
  */
-#define USE_CUDA_GRAD_PARAMS
+// #define USE_CUDA_GRAD_PARAMS
 #ifndef USE_CUDA_GRAD_PARAMS
 #define GRAD_MOMENTUM 0.2f
 #define GRAD_FINAL_MOMENTUM 0.5f
@@ -70,8 +70,6 @@
 #define FIELD_DO_ADAPTIVE_RESOLUTION
 #define FIELD_FIXED_SIZE 40
 #define FIELD_MIN_SIZE 5
-#define FIELD_PIXEL_RATIO_2D 2.0f
-#define FIELD_PIXEL_RATIO_3D 1.2f
 
 /**
  * Dual hierarchy traversal parameters

@@ -150,6 +150,13 @@ namespace hdi::dr {
       utils::secureLogValue(_logger, "   GpgpuSne", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     }
 
+    // Initialize embedding renderer subcomponent
+    _embeddingRenderer.init(
+      n, 
+      _buffers(BufferType::ePosition), 
+      _buffers(BufferType::eBounds)
+    );
+
     // Initialize field computation subcomponent
     if constexpr (D == 2) {
       _field2dCompute.setLogger(_logger);
@@ -158,13 +165,6 @@ namespace hdi::dr {
       _field3dCompute.setLogger(_logger);
       _field3dCompute.init(params, _buffers(BufferType::ePosition), _buffers(BufferType::eBounds), n);
     }
-
-    // Initialize embedding renderer subcomponent
-    _embeddingRenderer.init(
-      n, 
-      _buffers(BufferType::ePosition), 
-      _buffers(BufferType::eBounds)
-    );
 
     glCreateTimers(_timers.size(), _timers.data());
     glAssert("GpgpuSneCompute::init()");
@@ -256,7 +256,7 @@ namespace hdi::dr {
       // Determine field texture dimensions
 #ifdef FIELD_DO_ADAPTIVE_RESOLUTION
       const vec range = _bounds.range();
-      const float ratio = D == 2 ? FIELD_PIXEL_RATIO_2D : FIELD_PIXEL_RATIO_3D;
+      const float ratio = D == 2 ?  _params.texture2dScaling : _params.texture3dScaling;
       const uvec dims = dr::max(uvec(range * ratio), uvec(FIELD_MIN_SIZE));
 #else
       const uvec dims = uvec(FIELD_FIXED_SIZE);
