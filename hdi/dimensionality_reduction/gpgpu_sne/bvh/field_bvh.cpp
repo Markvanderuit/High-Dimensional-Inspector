@@ -38,6 +38,7 @@ namespace hdi::dr {
   template <unsigned D>
   FieldBVH<D>::FieldBVH()
   : _isInit(false),
+    _iteration(0),
     _didResize(false),
     _logger(nullptr) { }
 
@@ -137,11 +138,15 @@ namespace hdi::dr {
   }
 
   template <unsigned D>
-  void FieldBVH<D>::compute(unsigned iteration,     
+  void FieldBVH<D>::compute(bool rebuild,
                             const FieldBVH<D>::Layout &layout, 
                             GLuint pixelBuffer,       
                             GLuint pixelHeadBuffer,
                             GLuint boundsBuffer) {
+    if (rebuild) {
+      _iteration++;
+    }
+
     _layout = layout;
     _didResize = false;
 
@@ -150,9 +155,9 @@ namespace hdi::dr {
 
     // Available memory for the tree becomes too small as the nr. of pixels to compute keeps
     // growing aggressively throughout the gradient descent
-    if (_reservedNodes < _layout.nNodes) {
+    if (rebuild && _reservedNodes < _layout.nNodes) {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-      utils::secureLogValue(_logger, "   Expanding FieldBVH on iter", std::to_string(iteration));
+      utils::secureLog(_logger, "   Expanding FieldBVH");
 
       // New 'reserve' layout is nearest larger power of 2, so plenty of space for now
       uvec newDims = glm::pow(vec(2), glm::ceil(glm::log(vec(_layout.dims)) / vec(glm::log(2)))); 
@@ -192,10 +197,10 @@ namespace hdi::dr {
 
       _didResize = true;
       utils::secureLogValue(_logger, "   Expanded FieldBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
-    }
+    } // rebuild
     
     // Generate morton codes
-    {
+    if (rebuild) {
       auto &timer = _timers(TimerType::eMorton);
       timer.tick();
 
@@ -216,12 +221,12 @@ namespace hdi::dr {
 
       glAssert("FieldBVH::compute::morton()");
       timer.tock();
-    }
+    } // rebuild
 
     // Delegate sorting of position indices over morton codes to the CUDA CUB library
     // This means we pay a cost for OpenGL-CUDA interopability, unfortunately.
     // Afterwards generate sorted list of positions based on sorted indices
-    {
+    if (rebuild) {
       auto &timer = _timers(TimerType::eSort);
       timer.tick();
 
@@ -240,10 +245,10 @@ namespace hdi::dr {
 
       glAssert("FieldBVH::compute::sort()");
       timer.tock();
-    }
+    } // rebuild
 
     // Perform subdivision
-    {
+    if (rebuild) {
       auto &timer = _timers(TimerType::eSubdiv);
       timer.tick();
 
@@ -280,7 +285,7 @@ namespace hdi::dr {
 
       glAssert("FieldBVH::compute::subdiv()");
       timer.tock();
-    }
+    } // rebuild
 
     // Compute leaf data
     {
@@ -326,7 +331,7 @@ namespace hdi::dr {
       timer.tock();
     }
 
-    // Compute auxiliary data
+    // Compute auxiliary data, eg. bounding boxes
     {
       auto &timer = _timers(TimerType::eBbox);
       timer.tick();
@@ -362,7 +367,7 @@ namespace hdi::dr {
 
   template <unsigned D>
   void FieldBVH<D>::logTimerAverage() const {
-    utils::secureLog(_logger, "\nPixelBVH building");
+    utils::secureLogValue(_logger, "\nPixelBVH builds", _iteration);
     LOG_TIMER(_logger, TimerType::eMorton, "  Morton");
     LOG_TIMER(_logger, TimerType::eSort, "  Sorting");
     LOG_TIMER(_logger, TimerType::eSubdiv, "  Subdiv");

@@ -92,7 +92,7 @@ namespace hdi::dr {
               GLuint pixelBuffer,           // Handle to pixel flags queue buffer
               GLuint pixelHeadBuffer);      // Hanndle to pixel flags queue head
     void destr();
-    void compute(unsigned iteration,        // Iteration of gradient descent
+    void compute(bool rebuild,              // Rebuild full tree on iteration?
                  const Layout &layout,      // Updated layout given new set of pixels
                  GLuint pixelBuffer,        // Handle to pixel flags queue buffer
                  GLuint pixelHeadBuffer,    // Hanndle to pixel flags queue head
@@ -139,6 +139,7 @@ namespace hdi::dr {
     };
 
     bool _isInit;
+    uint _iteration;
     bool _didResize;
     Layout _layout;
     uint _reservedNodes;
