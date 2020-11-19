@@ -31,12 +31,14 @@
 #include "hdi/utils/log_helper_functions.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh_shaders_2d.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh_shaders_3d.h"
 
 namespace hdi::dr {
   template <unsigned D>
   FieldBVH<D>::FieldBVH()
   : _isInit(false),
+    _didResize(false),
     _logger(nullptr) { }
 
   template <unsigned D>
@@ -63,12 +65,21 @@ namespace hdi::dr {
         program.create();
       }
 
-      _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
-      _programs(ProgramType::ePixelSorted).addShader(COMPUTE, _3d::pixel_sorted_src);
-      _programs(ProgramType::eSubdiv).addShader(COMPUTE, _3d::subdiv_src);
-      _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _3d::divide_dispatch_src);
-      _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
-      _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
+      if constexpr (D == 2) {
+        _programs(ProgramType::eMorton).addShader(COMPUTE, _2d::morton_src);
+        _programs(ProgramType::ePixelSorted).addShader(COMPUTE, _2d::pixel_sorted_src);
+        _programs(ProgramType::eSubdiv).addShader(COMPUTE, _2d::subdiv_src);
+        _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _2d::divide_dispatch_src);
+        _programs(ProgramType::eLeaf).addShader(COMPUTE, _2d::leaf_src);
+        _programs(ProgramType::eBbox).addShader(COMPUTE, _2d::bbox_src);
+      } else if constexpr (D == 3) {
+        _programs(ProgramType::eMorton).addShader(COMPUTE, _3d::morton_src);
+        _programs(ProgramType::ePixelSorted).addShader(COMPUTE, _3d::pixel_sorted_src);
+        _programs(ProgramType::eSubdiv).addShader(COMPUTE, _3d::subdiv_src);
+        _programs(ProgramType::eDivideDispatch).addShader(COMPUTE, _3d::divide_dispatch_src);
+        _programs(ProgramType::eLeaf).addShader(COMPUTE, _3d::leaf_src);
+        _programs(ProgramType::eBbox).addShader(COMPUTE, _3d::bbox_src);
+      }
 
       for (auto &program : _programs) {
         program.build();
@@ -109,6 +120,7 @@ namespace hdi::dr {
     glCreateTimers(_timers.size(), _timers.data());
     glAssert("FieldBVH::init()");
     _isInit = true;
+    _didResize = false;
   }
 
   template <unsigned D>
@@ -121,6 +133,7 @@ namespace hdi::dr {
     glDeleteTimers(_timers.size(), _timers.data());
     glAssert("FieldBVH::destr()");
     _isInit = false;
+    _didResize = false;
   }
 
   template <unsigned D>
@@ -130,6 +143,7 @@ namespace hdi::dr {
                             GLuint pixelHeadBuffer,
                             GLuint boundsBuffer) {
     _layout = layout;
+    _didResize = false;
 
     constexpr uint kNode = D == 2 ? BVH_KNODE_2D : BVH_KNODE_3D;
     constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
@@ -175,7 +189,8 @@ namespace hdi::dr {
         _buffers(BufferType::eIdxSorted), 
         reserveLayout.nPixels
       );
-      
+
+      _didResize = true;
       utils::secureLogValue(_logger, "   Expanded FieldBVH", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     }
     

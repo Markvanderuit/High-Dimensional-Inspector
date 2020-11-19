@@ -36,25 +36,24 @@
 namespace hdi::dr::_2d {
   GLSL(morton_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-    layout(binding = 0, std430) restrict readonly buffer Pixe { ivec3 pixels[]; };
+    layout(binding = 0, std430) restrict readonly buffer Pixe { ivec2 pixels[]; };
     layout(binding = 1, std430) restrict writeonly buffer Mor { uint morton[]; };
     layout(location = 0) uniform uint nPixels;
-    layout(location = 1) uniform uvec3 textureSize;
+    layout(location = 1) uniform uvec2 textureSize;
 
-    uint expandBits10(uint i)  {
-      i = (i * 0x00010001u) & 0xFF0000FFu;
-      i = (i * 0x00000101u) & 0x0F00F00Fu;
-      i = (i * 0x00000011u) & 0xC30C30C3u;
-      i = (i * 0x00000005u) & 0x49249249u;
+    uint expandBits15(uint i) {
+      i = (i | (i << 8u)) & 0x00FF00FFu;
+      i = (i | (i << 4u)) & 0x0F0F0F0Fu;
+      i = (i | (i << 2u)) & 0x33333333u;
+      i = (i | (i << 1u)) & 0x55555555u;
       return i;
     }
 
-    uint mortonCode(vec3 v) {
-      v = clamp(v * 1024.f, 0.f, 1023.f);
-      uint x = expandBits10(uint(v.x));
-      uint y = expandBits10(uint(v.y));
-      uint z = expandBits10(uint(v.z));
-      return x * 4u + y * 2u + z;
+    uint mortonCode(vec2 v) {
+      v = clamp(v * 32768.f, 0.f, 32767.f);
+      uint x = expandBits15(uint(v.x));
+      uint y = expandBits15(uint(v.y));
+      return x | (y << 1);
     }
 
     void main() {
@@ -64,7 +63,7 @@ namespace hdi::dr::_2d {
       }
 
       // Normalize pixel position to [0, 1]
-      vec3 pixel = (vec3(pixels[i]) + 0.5) / vec3(textureSize);
+      vec2 pixel = (vec2(pixels[i]) + 0.5) / vec2(textureSize);
       
       // Compute and store morton code
       morton[i] = mortonCode(pixel);
@@ -74,8 +73,8 @@ namespace hdi::dr::_2d {
   GLSL(pixel_sorted_src, 450,
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
     layout(binding = 0, std430) restrict readonly buffer Index { uint indices[]; };
-    layout(binding = 1, std430) restrict readonly buffer Pixel { ivec3 pixelsIn[]; };
-    layout(binding = 2, std430) restrict writeonly buffer Pixe { ivec3 pixelsOut[]; };
+    layout(binding = 1, std430) restrict readonly buffer Pixel { ivec2 pixelsIn[]; };
+    layout(binding = 2, std430) restrict writeonly buffer Pixe { ivec2 pixelsOut[]; };
     layout(location = 0) uniform uint nPixels;
 
     void main() {
@@ -141,8 +140,6 @@ namespace hdi::dr::_2d {
         }
       } while (step > 1);
 
-      // split = first + (last - first) / 2; // blunt halfway split for testing
-
       return split;
     }
 
@@ -200,7 +197,9 @@ namespace hdi::dr::_2d {
       node1Buffer[j] = vec4(0, 0, 0, begin);
 
       // Yeet node id on leaf queue if... well if they are a leaf node
-      if (isBottom || mass == 1) {
+      // if (isBottom) {
+      // }
+      if ((isBottom && mass > 0) || mass == 1) {
         leafBuffer[atomicAdd(leafHead, 1)] = j;
       }
     }
@@ -213,10 +212,10 @@ namespace hdi::dr::_2d {
     };
     
     struct Bounds {
-      vec3 min;
-      vec3 max;
-      vec3 range;
-      vec3 invRange;
+      vec2 min;
+      vec2 max;
+      vec2 range;
+      vec2 invRange;
     };
 
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -224,15 +223,15 @@ namespace hdi::dr::_2d {
     // Buffer bindings
     layout(binding = 0, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
     layout(binding = 1, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
-    layout(binding = 2, std430) restrict buffer Field { vec4 fieldBuffer[]; };
-    layout(binding = 3, std430) restrict readonly buffer Posi { ivec3 pixelsBuffer[]; };
+    layout(binding = 2, std430) restrict buffer Field { vec3 fieldBuffer[]; };
+    layout(binding = 3, std430) restrict readonly buffer Posi { ivec2 pixelsBuffer[]; };
     layout(binding = 4, std430) restrict readonly buffer Leaf { uint leafBuffer[]; };
     layout(binding = 5, std430) restrict readonly buffer Head { uint leafHead; };
     layout(binding = 6, std430) restrict readonly buffer Boun { Bounds bounds; };
 
     // Uniforms
     layout(location = 0) uniform uint nPixels;
-    layout(location = 1) uniform uvec3 textureSize;
+    layout(location = 1) uniform uvec2 textureSize;
 
     Node read(uint i) {
       vec4 node0 = node0Buffer[i];
@@ -245,7 +244,7 @@ namespace hdi::dr::_2d {
     void write(uint i, Node node) {
       node0Buffer[i] = node.node0;
       node1Buffer[i] = node.node1;
-      fieldBuffer[i] = vec4(0); // Cleared
+      fieldBuffer[i] = vec3(0); // Cleared
     }
 
     void main() {
@@ -263,23 +262,23 @@ namespace hdi::dr::_2d {
       const uint end = begin + uint(node.node0.w);
 
       // Size of a leaf's bbox is always one pixel/voxel
-      vec3 bbox = bounds.range / vec3(textureSize);
+      vec2 bbox = bounds.range / vec2(textureSize);
 
       // Grab data for first pixel in range
-      vec3 pos = (vec3(pixelsBuffer[begin]) + 0.5) / vec3(textureSize)
+      vec2 pos = (vec2(pixelsBuffer[begin]) + 0.5) / vec2(textureSize)
                * bounds.range + bounds.min;
-      vec3 maxb = pos + 0.5 * bbox;
-      node.node0.xyz = pos - 0.5 * bbox;
+      vec2 maxb = pos + 0.5 * bbox;
+      node.node0.xy = pos - 0.5 * bbox;
 
       // Iterate over rest of pixels in range. 
-      // Extremely likely to be skipped, as tree depth is set to match image pyramid
+      // Extremely likely to be skipped, as tree depth is set to match image, so leaf = 1 pixel
       for (uint k = begin + 1; k < end; k++) {
-        pos = (vec3(pixelsBuffer[k]) + 0.5) / vec3(textureSize)
+        pos = (vec2(pixelsBuffer[k]) + 0.5) / vec2(textureSize)
             * bounds.range + bounds.min;
         maxb = max(maxb, pos + 0.5 * bbox);
-        node.node0.xyz = min(node.node0.xyz, pos - 0.5 * bbox);
+        node.node0.xy = min(node.node0.xy, pos - 0.5 * bbox);
       }
-      node.node1.xyz = maxb - node.node0.xyz; // store extent of bounding box, not maximum
+      node.node1.xy = maxb - node.node0.xy; // store extent of bounding box, not maximum
 
       write(i, node);
     }
@@ -296,7 +295,7 @@ namespace hdi::dr::_2d {
     // Buffer bindings
     layout(binding = 0, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
     layout(binding = 1, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
-    layout(binding = 2, std430) restrict buffer Field { vec4 fieldBuffer[]; };
+    layout(binding = 2, std430) restrict buffer Field { vec3 fieldBuffer[]; };
 
     // Uniforms
     layout(location = 0) uniform uint rangeBegin;
@@ -318,7 +317,7 @@ namespace hdi::dr::_2d {
     void write(uint i, Node node) {
       node0Buffer[i] = node.node0;
       node1Buffer[i] = node.node1;
-      fieldBuffer[i] = vec4(0); // Cleared
+      fieldBuffer[i] = vec3(0); // Cleared
     }
 
     Node reduce(Node l, Node r) {
@@ -330,10 +329,11 @@ namespace hdi::dr::_2d {
 
       float mass = l.node0.w + r.node0.w;
       float begin = min(l.node1.w, r.node1.w);
-      vec3 minb = min(l.node0.xyz, r.node0.xyz);
-      vec3 diam = max(l.node1.xyz + l.node0.xyz, r.node1.xyz + r.node0.xyz) - minb;
+      vec2 minb = min(l.node0.xy, r.node0.xy);
+      vec2 maxb = max(l.node1.xy + l.node0.xy, r.node1.xy + r.node0.xy);
+      vec2 diam = maxb - minb;
 
-      return Node(vec4(minb, mass), vec4(diam, begin));
+      return Node(vec4(minb, 0, mass), vec4(diam, 0, begin));
     }
 
     void main() {

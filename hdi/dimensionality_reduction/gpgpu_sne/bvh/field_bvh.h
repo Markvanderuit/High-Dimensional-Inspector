@@ -139,6 +139,7 @@ namespace hdi::dr {
     };
 
     bool _isInit;
+    bool _didResize;
     Layout _layout;
     uint _reservedNodes;
     TsneParameters _params;
@@ -169,5 +170,9 @@ namespace hdi::dr {
     }
     
     void logTimerAverage() const;
+
+    bool didResize() const {
+      return _didResize;
+    }
   };
 }
