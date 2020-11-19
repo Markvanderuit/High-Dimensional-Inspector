@@ -4,10 +4,12 @@
 #include <glm/glm.hpp>
 #include "hdi/data/shader.h"
 #include "hdi/debug/renderer/renderer.hpp"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/types.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/utils/enum.h"
 
 namespace hdi::dbg {
   template <unsigned D>
-  class EmbeddingRenderer : private RenderComponent {
+  class EmbeddingRenderer : public RenderComponent {
   public:
     EmbeddingRenderer();
     ~EmbeddingRenderer();
@@ -19,17 +21,42 @@ namespace hdi::dbg {
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
   private:
+    // Enum values matching to buffers in _buffers array
+    enum class BufferType {
+      eQuadVertices,
+      eQuadUvs,
+      eQuadIndices,
+      
+      Length
+    };
+
+    // Enum values matching to objects in _vertexArrays array
+    enum class VertexArrayType {
+      eQuad,
+
+      Length
+    };
+
+    // Enum values matching to programs in _programs array
+    enum class ProgramType {
+      eQuad,
+
+      Length
+    };
+
     bool _hasLabels;
     size_t _n;
     GLuint _embeddingBuffer;
     GLuint _boundsBuffer;
-    GLuint _vertexArray;
-    ShaderProgram _program;
+    dr::EnumArray<BufferType, GLuint> _buffers;
+    dr::EnumArray<VertexArrayType, GLuint> _vertexArrays;
+    dr::EnumArray<ProgramType, ShaderProgram> _programs;
 
     // ImGui default settings
     bool _draw = true;
     bool _drawLabels = true;
-    float _pointSize = 4.f;
+    bool _drawGaussian = true;
+    float _quadSize = 0.006f;
     float _pointOpacity = 1.f;
   };
 }

@@ -17,13 +17,15 @@ namespace hdi::dbg {
     FieldBVHRenderer();
     ~FieldBVHRenderer();
 
-    void init(const dr::FieldBVH<3> &bvh, GLuint boundsBuffer);
+    void init(const dr::FieldBVH<D> &bvh, GLuint boundsBuffer);
     void destr();
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
   private:
     // Enum values matching to buffers in _buffers array
     enum class BufferType {
+      eQuadVertices,
+      eQuadIndices,
       eCubeVertices,
       eCubeIndices,
       eFlags,
@@ -34,6 +36,7 @@ namespace hdi::dbg {
 
     // Enum values matching to vertex arrays in _vertexArrays array
     enum class VertexArrayType {
+      eQuad,
       eCube,
       ePoints,
 
@@ -66,13 +69,13 @@ namespace hdi::dbg {
     dr::EnumArray<ProgramType, ShaderProgram> _programs;
 
     // This is gonna bite me, but this whole thing is a hack at this point anyways 
-    const dr::FieldBVH<3> *_bvh;
+    const dr::FieldBVH<D> *_bvh;
     
     // ImGui default settings
     bool _drawCube = false;
     bool _drawBarnesHut = false;
     bool _drawSpecificLevel = false;
-    bool _drawField = true;
+    bool _drawField = false;
     uint _fieldLvl = 0;
     float _fieldDepth = 0.5f;
     ImVec2 _fieldDims = ImVec2(0, 0);

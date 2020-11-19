@@ -1,112 +1,32 @@
+#include <array>
 #include <iostream>
 #include <imgui.h>
 #include "hdi/debug/renderer/embedding.hpp"
+#include "hdi/debug/renderer/embedding_shaders_2d.h"
+#include "hdi/debug/renderer/embedding_shaders_3d.h"
 #include "hdi/debug/utils/window.hpp"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/assert.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
-namespace _2d {
-  GLSL(vert, 450,
-    struct Bounds {
-      vec2 min;
-      vec2 max;
-      vec2 range;
-      vec2 invRange;
-    };
+namespace {
+  std::array<glm::vec2, 4> quadVertices = {
+    glm::vec2(-0.5, -0.5),  // 0
+    glm::vec2(0.5, -0.5),   // 1
+    glm::vec2(0.5, 0.5),    // 2
+    glm::vec2(-0.5, 0.5)    // 3
+  };
+  
+  std::array<glm::vec2, 4> quadUvs = {
+    glm::vec2(0.f, 0.f),  // 0
+    glm::vec2(1.f, 0.f),  // 1
+    glm::vec2(1.f, 1.f),  // 2
+    glm::vec2(0.f, 1.f)   // 3
+  };
 
-    const vec3 labels[10] = vec3[10](
-      vec3(16, 78, 139),
-      vec3(139, 90, 43),
-      vec3(138, 43, 226),
-      vec3(0, 128, 0),
-      vec3(255, 150, 0),
-      vec3(204, 40, 40),
-      vec3(131, 139, 131),
-      vec3(0, 205, 0),
-      vec3(20, 20, 20),
-      vec3(0, 150, 255)
-    );
-
-    layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
-    layout(location = 0) in vec2 vertex;
-    layout(location = 1) in uint label;
-    layout(location = 0) out vec4 color;
-    layout(location = 0) uniform mat4 uTransform;
-    layout(location = 1) uniform bool drawLabels;
-    layout(location = 2) uniform float uOpacity;
-
-    void main() {
-      vec2 pos = (vertex.xy - bounds.min) * bounds.invRange;
-      if (drawLabels) {
-        color = vec4(labels[label % 10] / 255.f, uOpacity);
-      } else {
-        vec2 _pos = normalize(pos);
-        color = vec4(_pos.x, abs(_pos.y - _pos.x), _pos.y, uOpacity); // accidental rainbow, neat!
-      }
-      gl_Position = uTransform * vec4(pos, 0, 1);
-    }
-  );
-
-  GLSL(frag, 450,
-    layout(location = 0) in vec4 inColor;
-    layout(location = 0) out vec4 outColor;
-
-    void main() {
-      outColor = inColor;
-    }
-  );
-} // namespace _2d
-
-namespace _3d {
-  GLSL(vert, 450,
-    struct Bounds {
-      vec3 min;
-      vec3 max;
-      vec3 range;
-      vec3 invRange;
-    };
-
-    const vec3 labels[10] = vec3[10](
-      vec3(16, 78, 139),
-      vec3(139, 90, 43),
-      vec3(138, 43, 226),
-      vec3(0, 128, 0),
-      vec3(255, 150, 0),
-      vec3(204, 40, 40),
-      vec3(131, 139, 131),
-      vec3(0, 205, 0),
-      vec3(20, 20, 20),
-      vec3(0, 150, 255)
-    );
-
-    layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
-    layout(location = 0) in vec4 vertex;
-    layout(location = 1) in uint label;
-    layout(location = 0) out vec4 color;
-    layout(location = 0) uniform mat4 uTransform;
-    layout(location = 1) uniform bool drawLabels;
-    layout(location = 2) uniform float uOpacity;
-
-    void main() {
-      vec3 pos = (vertex.xyz - bounds.min) * bounds.invRange;
-      if (drawLabels) {
-        color = vec4(labels[label % 10] / 255.f, uOpacity);
-      } else {
-        color = vec4(normalize(pos), uOpacity);
-      }
-      gl_Position = uTransform * vec4(pos, 1);
-    }
-  );
-
-  GLSL(frag, 450,
-    layout(location = 0) in vec4 inColor;
-    layout(location = 0) out vec4 outColor;
-
-    void main() {
-      outColor = inColor;
-    }
-  );
-} // namespace _3d
+  std::array<unsigned, 6> quadIndices = {
+    0, 1, 2,  2, 3, 0
+  };
+}
 
 namespace hdi::dbg {
   template <unsigned D>
@@ -123,45 +43,66 @@ namespace hdi::dbg {
   template <unsigned D>
   void EmbeddingRenderer<D>::init(size_t n,
                                   GLuint embeddingBuffer,
-                                  GLuint boundsBuffer) {
-    RenderComponent::init();    
+                                  GLuint boundsBuffer) {    
+    RenderComponent::init();        
     if (!_isInit) {
       return;
     }
 
     // Specify shader program
     try {
-      _program.create();
-      if constexpr (D == 2) {
-        _program.addShader(VERTEX, _2d::vert);
-        _program.addShader(FRAGMENT, _2d::frag);
-      } else if constexpr (D == 3) {
-        _program.addShader(VERTEX, _3d::vert);
-        _program.addShader(FRAGMENT, _3d::frag);
+      for (auto& program : _programs) {
+        program.create();
       }
-      _program.build();
+      if constexpr (D == 2) {
+        _programs(ProgramType::eQuad).addShader(VERTEX, _2d::vert_quad);
+        _programs(ProgramType::eQuad).addShader(FRAGMENT, _2d::frag_quad);
+      } else if constexpr (D == 3) {
+        _programs(ProgramType::eQuad).addShader(VERTEX, _3d::vert_quad);
+        _programs(ProgramType::eQuad).addShader(FRAGMENT, _3d::frag_quad);
+      }
+
+      for (auto& program : _programs) {
+        program.build();
+      }
     } catch (const ShaderLoadingException& e) {
       std::cerr << e.what() << std::endl;
       exit(0); // yeah no, not recovering from this catastrophy
     }
 
-    // Specify vertex array object
-    glCreateVertexArrays(1, &_vertexArray);
-    glVertexArrayVertexBuffer(_vertexArray, 0, embeddingBuffer, 0, ((D > 2) ? 4 : 2) * sizeof(float));
-    glEnableVertexArrayAttrib(_vertexArray, 0);
-    glVertexArrayAttribFormat(_vertexArray, 0, ((D > 2) ? 3 : 2), GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(_vertexArray, 0, 0);
+    // Create opengl objects
+    glCreateBuffers(_buffers.size(), _buffers.data());
+    glCreateVertexArrays(_vertexArrays.size(), _vertexArrays.data());
+
+    // Specify buffers for quad data
+    glNamedBufferStorage(_buffers(BufferType::eQuadVertices), quadVertices.size() * sizeof(glm::vec2), quadVertices.data(), 0);
+    glNamedBufferStorage(_buffers(BufferType::eQuadUvs), quadUvs.size() * sizeof(glm::vec2), quadUvs.data(), 0);
+    glNamedBufferStorage(_buffers(BufferType::eQuadIndices), quadIndices.size() * sizeof(unsigned), quadIndices.data(), 0);
+
+    // Specify vertex array for quad data
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 0, _buffers(BufferType::eQuadVertices), 0, sizeof(glm::vec2));
+    glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 1, embeddingBuffer, 0, ((D > 2) ? 4 : 2) * sizeof(float));
+    glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), _buffers(BufferType::eQuadIndices));
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eQuad), 0, 0);
+    glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eQuad), 1, 1);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eQuad), 0);
+    glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eQuad), 1);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 0, 2, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 1, ((D > 2) ? 3 : 2), GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 0, 0);
+    glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 1, 1);
 
     // Add labels to vertex array object if they exist
-    const auto *ptr = RenderManager::currentManager();
-    if (ptr) {
-      GLuint labelsBuffer = ptr->labelsBuffer();
+    const auto &manager = RenderManager::instance();
+    if (manager.isInit()) {
+      GLuint labelsBuffer = manager.labelsBuffer();
       if (labelsBuffer) {
         _hasLabels = true;
-        glVertexArrayVertexBuffer(_vertexArray, 1, labelsBuffer, 0, sizeof(unsigned));
-        glEnableVertexArrayAttrib(_vertexArray, 1);
-        glVertexArrayAttribIFormat(_vertexArray, 1, 1, GL_UNSIGNED_INT, 0);
-        glVertexArrayAttribBinding(_vertexArray, 1, 1);
+        glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 2, labelsBuffer, 0, sizeof(unsigned));
+        glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eQuad), 2, 1);
+        glEnableVertexArrayAttrib(_vertexArrays(VertexArrayType::eQuad), 2);
+        glVertexArrayAttribIFormat(_vertexArrays(VertexArrayType::eQuad), 2, 1, GL_UNSIGNED_INT, 0);
+        glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 2, 2);
       } else {
         _hasLabels = false;
       }
@@ -177,8 +118,11 @@ namespace hdi::dbg {
     if (!_isInit) {
       return;
     }
-    _program.destroy();
-    glDeleteVertexArrays(1, &_vertexArray);
+    for (auto& program : _programs) {
+      program.destroy();
+    }
+    glDeleteVertexArrays(_vertexArrays.size(), _vertexArrays.data());
+    glDeleteBuffers(_buffers.size(), _buffers.data());
     RenderComponent::destr();
   }
 
@@ -198,21 +142,46 @@ namespace hdi::dbg {
       } else {
         _drawLabels = false; // nope
       }
-      ImGui::SliderFloat("Point size", &_pointSize, 0.5f, 16.f, "%1.1f");
-      ImGui::SliderFloat("Point opacity", &_pointOpacity, 0.05f, 1.f, "%.2f");
+      ImGui::SliderFloat("Point size", &_quadSize, 0.001f, 0.05f);
+      if constexpr (D == 2) {
+        ImGui::Checkbox("Draw gaussiuan", &_drawGaussian);
+        if (_drawGaussian) {
+          ImGui::SliderFloat("Point opacity", &_pointOpacity, 0.05f, 1.f, "%.2f");
+        }
+      }
     }
     ImGui::End();
-    
+
     if (_draw) {
-      _program.bind();
-      _program.uniformMatrix4f("uTransform", &transform[0][0]);
-      _program.uniform1f("uOpacity", _pointOpacity);
-      _program.uniform1ui("drawLabels", _drawLabels ? 1 : 0);
+      // Set program uniforms
+      auto& program = _programs(ProgramType::eQuad);
+      program.bind();
+      program.uniformMatrix4f("transform", &transform[0][0]);
+      program.uniform1f("size", _quadSize);
+      program.uniform1ui("drawLabels", _drawLabels ? 1 : 0);
+      if constexpr (D == 2) {
+        program.uniform1ui("drawGaussian", _drawGaussian ? 1 : 0);
+        program.uniform1f("opacity", _drawGaussian ? _pointOpacity : 1.f);
+      }
+
+      // Specify buffer bindings
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
-      glBindVertexArray(_vertexArray);
-      glPointSize(_pointSize);
-      glDrawArrays(GL_POINTS, 0, _n);
-      _program.release();
+
+      // Specify VAO bindings
+      glBindVertexArray(_vertexArrays(VertexArrayType::eQuad));
+
+      // Depth write is temporarily disabled for 2D, so we can perform blending in any order
+      if constexpr (D == 2) {
+        glDepthMask(GL_FALSE);
+      }
+
+      // Specify OpenGL config and perform draw
+      glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, _n);
+      
+      // Depth write is temporarily disabled for 2D, so we can perform blending in any order
+      if constexpr (D == 2) {
+        glDepthMask(GL_TRUE);
+      }
     }
     glAssert("EmbeddingRenderer::render::end()");
   }
