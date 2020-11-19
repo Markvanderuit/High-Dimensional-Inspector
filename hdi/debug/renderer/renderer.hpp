@@ -39,11 +39,9 @@ namespace hdi::dbg {
     typedef unsigned uint;
     
   public:
-    RenderManager(const Window &window);
-    ~RenderManager();
-    
-    // Management
-    void init(uint nDimensions, // Initialize render manager so components can register
+    // Initialize render manager so components can register
+    void init(const Window &window,
+              uint nDimensions,
               const std::vector<uint> &labels = std::vector<uint>());   
     void destr();  // Destroy render manager
     void render(); // Render all registered components
@@ -54,12 +52,21 @@ namespace hdi::dbg {
     const GLuint labelsBuffer() const;
 
     // Static access
-    static RenderManager *currentManager();
+    static auto& instance() {
+      static RenderManager m;
+      return m;
+    }
+
+    bool isInit() const {
+      return _isInit;
+    }
 
   private:
+    RenderManager();
+    ~RenderManager();
+
     bool _isInit;
     uint _nDimensions;
-    InputManager _input;
     Trackball _trackball;
     GLuint _labels;
     GLuint _framebuffer;
@@ -67,7 +74,5 @@ namespace hdi::dbg {
     GLuint _framebufferDepthTexture;
     glm::ivec2 _framebufferSize;
     std::set<RenderComponent *, decltype(&cmpRenderComponent)> _components;
-
-    static RenderManager *_currentManager;
   };
 }

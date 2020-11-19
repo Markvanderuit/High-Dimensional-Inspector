@@ -6,8 +6,6 @@
 #include <sstream>
 
 namespace hdi::dbg {
-  RenderManager * RenderManager::_currentManager = nullptr;
-
   RenderComponent::RenderComponent(int priority, bool isInit)
   : _priority(priority), 
     _isInit(isInit)
@@ -26,18 +24,18 @@ namespace hdi::dbg {
   
   void RenderComponent::init()
   {
-    auto *ptr = RenderManager::currentManager();
-    if (ptr) {
-      ptr->addRenderComponent(this);
+    auto &manager = RenderManager::instance();
+    if (manager.isInit()) {
+      manager.addRenderComponent(this);
       _isInit = true;
     }
   }
 
   void RenderComponent::destr()
   {
-    auto *ptr = RenderManager::currentManager();
-    if (_isInit && ptr) {
-      ptr->removeRenderComponent(this);
+    auto &manager = RenderManager::instance();
+    if (manager.isInit()) {
+      manager.removeRenderComponent(this);
     }
     _isInit = false;
   }
@@ -47,9 +45,9 @@ namespace hdi::dbg {
     // Override and implement
   }
 
-  RenderManager::RenderManager(const Window &window)
+  RenderManager::RenderManager()
   : _isInit(false),
-    _input(window)
+    _components()
   { }
 
   RenderManager::~RenderManager()
@@ -59,17 +57,19 @@ namespace hdi::dbg {
     }
   }
 
-  void RenderManager::init(uint nDimensions, const std::vector<uint> &labels) 
+  void RenderManager::init(const Window &window, uint nDimensions, const std::vector<uint> &labels) 
   {
     if (_isInit) {
       return;
     }
 
+    auto &inputManager = InputManager::instance();
+    inputManager.init(window);
+
     _nDimensions = nDimensions;
     _components = std::set<RenderComponent *, decltype(cmpRenderComponent)*>(cmpRenderComponent);
     _framebufferSize = glm::ivec2(0, 0);
     _labels = 0;
-    _currentManager = this;
     _trackball.init();
 
     // Construct framebuffer and attachments
@@ -92,7 +92,9 @@ namespace hdi::dbg {
       return;
     }
 
-    _currentManager = nullptr;
+    auto &inputManager = InputManager::instance();
+    inputManager.destr();
+
     _trackball.destr();
 
     // Destroy framebuffer and attachments
@@ -110,7 +112,7 @@ namespace hdi::dbg {
 
   void RenderManager::render()
   {
-    _input.processInputs();
+    InputManager::instance().processInputs();
     _trackball.compute();
 
     // Get window pointer
@@ -184,31 +186,25 @@ namespace hdi::dbg {
       GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST  
     );
 
-    _input.render();
+    InputManager::instance().render();
   }
 
   void RenderManager::addRenderComponent(RenderComponent *ptr)
   {
-    if (_components.find(ptr) == _components.end()) {
+    if (std::find(_components.begin(), _components.end(), ptr) == _components.end()) {
       _components.insert(ptr);
     }
   }
 
   void RenderManager::removeRenderComponent(RenderComponent *ptr)
   {
-    if (_components.find(ptr) != _components.end()) {
-      _components.erase(ptr);
+    if (auto &p = std::find(_components.begin(), _components.end(), ptr); p != _components.end()) {
+      _components.erase(p);
     }
   }
-
   
   const GLuint RenderManager::labelsBuffer() const
   {
     return _labels;
-  }
-  
-  RenderManager *RenderManager::currentManager()
-  {
-    return _currentManager;
   }
 };
