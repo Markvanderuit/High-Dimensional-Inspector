@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <unordered_set>
 #include <vector>
 #include <nanoflann/nano_flann.h>
@@ -93,32 +94,32 @@ namespace hdi::dr {
     checkAndThrowLogic(pnts_to_evaluate.size() > 0,"computePrecisionRecall: At least one point must be evaluated");
     checkAndThrowLogic(K > 1,"computePrecisionRecall: K must be higher than 1");
 
-    //KD Tree with nanoflann for KNN in the embedding
-    EmbeddingNanoFlannAdaptor emb_adaptor(embedding, params);
 
+    std::cout << '\t' << "Building KD Tree index" << std::endl;
     // Bloody hell what a line. I swear I didn't write this
+    // KD Tree with nanoflann for KNN in the embedding
+    EmbeddingNanoFlannAdaptor emb_adaptor(embedding, params);
     typedef nanoflann::KDTreeSingleIndexAdaptor<
       nanoflann::L2_Simple_Adaptor<float, EmbeddingNanoFlannAdaptor>,
       EmbeddingNanoFlannAdaptor
     > embedding_kd_tree_type;
-
     embedding_kd_tree_type emb_index(params.nLowDimensions, emb_adaptor);
     emb_index.buildIndex();
 
     precision = std::vector<float>(K, 0);
     recall = std::vector<float>(K, 0);
     
-    //temp
+    // temp
+    std::cout << '\t' << "Building VP Tree index" << std::endl;
     VpTree<DataPoint, euclidean_distance<float>> tree;
     std::vector<DataPoint> obj_X(params.n, DataPoint(params.nHighDimensions, -1, data.data()));
-    {
-      #pragma omp parallel for
-      for (int i = 0; i < params.n; i++) {
-        obj_X[i] = DataPoint(params.nHighDimensions, i, data.data() + i * params.nHighDimensions);
-      }
-      tree.create(obj_X);
+    #pragma omp parallel for
+    for (int i = 0; i < params.n; i++) {
+      obj_X[i] = DataPoint(params.nHighDimensions, i, data.data() + i * params.nHighDimensions);
     }
+    tree.create(obj_X);
 
+    std::cout << '\t' << "Evaluating points" << std::endl;
     #pragma omp parallel for
     for(int i = 0; i < pnts_to_evaluate.size(); ++i) {
       unsigned int id = pnts_to_evaluate[i];
@@ -169,8 +170,6 @@ namespace hdi::dr {
       recall[i] *= div;
     }
   }
-
-
 
  /*  template <typename scalar_type>
   void computePrecisionRecall(const data::PanelData<scalar_type>& panel_data, const data::Embedding<scalar_type>& embedding, const std::vector<unsigned int>& pnts_to_evaluate, const std::vector<unsigned int>& emb_id_to_panel_data_id, std::vector<scalar_type>& precision, std::vector<scalar_type>& recall, unsigned int K){

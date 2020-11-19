@@ -55,9 +55,9 @@ hdi::dr::TsneParameters params;
 
 // Optional CLI parameters with default values
 bool doKlDivergence = false;
-bool doNNPreservation = false;
 bool doLabels = false;
 std::string runtimeFileName;
+std::string nnpFileName;
 
 // Timer values
 float dataLoadingTime = 0.f;
@@ -79,9 +79,9 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("p,perplexity", "perplexity parameter of algorithm", cxxopts::value<float>())
     ("h,help", "Print help and exit")
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
-    ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ("txt", "Values output text file", cxxopts::value<std::string>())
+    ("nnp", "NNP output text file", cxxopts::value<std::string>())
     ;
   options.parse_positional({"hinput", "linput", "size", "hdims", "ldims"});
   options.positional_help("<hinput> <linput> <size> <hdims> <ldims>");
@@ -113,7 +113,7 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     doKlDivergence = result["kld"].as<bool>();
   }
   if (result.count("nnp")) {
-    doNNPreservation = result["nnp"].as<bool>();
+    nnpFileName = result["nnp"].as<std::string>();
   }
   if (result.count("lbl")) {
     doLabels = result["lbl"].as<bool>();
@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
     // Pass input arguments and parse them, setting parameters
     parseCli(&logger, argc, argv);
 
-    if (!doKlDivergence && !doNNPreservation) {
+    if (!doKlDivergence && nnpFileName.empty()) {
       hdi::utils::secureLog(&logger, "No evaluation metric selected. Use [-h] for help information.");
       std::exit(0);
     }
@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Compute mearest neighbour preservation if requested
-    if (doNNPreservation) {
+    if (!nnpFileName.empty()) {
       hdi::utils::secureLog(&logger, "\nComputing NNP...");  
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnpComputationTime);
 
@@ -235,12 +235,19 @@ int main(int argc, char *argv[]) {
       std::iota(points.begin(), points.end(), 0);
 
       // Compute p/r... which is an extremely stupid computation that takes basically forever
-      hdi::dr::computePrecisionRecall(data, embedding, params, points, precision, recall, 30);
-
+      hdi::dr::computePrecisionRecall(data, embedding, params, points, precision, recall, params.perplexity * 3 + 1);
       // Just dump in cout for now
-      for (int i = 0; i < precision.size(); i++) {
-        std::cout << precision[i] << ", " << recall[i] << '\n';
+      // for (int i = 0; i < precision.size(); i++) {
+      //   std::cout << precision[i] << ", " << recall[i] << '\n';
+      // }
+
+      // Output to file
+      hdi::utils::secureLog(&logger, "Writing NNP to file..."); 
+      std::vector<std::string> values;
+      for (uint i = 0; i < precision.size(); ++i) {
+        values.push_back(std::to_string(precision[i]) + " " + std::to_string(recall[i]));
       }
+      hdi::utils::writeTextValuesFile(nnpFileName, values);
     }
 
     if (ofs) {
@@ -254,7 +261,7 @@ int main(int argc, char *argv[]) {
       hdi::utils::secureLogValue(&logger, "  Similarities (s)", simComputationTime);
       hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
     }
-    if (doNNPreservation) {
+    if (!nnpFileName.empty()) {
       hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnpComputationTime);
     }
 

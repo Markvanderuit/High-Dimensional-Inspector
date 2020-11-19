@@ -50,10 +50,10 @@ hdi::dr::TsneParameters params;
 
 // Optional CLI parameters with default values
 bool doKldComputation = false;
-bool doNnpComputation = false;
 bool doVisualisation = false;
 bool doLabels = false;
 std::string runtimeFileName;
+std::string nnpFileName;
 
 // Timer values
 float dataLoadingTime = 0.f;
@@ -64,12 +64,13 @@ float nnpComputationTime = 0.f;
 float dataSavingTime = 0.f;
 
 // Visual debugger default window settings
-constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
-                           | hdi::dbg::WindowInfo::bSRGB 
-                           | hdi::dbg::WindowInfo::bFocused
-                           | hdi::dbg::WindowInfo::bResizable;
-constexpr uint windowWidth = 2560u;
-constexpr uint windowHeight = 1440u;
+constexpr uint windowFlags = 
+                          //  hdi::dbg::WindowInfo::bDecorated | 
+                           hdi::dbg::WindowInfo::bSRGB |
+                           hdi::dbg::WindowInfo::bFocused |
+                           hdi::dbg::WindowInfo::bResizable;
+constexpr uint windowWidth = 2048u;
+constexpr uint windowHeight = 2048u;
 constexpr const char *windowTitle = "tSNE";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
@@ -85,12 +86,13 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("i,iterations", "number of T-SNE iterations", cxxopts::value<int>())
     ("t,theta", "Single-hierarchy BH-approximation angle", cxxopts::value<float>())
     ("a,theta2", "Dual-hierarchy BH-approximation angle", cxxopts::value<float>())
+    ("s,scaling", "Field texture scale ratio", cxxopts::value<float>())
     ("h,help", "Print help and exit")
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
     ("vis", "Run the OpenGL visualization", cxxopts::value<bool>())
     ("kld", "Compute KL-Divergence", cxxopts::value<bool>())
-    ("nnp", "Compute nearest-neighbourhood preservation", cxxopts::value<bool>())
     ("txt", "Values output text file", cxxopts::value<std::string>())
+    ("nnp", "NNP output text file", cxxopts::value<std::string>())
     ;
   options.parse_positional({"input", "output", "size", "dims"});
   options.positional_help("<input> <output> <size> <dims>");
@@ -130,11 +132,15 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
   if (result.count("theta2")) {
     params.dualHierarchyTheta = result["theta2"].as<float>();
   }
+  if (result.count("scaling")) {
+    params.texture2dScaling = result["scaling"].as<float>();
+    params.texture3dScaling = params.texture2dScaling;
+  }
   if (result.count("kld")) {
     doKldComputation = result["kld"].as<bool>();
   }
   if (result.count("nnp")) {
-    doNnpComputation = result["nnp"].as<bool>();
+    nnpFileName = result["nnp"].as<std::string>();
   }
   if (result.count("vis")) {
     doVisualisation = result["vis"].as<bool>();
@@ -179,9 +185,11 @@ int main(int argc, char *argv[]) {
     window.enableVsync(false);
 
     // Inputmanager and rendermanager handle input/rendering of visual debugger components
-    hdi::dbg::RenderManager renderManager(window);
+    auto &renderManager = hdi::dbg::RenderManager::instance();
+    // hdi::dbg::RenderManager renderManager(window);
     if (doVisualisation) {
-      renderManager.init(params.nLowDimensions, labels);
+      renderManager.init(window, params.nLowDimensions, labels);
+      // renderManager.init(params.nLowDimensions, labels);
     }
 
     // Initialize tSNE computation
@@ -235,26 +243,6 @@ int main(int argc, char *argv[]) {
       kld = tSNE.getKLDivergence();
       hdi::utils::secureLogValue(&logger, "  KL Divergence", kld);
     } 
-    
-    // Compute mearest neighbour preservation if requested
-    if (doNnpComputation) {
-      hdi::utils::secureLog(&logger, "\nComputing NNP...");  
-      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnpComputationTime);
-
-      // Prepare data storage
-      std::vector<float> precision;
-      std::vector<float> recall;
-      std::vector<unsigned> points(params.n);
-      std::iota(points.begin(), points.end(), 0);
-
-      // Compute p/r... which is an extremely stupid computation that takes basically forever
-      hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, 30);
-
-      // Just dump in cout for now
-      for (int i = 0; i < precision.size(); i++) {
-        std::cout << precision[i] << ", " << recall[i] << '\n';
-      }
-    }
 
     // Write runtime to file
     if (!runtimeFileName.empty()) {
@@ -267,6 +255,33 @@ int main(int argc, char *argv[]) {
       };
       hdi::utils::writeTextValuesFile(runtimeFileName, values);
     }
+    
+    // Compute mearest neighbour preservation if requested
+    if (!nnpFileName.empty()) {
+      hdi::utils::secureLog(&logger, "\nComputing NNP...");  
+      hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(nnpComputationTime);
+
+      // Prepare data storage
+      std::vector<float> precision;
+      std::vector<float> recall;
+      std::vector<unsigned> points(params.n);
+      std::iota(points.begin(), points.end(), 0);
+
+      // Compute p/r... which is an extremely stupid computation that takes basically forever
+      hdi::dr::computePrecisionRecall(data, tSNE.getRawEmbedding(), params, points, precision, recall, params.perplexity * 3 + 1);
+      // Just dump in cout for now
+      // for (int i = 0; i < precision.size(); i++) {
+      //   std::cout << precision[i] << ", " << recall[i] << '\n';
+      // }
+
+      // Output to file
+      hdi::utils::secureLog(&logger, "Writing NNP to file..."); 
+      std::vector<std::string> values;
+      for (uint i = 0; i < precision.size(); ++i) {
+        values.push_back(std::to_string(precision[i]) + " " + std::to_string(recall[i]));
+      }
+      hdi::utils::writeTextValuesFile(nnpFileName, values);
+    }
 
     // Output computation timings
     hdi::utils::secureLog(&logger, "\nTimings");
@@ -276,7 +291,7 @@ int main(int argc, char *argv[]) {
     if (doKldComputation) {
       hdi::utils::secureLogValue(&logger, "  KLD computation (s)", kldComputationTime);
     }
-    if (doNnpComputation) {
+    if (!nnpFileName.empty()) {
       hdi::utils::secureLogValue(&logger, "  NNP computation (s)", nnpComputationTime);
     }
     hdi::utils::secureLogValue(&logger, "  Data save (s)", dataSavingTime);

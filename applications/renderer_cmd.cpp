@@ -58,12 +58,13 @@ float dataLoadingTime = 0.f;
 float boundsComputationTime = 0.f;
 
 // Visual debugger default window settings
-constexpr uint windowFlags = hdi::dbg::WindowInfo::bDecorated
-                           | hdi::dbg::WindowInfo::bSRGB 
-                           | hdi::dbg::WindowInfo::bFocused
-                           | hdi::dbg::WindowInfo::bResizable;
-constexpr uint windowWidth = 2560u;
-constexpr uint windowHeight = 1440u;
+constexpr uint windowFlags = 
+                          //  hdi::dbg::WindowInfo::bDecorated | 
+                           hdi::dbg::WindowInfo::bSRGB |
+                           hdi::dbg::WindowInfo::bFocused |
+                           hdi::dbg::WindowInfo::bResizable;
+constexpr uint windowWidth = 2048u;
+constexpr uint windowHeight = 2048u;
 constexpr const char *windowTitle = "Renderer";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
@@ -73,8 +74,8 @@ void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
     ("input", "Input binary data file (required)", cxxopts::value<std::string>())
     ("size", "number of data points (required)", cxxopts::value<unsigned>())
     ("dims", "number of input dims (required)", cxxopts::value<unsigned>())
-    ("h,help", "Print help and exit")
     ("lbl", "Input data file contains labels", cxxopts::value<bool>())
+    ("h,help", "Print help and exit")
     ;
   options.parse_positional({"input", "size", "dims"});
   options.positional_help("<input> <size> <dims>");
@@ -133,12 +134,12 @@ int main(int argc, char *argv[]) {
       windowTitle
     });
     window.makeCurrent();
-    window.display();
     window.enableVsync(true);
+    window.display();
 
     // Inputmanager and rendermanager handle input/rendering of visual debugger components
-    hdi::dbg::RenderManager renderManager(window);
-    renderManager.init(d, labels);
+    auto &renderManager = hdi::dbg::RenderManager::instance();
+    renderManager.init(window, d, labels);
 
     // One for each possibility
     hdi::dbg::EmbeddingRenderer<2> embedding2dRenderer;
@@ -149,6 +150,7 @@ int main(int argc, char *argv[]) {
     GLuint boundsBuffer;
     glCreateBuffers(1, &positionsBuffer);
     glCreateBuffers(1, &boundsBuffer);
+    std::cout << d << std::endl;
     {
       hdi::utils::secureLog(&logger, "Computing bounds..");
       hdi::utils::ScopedTimer<float, hdi::utils::Seconds> timer(boundsComputationTime);
@@ -219,7 +221,7 @@ int main(int argc, char *argv[]) {
 
     // Clean up
     embedding2dRenderer.destr();
-    embedding3dRenderer.destr();
+    // embedding3dRenderer.destr();
     renderManager.destr();
     glDeleteBuffers(1, &positionsBuffer);
     glDeleteBuffers(1, &boundsBuffer);
