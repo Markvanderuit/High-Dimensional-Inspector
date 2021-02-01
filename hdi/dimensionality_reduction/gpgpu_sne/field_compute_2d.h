@@ -95,6 +95,9 @@ namespace hdi::dr {
       ePairsOutput,
       ePairsInputHead,
       ePairsOutputHead,
+      
+      eDebug,
+      eDebugHead,
 
       Length
     };

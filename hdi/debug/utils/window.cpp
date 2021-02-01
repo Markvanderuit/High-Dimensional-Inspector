@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <algorithm>
+#include <iostream>
 #include <stdexcept>
 
 namespace hdi::dbg {  
@@ -59,6 +60,7 @@ namespace hdi::dbg {
     }
 
     // Check if window creation was successful
+    std::cout << _handle << std::endl;
     if (!_handle) {
       throw std::runtime_error("glfwCreateWindow() failed");
     }
@@ -77,7 +79,8 @@ namespace hdi::dbg {
 
   Window::~Window()
   {
-    if (_isInit) {
+    std::cout << this->_isInit << std::endl;
+    if (this->_isInit) {
       // Check if handle should be set to nullptr
       // before destroying
       if (isCurrent()) {

@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <limits>
 #include <glm/glm.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -55,6 +56,24 @@ namespace hdi {
       : glm::vec<D, genType>(other)
       { }
     };
+
+    template< unsigned D, typename genType >
+    genType max(AlignedVec<D, genType> x) {
+      genType t = x[0];
+      for (uint i = 1; i < D; i++) {
+        t = glm::max(t, x[i]);
+      }
+      return t;
+    }
+
+    template< unsigned D, typename genType >
+    genType min(AlignedVec<D, genType> x) {
+      genType t = x[0];
+      for (uint i = 1; i < D; i++) {
+        t = glm::min(t, x[i]);
+      }
+      return t;
+    }
 
     template< unsigned D, typename genType >
     AlignedVec<D, genType> max(AlignedVec<D, genType> x, AlignedVec<D, genType> y) {

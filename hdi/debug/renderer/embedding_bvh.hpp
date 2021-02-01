@@ -10,11 +10,14 @@
 namespace hdi::dbg {
   template <unsigned D>
   class EmbeddingBVHRenderer : public RenderComponent {
+  private:
+    using uint = unsigned;
+
   public:
     EmbeddingBVHRenderer();
     ~EmbeddingBVHRenderer();
 
-    void init(const dr::EmbeddingBVH<D> &bvh, GLuint boundsBuffer);
+    void init(const dr::EmbeddingBVH<D> &bvh, GLuint boundsBuffer, GLuint pairsBuffer = 0, GLuint pairsHead = 0);
     void destr();
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
 
@@ -53,6 +56,8 @@ namespace hdi::dbg {
     size_t _nPos;
     size_t _nCube;
     GLuint _boundsBuffer;
+    GLuint _pairsBuffer;
+    GLuint _pairsHead;
     dr::EnumArray<BufferType, GLuint> _buffers;
     dr::EnumArray<VertexArrayType, GLuint> _vertexArrays;
     dr::EnumArray<ProgramType, ShaderProgram> _programs;
@@ -61,13 +66,11 @@ namespace hdi::dbg {
     const dr::EmbeddingBVH<D> *_bvh;
     
     // ImGui default settings
-    bool _drawCube = false;
-    bool _drawBarnesHut = false;
-    float _flagTheta = 0.5f;
-    float _orderLineWidth = 1.f;
+    bool _drawCube = true;
+    bool _drawLvl = false;
+    bool _drawFlags = false;
+    uint _bvhLvl = 1;
     float _cubeLineWidth = 1.f;
-    float _cubeTheta = 0.f;
     float _cubeOpacity = 1.0f;
-    float _barnesHutOpacity = 1.0f;
   };
 }

@@ -178,7 +178,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Create an opengl context (and visible window, if we want one for the visual debugger)
-    hdi::dbg::Window window = doVisualisation
+    hdi::dbg::Window window;
+    window = doVisualisation
                             ? hdi::dbg::Window({windowFlags, windowWidth, windowHeight, windowTitle})
                             : hdi::dbg::Window::Offscreen();
     window.makeCurrent();
@@ -189,7 +190,6 @@ int main(int argc, char *argv[]) {
     // hdi::dbg::RenderManager renderManager(window);
     if (doVisualisation) {
       renderManager.init(window, params.nLowDimensions, labels);
-      // renderManager.init(params.nLowDimensions, labels);
     }
 
     // Initialize tSNE computation
@@ -203,7 +203,6 @@ int main(int argc, char *argv[]) {
 
     if (doVisualisation) {
       window.display();
-      window.enableVsync(false);
     }
 
     // Perform tSNE minimization

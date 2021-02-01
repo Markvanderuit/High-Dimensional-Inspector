@@ -163,7 +163,7 @@ namespace hdi::dr::_2d {
         mass = nPixels;
       }
 
-      // Subdivide if the mass is large enough, else truncate
+      // Subdivide if the mass is large enough, else truncate/passthrough
       if (mass > 1) {
         // First, find split position based on morton codes
         // Then set node ranges for left and right child based on split
@@ -187,8 +187,9 @@ namespace hdi::dr::_2d {
           }
         }
       } else {
-        begin = 0;
-        mass = 0;
+        // Pass through, creating leaf chains
+        begin = 0u; // begin;
+        mass = 0u; // mass;
       }
 
       // Store node data (each invoc stores their own child node)
@@ -202,6 +203,9 @@ namespace hdi::dr::_2d {
       if ((isBottom && mass > 0) || mass == 1) {
         leafBuffer[atomicAdd(leafHead, 1)] = j;
       }
+      // if (isBottom && mass > 0) {
+      //   leafBuffer[atomicAdd(leafHead, 1)] = j;
+      // }
     }
   );
 

@@ -40,7 +40,8 @@
  */
 #define LOG_AVG_TIMERS
 #define LOG_LARGE_ALLOCS 
-#define LOG_FIELD_ITER
+#define LOG_FIELD
+#define LOG_FIELD_ITER 100
 #define LOG_FIELD_RESIZE
 
 /**
@@ -77,7 +78,7 @@
  * - lvl difference: DH-traversal kicks in when both hierarchies are within x lvls of each other
  * - large leaf: large leaf pairs are pushed on a work queue for computation in separate shader
  */
-#define DUAL_BVH_LVL_DIFFERENCE 3
+#define DUAL_BVH_LVL_DIFFERENCE 3 // 3
 #define DUAL_BVH_LARGE_LEAF 16
 
 /**

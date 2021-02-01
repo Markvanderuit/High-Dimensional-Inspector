@@ -79,9 +79,9 @@ namespace hdi {
     }
   }
 
+  #define glAssert(msg) { glAssertImpl(msg, __FILE__, __LINE__); }
   #define GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX 0x9048
   #define GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX 0x9049
-  #define glAssert(msg) { glAssertImpl(msg, __FILE__, __LINE__); }
 
   inline
   void glMemoryImpl(const char *file, int line) {

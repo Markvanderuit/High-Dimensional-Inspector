@@ -11,23 +11,27 @@ namespace hdi::dbg {
   template <unsigned D>
   class FieldBVHRenderer : private RenderComponent {
   private:
-    typedef unsigned uint;
+    using uint = unsigned;
 
   public:
     FieldBVHRenderer();
     ~FieldBVHRenderer();
 
-    void init(const dr::FieldBVH<D> &bvh, GLuint boundsBuffer);
+    void init(const dr::FieldBVH<D> &bvh, GLuint boundsBuffer, GLuint pairsBuffer = 0, GLuint pairsHead = 0);
     void destr();
     void render(glm::mat4 transform, glm::ivec4 viewport) override;
+
+    bool isInit() const {
+      return _isInit;
+    }
 
   private:
     // Enum values matching to buffers in _buffers array
     enum class BufferType {
-      eQuadVertices,
-      eQuadIndices,
       eCubeVertices,
       eCubeIndices,
+      eQuadVertices,
+      eQuadIndices,
       eFlags,
       eDispatch,
       
@@ -63,6 +67,8 @@ namespace hdi::dbg {
 
     size_t _nCube;
     GLuint _boundsBuffer;
+    GLuint _pairsBuffer;
+    GLuint _pairsHead;
     dr::EnumArray<BufferType, GLuint> _buffers;
     dr::EnumArray<TextureType, GLuint> _textures;
     dr::EnumArray<VertexArrayType, GLuint> _vertexArrays;
@@ -73,19 +79,15 @@ namespace hdi::dbg {
     
     // ImGui default settings
     bool _drawCube = false;
-    bool _drawBarnesHut = false;
-    bool _drawSpecificLevel = false;
+    bool _drawLvl = false;
+    bool _drawFlags = false;
     bool _drawField = false;
+    uint _bvhLvl = 1;
     uint _fieldLvl = 0;
     float _fieldDepth = 0.5f;
     ImVec2 _fieldDims = ImVec2(0, 0);
     ImVec2 _outputDims = ImVec2(0, 0);
-    float _flagTheta = 0.5f;
-    float _orderLineWidth = 1.f;
     float _cubeLineWidth = 1.f;
-    float _cubeTheta = 0.f;// 0.75f;
-    float _orderOpacity = 0.75f;
     float _cubeOpacity = 1.0f;
-    float _barnesHutOpacity = 1.0f;
   };
 }

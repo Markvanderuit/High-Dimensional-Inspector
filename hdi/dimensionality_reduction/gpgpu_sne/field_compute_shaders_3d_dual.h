@@ -297,6 +297,162 @@ GLSL(field_bvh_dual_leaf_src, 450,
   }
 );
 
+/* GLSL(push_ext_src, 450,
+  // Wrapper structure for bounds data
+  struct Bounds {
+    vec3 min;
+    vec3 max;
+    vec3 range;
+    vec3 invRange;
+  };
+
+  // Wrapper structure for node data
+  struct Node {
+    vec3 min;
+    vec3 center;
+    vec3 max;
+    uint begin;
+    uint extent;
+    vec4 field;
+  };
+
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+  // Buffer bindings
+  layout(binding = 0, std430) restrict readonly buffer VNod0 { vec4 node0Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer VNod1 { vec4 node1Buffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer VPixe { uvec3 posBuffer[]; };
+  layout(binding = 3, std430) restrict coherent buffer VFiel { vec4 fieldBuffer[]; };
+  layout(binding = 4, std430) restrict readonly buffer LFlag { uint leafBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer LHead { uint leafHead; };
+  layout(binding = 6, std430) restrict readonly buffer Bound { Bounds bounds; };
+
+  // Image bindings
+  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
+
+  Node readNode(uint i) {
+    vec4 node0 = node0Buffer[i];
+    vec4 node1 = node1Buffer[i];
+    node0.xyz = (node0.xyz - bounds.min) * bounds.invRange;
+    node1.xyz = node1.xyz * bounds.invRange;
+    return Node(
+      node0.xyz, 
+      node0.xyz + 0.5 * node1.xyz,
+      node0.xyz + node1.xyz,
+      uint(node1.w),
+      uint(node0.w),
+      node0.w > 0.f ? fieldBuffer[i] : vec4(0.f)
+    );
+  }
+
+  // De-interleave 30-wide interleaved bits to 10
+  uint shrinkBits10(uint i) {
+    i = i & 0x09249249;
+    i = (i | (i >> 2u)) & 0x030C30C3;
+    i = (i | (i >> 4u)) & 0x0300F00F;
+    i = (i | (i >> 8u)) & 0x030000FF;
+    i = (i | (i >> 16u)) & 0x000003FF;
+    return i;
+  }
+
+  // Interleave 10 continuous bits to 30-wide
+  // from bit hacks, 4 instructions less
+  uint expandBits10(uint i)  {
+    i = (i * 0x00010001u) & 0xFF0000FFu;
+    i = (i * 0x00000101u) & 0x0F00F00Fu;
+    i = (i * 0x00000011u) & 0xC30C30C3u;
+    i = (i * 0x00000005u) & 0x49249249u;
+    return i;
+  }
+
+  uint encode(ivec3 uv) {
+    uint x = expandBits15(uint(uv.x));
+    uint y = expandBits15(uint(uv.y));
+    uint z = expandBits15(uint(uv.z));
+    return x | (y << 1) | (z << 2);
+  }
+
+  ivec3 decode(uint i) {
+    uint x = shrinkBits15(i);
+    uint y = shrinkBits15(i >> 1);
+    uint z = shrinkBits15(i >> 2);
+    return ivec3(x, y, z);
+  }
+
+  uint findLvl(uint i) {
+    uint lvl = 0u;
+    do { lvl++; } while ((i = ( i - 1) >> BVH_LOGK_2D) > 0);
+    return lvl;
+  }
+
+  vec4 safeMix(in vec4 a, in vec4 b, in float c, in uint an, in uint bn) {
+    if (an > 0 && bn > 0) {
+      return mix(a, b, c);
+    } else if (an > 0) {
+      return a;
+    } else if (bn > 0) {
+      return b;
+    } else {
+      return vec4(0);
+    }
+  }
+
+  void main() {
+    // Check if invoc is within nr of items on leaf queue
+    const uint j = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    if (j >= leafHead) {
+      return;
+    }
+
+    // Get leaf node
+    uint i = leafBuffer[j];
+    const Node leafNode = readNode(i);
+
+    // Determine nr of nodes before current level
+    uint lvl = findLvl(i);
+    uint nNodes = 0u;
+    for (uint i = 0; i < lvl; ++i) {
+      nNodes |= 1u << (BVH_LOGK_2D * i);
+    }
+
+    vec4 field = leafNode.field;
+    while (lvl > 0) { // 0 will never approximate, so it can be skipped
+      // Ascend one level in hierarchy
+      lvl--;
+      i = (i - 1) >> BVH_LOGK_2D;
+      nNodes -= 1u << (BVH_LOGK_2D * lvl); // FIXME check on paper
+
+      // Get new node
+      const Node nearNode = readNode(i);
+      const ivec2 nearPos = decode(i - nNodes);
+
+      // Determine in which direction to grab neighbours (left, right, up, down)
+      const int xDir = (nearNode.center.x <= leafNode.center.x) ? 1 : -1;
+      const int yDir = (nearNode.center.y <= leafNode.center.y) ? 1 : -1;
+      const int zDir = (nearNode.center.z <= leafNode.center.z) ? 1 : -1;
+
+      // Read neighbour node data. Data is placed along morton order
+      const Node horiNode = readNode(nNodes + encode(nearPos + ivec2(xDir, 0)));
+      const Node vertNode = readNode(nNodes + encode(nearPos + ivec2(0, yDir)));
+      const Node diagNode = readNode(nNodes + encode(nearPos + ivec2(xDir, yDir)));
+
+      // Interpolation factor
+      vec2 a = (leafNode.center - nearNode.min) / (nearNode.max - nearNode.min);
+      a = abs(a - 0.5f);
+
+      // Interpolate and add to leaf node
+      field += safeMix(safeMix(nearNode.field, horiNode.field, a.x, nearNode.extent, horiNode.extent),
+                       safeMix(vertNode.field, diagNode.field, a.x, vertNode.extent, diagNode.extent),
+                       a.y, nearNode.extent + horiNode.extent, vertNode.extent + diagNode.extent);
+      // field += nearNode.field;
+    }
+
+    for (uint i = leafNode.begin; i < leafNode.begin + leafNode.extent; i++) {
+      imageStore(fieldImage, ivec2(posBuffer[i]), vec4(field, 0));
+    }
+  }
+); */
+
 GLSL(push_src, 450,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 

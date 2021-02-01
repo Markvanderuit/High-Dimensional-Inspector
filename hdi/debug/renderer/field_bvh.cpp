@@ -7,47 +7,26 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/verbatim.h"
 
 GLSL(flags_comp, 450,
-  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-  
-  layout(binding = 0, std430) restrict readonly buffer FieldBuffer { vec4 fieldBuffer[]; };
-  layout(binding = 1, std430) restrict writeonly buffer FlagsBuffer { float flagsBuffer[]; };
-  
-  layout(location = 0) uniform uint nNodes;
-  layout(location = 1) uniform bool lvlOnly;
-  layout(location = 2) uniform uint lvl;
-  
-  // Constants
-  const uint kNode = BVH_KNODE_3D;
-  const uint logk = BVH_LOGK_3D;
+  // Wrapper structure for pair data
+  struct Pair {
+    uint f;       // Field hierarchy node index
+    uint e;       // Embedding hierarchy node index
+  };
 
-  uint findLvl(uint i) {
-    uint lvl = 0u;
-    do { lvl++; } while ((i = ( i - 1) >> logk) > 0);
-    return lvl;
-  }
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+  layout(binding = 0, std430) restrict readonly buffer Debu { Pair pairsBuffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer DebH { uint pairsHead; };
+  layout(binding = 2, std430) restrict writeonly buffer Fla { uint flagsBuffer[]; };
 
   void main() {
     const uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
-
-    // Check that invocation is inside range
-    if (i >= nNodes) {
+    if (i >= pairsHead) {
       return;
     }
 
-    if (fieldBuffer[i] != vec4(0)) {
-      if (lvlOnly) {
-        // Only render a specific level;
-        if (findLvl(i) == lvl) {
-          flagsBuffer[i] = 1.f;
-        } else {
-          flagsBuffer[i] = 0.f;
-        }
-      } else {
-        flagsBuffer[i] = 1.f;
-      }
-    } else {
-      flagsBuffer[i] = 0.f;
-    }
+    Pair pair = pairsBuffer[i];
+    flagsBuffer[pair.f] = 1;
   }
 );
 
@@ -59,73 +38,6 @@ GLSL(divide_dispatch_src, 450,
 
   void main() {
     dispatch = uvec3((value + div - 1) / div, 1, 1);
-  }
-);
-
-GLSL(field_slice_src, 450, 
-  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-  // Buffer bindings
-  layout(binding = 0, std430) restrict readonly buffer VNod0 { vec4 node0Buffer[]; };
-  layout(binding = 1, std430) restrict readonly buffer VNod1 { vec4 node1Buffer[]; };
-  layout(binding = 2, std430) restrict readonly buffer VPixe { uvec3 posBuffer[]; };
-  layout(binding = 3, std430) restrict coherent buffer VFiel { vec4 fieldBuffer[]; };
-  layout(binding = 4, std430) restrict readonly buffer LFlag { uint leafBuffer[]; };
-  layout(binding = 5, std430) restrict readonly buffer LHead { uint leafHead; };
-
-  // Image bindings
-  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
-
-  // Uniform values
-  layout(location = 0) uniform uint outputLvl;
-  layout(location = 1) uniform uint outputDepth;
-  
-  // Constants
-  const uint kNode = BVH_KNODE_3D;
-  const uint logk = BVH_LOGK_3D;
-
-  uint findLvl(uint i) {
-    uint lvl = 0u;
-    do { lvl++; } while ((i = ( i - 1) >> logk) > 0);
-    return lvl;
-  }
-
-  void main() {
-    // Check if invoc is within nr of items on leaf queue
-    const uint j = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
-    if (j >= leafHead) {
-      return;
-    }
-
-    const uint i = leafBuffer[j];
-    // const uvec3 px = posBuffer[i];
-    // if (px.z != outputDepth) {
-    //   return;
-    // }
-
-    uint _i = i;
-    uint lvl = findLvl(_i);
-
-    while (outputLvl < lvl) {
-      lvl--;
-      _i = (_i - 1) >> logk;
-    }
-
-    vec4 field = fieldBuffer[_i];
-    // vec4 field = vec4(0);
-    // for (int i = int(lvl); i > 0; i--) {
-    //   field += fieldBuffer[_i];
-    //   _i = (_i - 1) >> logk;
-    // }
-
-    const uint begin = uint(node1Buffer[i].w);
-    const uint extent = uint(node0Buffer[i].w);
-    for (uint k = begin; k < begin + extent; k++) {
-      uvec3 px = posBuffer[k].xyz;
-      if (px.z == outputDepth) {
-        imageStore(fieldImage, ivec2(px.xy), field);
-      }
-    }
   }
 );
 
@@ -148,18 +60,20 @@ GLSL(field_resample_src, 450,
     // Write to output texture
     vec3 v = vec3(0.5f);
     if (field != vec4(0)) {
-      v += 0.5 * normalize(field.yzw);
+      v += vec3(0.5 * normalize(field.yz), 0);
+      // v += 0.5 * normalize(field.yzw);
     }
+    // vec3 v = vec3(field);
     imageStore(outputImage, ivec2(i), vec4(v, 1));
   }
 );
 
 namespace {
   std::array<glm::vec2, 4> quadVertices = {
-    glm::vec2(-0.5, -0.5),  // 0
-    glm::vec2(0.5, -0.5),   // 1
-    glm::vec2(0.5, 0.5),    // 2
-    glm::vec2(-0.5, 0.5)    // 3
+    0.95f * glm::vec2(-0.5, -0.5),  // 0
+    0.95f * glm::vec2(0.5, -0.5),   // 1
+    0.95f * glm::vec2(0.5, 0.5),    // 2
+    0.95f * glm::vec2(-0.5, 0.5)    // 3
   };
 
   std::array<unsigned, 8> quadIndices = {
@@ -188,7 +102,8 @@ namespace hdi::dbg {
   template <unsigned D>
   FieldBVHRenderer<D>::FieldBVHRenderer()
   : RenderComponent(5, false),
-    _bvh(nullptr)
+    _bvh(nullptr),
+    _fieldLvl(1)
   { }
 
   template <unsigned D>
@@ -200,7 +115,7 @@ namespace hdi::dbg {
   }
 
   template <unsigned D>
-  void FieldBVHRenderer<D>::init(const dr::FieldBVH<D> &bvh, GLuint boundsBuffer)
+  void FieldBVHRenderer<D>::init(const dr::FieldBVH<D> &bvh, GLuint boundsBuffer, GLuint pairsBuffer, GLuint pairsHead)
   {
     RenderComponent::init();
     if (!_isInit) {
@@ -220,14 +135,15 @@ namespace hdi::dbg {
         program.create();
       }
       if constexpr (D == 2) {
+        _programs(ProgramType::eFieldSlice).addShader(COMPUTE, _2d::field_slice_ext_src);
         _programs(ProgramType::eBvhDraw).addShader(VERTEX, _2d::bvh_vert);
         _programs(ProgramType::eBvhDraw).addShader(FRAGMENT, _2d::bvh_frag);
       } else if constexpr (D == 3) {
+        _programs(ProgramType::eFieldSlice).addShader(COMPUTE, _3d::field_slice_src);
         _programs(ProgramType::eBvhDraw).addShader(VERTEX, _3d::bvh_vert);
         _programs(ProgramType::eBvhDraw).addShader(FRAGMENT, _3d::bvh_frag);
       }
       _programs(ProgramType::eFlags).addShader(COMPUTE, flags_comp);
-      _programs(ProgramType::eFieldSlice).addShader(COMPUTE, field_slice_src);
       _programs(ProgramType::eFieldResample).addShader(COMPUTE, field_resample_src);
       _programs(ProgramType::eDispatch).addShader(COMPUTE, divide_dispatch_src);
       for (auto& program : _programs) {
@@ -250,8 +166,8 @@ namespace hdi::dbg {
     glNamedBufferStorage(_buffers(BufferType::eCubeIndices), 24 * sizeof(unsigned), cubeIndices.data(), GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eQuadVertices), 4 * sizeof(glm::vec2), quadVertices.data(), GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eQuadIndices), 8 * sizeof(unsigned), quadIndices.data(), GL_DYNAMIC_STORAGE_BIT);
-    glNamedBufferStorage(_buffers(BufferType::eFlags), sizeof(float) * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eDispatch), sizeof(glm::uvec3), &dispatch[0], 0);
+    glNamedBufferStorage(_buffers(BufferType::eFlags), sizeof(uint) * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
     // Specify vertex array object for instanced draw
     if constexpr (D == 2) {
@@ -259,7 +175,7 @@ namespace hdi::dbg {
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 0, _buffers(BufferType::eQuadVertices), 0, sizeof(glm::vec2));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 1, buffers.node0, 0, sizeof(glm::vec4));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 2, buffers.node1, 0, sizeof(glm::vec4));
-      glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 3, _buffers(BufferType::eFlags), 0, sizeof(float));
+      glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 3, _buffers(BufferType::eFlags), 0, sizeof(uint));
       glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), _buffers(BufferType::eQuadIndices));
       glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eQuad), 0, 0);
       glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eQuad), 1, 1);
@@ -272,7 +188,7 @@ namespace hdi::dbg {
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 0, 2, GL_FLOAT, GL_FALSE, 0);
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 1, 4, GL_FLOAT, GL_FALSE, 0);
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 2, 4, GL_FLOAT, GL_FALSE, 0);
-      glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 3, 1, GL_FLOAT, GL_FALSE, 0);
+      glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eQuad), 3, 1, GL_UNSIGNED_INT, GL_FALSE, 0);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 0, 0);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 1, 1);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eQuad), 2, 2);
@@ -287,7 +203,7 @@ namespace hdi::dbg {
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 0, _buffers(BufferType::eCubeVertices), 0, sizeof(glm::vec4));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 1, buffers.node0, 0, sizeof(glm::vec4));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 2, buffers.node1, 0, sizeof(glm::vec4));
-      glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 3, _buffers(BufferType::eFlags), 0, sizeof(float));
+      glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eCube), 3, _buffers(BufferType::eFlags), 0, sizeof(uint));
       glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eCube), _buffers(BufferType::eCubeIndices));
       glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 0, 0);
       glVertexArrayBindingDivisor(_vertexArrays(VertexArrayType::eCube), 1, 1);
@@ -300,7 +216,7 @@ namespace hdi::dbg {
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 0, 4, GL_FLOAT, GL_FALSE, 0);
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 1, 4, GL_FLOAT, GL_FALSE, 0);
       glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 2, 4, GL_FLOAT, GL_FALSE, 0);
-      glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 3, 1, GL_FLOAT, GL_FALSE, 0);
+      glVertexArrayAttribFormat(_vertexArrays(VertexArrayType::eCube), 3, 1, GL_UNSIGNED_INT, GL_FALSE, 0);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 0, 0);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 1, 1);
       glVertexArrayAttribBinding(_vertexArrays(VertexArrayType::eCube), 2, 2);
@@ -315,6 +231,8 @@ namespace hdi::dbg {
 
     _nCube = layout.nNodes;
     _boundsBuffer = boundsBuffer;
+    _pairsBuffer = pairsBuffer;
+    _pairsHead = pairsHead;
     _isInit = true;
   }
 
@@ -351,53 +269,47 @@ namespace hdi::dbg {
     if (_drawCube) {
       ImGui::SliderFloat("Line width##1", &_cubeLineWidth, 0.5f, 16.f, "%1.1f");
       ImGui::SliderFloat("Line opacity##1", &_cubeOpacity, 0.f, 1.f, "%.2f");
-      ImGui::SliderFloat("Theta##0", &_cubeTheta, 0.f, 1.f, "%.2f");
+      ImGui::Checkbox("Specific level", &_drawLvl);
+      if (_drawLvl) {
+        const auto layout = _bvh->layout();
+        const uint lvlMin = 0;
+        const uint lvlMax = layout.nLvls - 1;
+        ImGui::SliderScalar("Level", ImGuiDataType_U32, &_bvhLvl, &lvlMin, &lvlMax);
+      }
+      if (_pairsBuffer != 0) {
+        ImGui::Checkbox("Flagged only", &_drawFlags);
+      }
     }
+    ImGui::End();
 
-    ImGui::Separator();
+    if (_drawCube && _drawFlags) {
+      uint head = 0;
+      glGetNamedBufferSubData(_pairsHead, 0, sizeof(uint), &head);
+      glClearNamedBufferData(_buffers(BufferType::eFlags), GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
 
-    ImGui::Text("Barnes-Hut approximation");
-    ImGui::Checkbox("Draw##2", &_drawBarnesHut);
-    ImGui::Checkbox("Level only", &_drawSpecificLevel);
+      auto &program = _programs(ProgramType::eFlags);
+      program.bind();
 
-    ImGui::Separator();
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _pairsBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _pairsHead);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eFlags));
 
-    ImGui::Text("Field");
-    ImGui::Checkbox("Draw##3", &_drawField);
-
-
-    // if (_drawBarnesHut) {
-    //   const auto layout = _bvh->layout();
-    //   const auto buffers = _bvh->buffers(); 
-
-    //   auto &program = _programs(ProgramType::eFlags);
-    //   program.bind();
-
-    //   // Set uniforms
-    //   program.uniform1ui("nNodes", layout.nNodes);
-    //   program.uniform1ui("lvlOnly", _drawSpecificLevel ? 1u : 0u);
-    //   program.uniform1ui("lvl", _fieldLvl);
-
-    //   // Bind buffers
-    //   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.field);
-    //   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eFlags));
-
-    //   // Fire away
-    //   glDispatchCompute(dr::ceilDiv(layout.nNodes, 256u), 1, 1);
-      
-    //   program.release();
-    // }
+      glDispatchCompute(dr::ceilDiv(head, 256u), 1u, 1u);
+      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    }
     
     // Set opengl state for line drawing operation and perform draw
-    if (_drawCube || _drawBarnesHut) {      
+    if (_drawCube) {      
       auto &program = _programs(ProgramType::eBvhDraw);
       program.bind();
       program.uniformMatrix4f("uTransform", &transform[0][0]);
       program.uniform1f("uCubeOpacity", _drawCube ? _cubeOpacity : 0.f);
-      program.uniform1f("uBarnesHutOpacity", _drawBarnesHut ? _barnesHutOpacity : 0.f);
-      program.uniform1f("uTheta", _cubeTheta);
+      program.uniform1ui("lvl", _bvhLvl);
+      program.uniform1ui("doLvl", _drawLvl);
+      program.uniform1ui("doFlags", _drawFlags);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
       glLineWidth(_cubeLineWidth);
+      glDepthMask(GL_FALSE);
       if constexpr (D == 2) {
         glBindVertexArray(_vertexArrays(VertexArrayType::eQuad));
         glDrawElementsInstanced(GL_LINES, 8, GL_UNSIGNED_INT, nullptr, _nCube);
@@ -405,37 +317,37 @@ namespace hdi::dbg {
         glBindVertexArray(_vertexArrays(VertexArrayType::eCube));
         glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, _nCube);
       }
+      glDepthMask(GL_TRUE);
       program.release();
     }
-
-    /* if (_drawField) {
+    
+    ImGui::Begin("FieldBVH");
+    ImGui::Checkbox("Draw", &_drawField);
+    if (_drawField) {
       const auto layout = _bvh->layout();
       const auto buffers = _bvh->buffers(); 
 
       if constexpr (D == 3) {
         ImGui::SliderFloat("Depth Value", &_fieldDepth, 0.f, 1.f);
       }
-      const uint lvlMin = 0;
+      const uint lvlMin = 1;
       const uint lvlMax = layout.nLvls - 1;
       ImGui::SliderScalar("Level", ImGuiDataType_U32, &_fieldLvl, &lvlMin, &lvlMax);
       
       auto fieldDims = layout.dims;
       ImVec2 outputDims = ImGui::GetWindowSize();
-
       if (_fieldDims.x != fieldDims.x || _fieldDims.y != fieldDims.y) {
         _fieldDims = ImVec2(fieldDims.x, fieldDims.y);
         glDeleteTextures(1, &_textures(TextureType::eField));
         glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eField));
         glTextureStorage2D(_textures(TextureType::eField), 1, GL_RGBA32F, _fieldDims.x, _fieldDims.y);
       }
-
       if (_outputDims.x != outputDims.x) {
         _outputDims = ImVec2(outputDims.x, outputDims.x);
         glDeleteTextures(1, &_textures(TextureType::eOutput));
         glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eOutput));
         glTextureStorage2D(_textures(TextureType::eOutput), 1, GL_RGBA32F, _outputDims.x, _outputDims.y);
       }
-
 
       // Get a slice from the pixelBvh for a specified level
       {
@@ -451,13 +363,13 @@ namespace hdi::dbg {
           glDispatchCompute(1, 1, 1);
         }
 
-        glClearTexImage(_textures(TextureType::eField), 0, GL_RGBA, GL_FLOAT, nullptr);
-
         // Bind program and uniforms
         auto &program = _programs(ProgramType::eFieldSlice);
         program.bind();
         program.uniform1ui("outputLvl", _fieldLvl);
-        program.uniform1ui("outputDepth", static_cast<uint>(_fieldDepth * static_cast<float>(layout.dims.z)));
+        if constexpr (D == 3) {
+          program.uniform1ui("outputDepth", static_cast<uint>(_fieldDepth * static_cast<float>(layout.dims.z)));
+        }
 
         // Bind buffers
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.node0);
@@ -466,8 +378,10 @@ namespace hdi::dbg {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buffers.field);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buffers.leafFlags);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, buffers.leafHead);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _boundsBuffer);
 
-        // Bind output image
+        // Bind and clear output image
+        glClearTexImage(_textures(TextureType::eField), 0, GL_RGBA, GL_FLOAT, nullptr);
         glBindImageTexture(0, _textures(TextureType::eField), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
         // Dispatch shader
@@ -493,7 +407,7 @@ namespace hdi::dbg {
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
       }
       ImGui::Image((void *) (intptr_t) _textures(TextureType::eOutput), ImVec2(_outputDims.x, _outputDims.y));
-    } */
+    }
 
     ImGui::End();
   }

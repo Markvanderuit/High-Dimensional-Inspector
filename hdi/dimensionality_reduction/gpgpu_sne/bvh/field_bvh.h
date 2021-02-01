@@ -50,8 +50,8 @@ namespace hdi::dr {
     struct Layout {
       uint nPixels;       // Nr of pixels flagged for computation
       uvec dims;          // Dimensional field resolution
-      uint nNodes;        // Nr of tree nodes
-      uint nLvls;         // Nr of tree levels
+      uint nNodes;        // Max nr of nodes in BVH
+      uint nLvls;         // Max nr of levels in BVH
 
       Layout()
       : nPixels(0), dims(0), nNodes(0), nLvls(0) { }
@@ -64,8 +64,8 @@ namespace hdi::dr {
         dims(dims)
       {
         constexpr uint logk = D == 2 ? BVH_LOGK_2D : BVH_LOGK_3D;
-        size_t nPixelsTotal = product(dims);
-        nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPixelsTotal) / logk));
+        size_t nPos = product(dims);
+        nLvls = 1 + static_cast<uint>(std::ceil(std::log2(nPos) / logk));
         nNodes = 0u;
         for (uint i = 0u; i < nLvls; i++) {
           nNodes |= 1u << (logk * i); 

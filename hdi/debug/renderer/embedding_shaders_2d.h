@@ -82,14 +82,15 @@ namespace hdi::dbg::_2d {
       // 2. Then offset by vertex position
       // 3. Then apply transformation matrix
       posOut = (posIn - bounds.min) * bounds.invRange;
+      posOut.y = 1.f - posOut.y;
       fragOut = posOut + vertexIn * size;
       gl_Position = transform * vec4(fragOut, 0, 1);
 
       // Output label color
       colorOut = vec4(labels[drawLabels ? labelIn % 10 : 0] / 255.f, opacity);       
-      if (!drawLabels) {
-        colorOut = vec4(0, 0, 0, opacity);
-      }
+      // if (!drawLabels) {
+      //   colorOut = vec4(0, 0, 0, opacity);
+      // }
     }
   );
 

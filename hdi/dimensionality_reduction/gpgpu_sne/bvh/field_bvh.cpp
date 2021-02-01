@@ -100,7 +100,7 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eField), _layout.nNodes * sizeof(glm::vec4), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafFlag), _layout.nNodes * sizeof(uint), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafHead), sizeof(uint), &head[0], 0);
-      glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), &head[0], 0);
+      glNamedBufferStorage(_buffers(BufferType::eDispatch), 4 * sizeof(uint), &head[0], 0);
     }
 
     // Pass stuff to sorter
@@ -158,15 +158,10 @@ namespace hdi::dr {
     if (rebuild && _reservedNodes < _layout.nNodes) {
       glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
       utils::secureLog(_logger, "   Expanding FieldBVH");
-
+      
       // New 'reserve' layout is nearest larger power of 2, so plenty of space for now
-      uvec newDims = glm::pow(vec(2), glm::ceil(glm::log(vec(_layout.dims)) / vec(glm::log(2)))); 
-      uint newPixels = newDims.x * newDims.y;
-      if constexpr (D == 3) {
-        newPixels *= newDims.z;
-      } 
-      FieldBVH<D>::Layout reserveLayout(newPixels, newDims);
-
+      const uvec newDims = glm::pow(vec(2), glm::ceil(glm::log(vec(_layout.dims)) / vec(glm::log(2))));       
+      FieldBVH<D>::Layout reserveLayout(uvec(dr::max(newDims)));
       _reservedNodes = reserveLayout.nNodes;
 
       // Delete buffers and clear out sorder
@@ -185,7 +180,7 @@ namespace hdi::dr {
       glNamedBufferStorage(_buffers(BufferType::eField), reserveLayout.nNodes * sizeof(glm::vec4), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafFlag), reserveLayout.nNodes * sizeof(uint), nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::eLeafHead), sizeof(uint), &head[0], 0);
-      glNamedBufferStorage(_buffers(BufferType::eDispatch), 3 * sizeof(uint), &head[0], 0);
+      glNamedBufferStorage(_buffers(BufferType::eDispatch), 4 * sizeof(uint), &head[0], 0);
 
       // Set up new sorter using new buffers
       _sorter.init(
@@ -246,6 +241,14 @@ namespace hdi::dr {
       glAssert("FieldBVH::compute::sort()");
       timer.tock();
     } // rebuild
+
+    // Clear out old tree nodes
+    if (rebuild) {
+      glClearNamedBufferData(_buffers(BufferType::eNode0),
+        GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+      glClearNamedBufferData(_buffers(BufferType::eNode1),
+        GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+    }
 
     // Perform subdivision
     if (rebuild) {

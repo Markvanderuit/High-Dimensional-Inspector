@@ -66,7 +66,7 @@ GLSL(field_bvh_dual_src, 450,
   layout(binding = 9, std430) restrict readonly buffer OQHea { uint oQueueHead; };       // Atomic
   layout(binding = 10, std430) restrict writeonly buffer LQu { Pair lQueueBuffer[]; }; // Leaf
   layout(binding = 11, std430) restrict coherent buffer LQHe { uint lQueueHead; };      // Atomic
-
+  
   // Uniform values
   layout(location = 0) uniform uint eLvls;    // Nr. of levels in embedding hierarchy
   layout(location = 1) uniform uint fLvls;    // Nr. of levels in field hierarchy
@@ -135,7 +135,7 @@ GLSL(field_bvh_dual_src, 450,
       // Load new field node
       const vec4 _fNode0 = fNode0Buffer[pair.f]; // bbox minima, range extent
       const vec4 _fNode1 = fNode1Buffer[pair.f]; // bbox extent, range min
-      fNode = Node(_fNode0.xy + 0.5 * _fNode1.xy, uint(_fNode1.w),  _fNode1.xy, uint(_fNode0.w));
+      fNode = Node(_fNode0.xy + 0.5 * _fNode1.xy, uint(_fNode1.w), _fNode1.xy, uint(_fNode0.w));
 
       // Test if this node can still subdivide (alternatively, it is a leaf node)
       fCanSubdiv = ++fLvl < fLvls - 1 && fNode.extent > 1;
@@ -179,7 +179,7 @@ GLSL(field_bvh_dual_src, 450,
       if (r2 / t2 < theta2) {
         // Approximation passes, compute approximated value and truncate
         const float tStud = 1.f / (1.f + t2);
-        field = eNode.extent * vec3(tStud, t * (tStud * tStud));
+        field = eNode.extent * vec3(tStud, t * (tStud * tStud));// / float(fNode.extent);
       } else if (!fCanSubdiv && !eCanSubdiv) {
         // Leaf is reached. Large leaves are dealt with in separate shader
         // as leaves require iterating over all contained data
@@ -207,7 +207,7 @@ GLSL(field_bvh_dual_src, 450,
       atomicAdd(fFieldBuffer[addr.z], field.z);
     } else if (!fDidSubdiv) {
       // All threads can enter this so the subgroup can be used without inactive invocations
-      // When the embedding hierarchy is subdivided, BVH_KNODE_3D invocations can write to the same field node
+      // When the embedding hierarchy is subdivided, BVH_KNODE_2D invocations can write to the same field node
       field = subgroupClusteredAdd(field, BVH_KNODE_2D);
       if (thread < 3 && field != vec3(0)) {
         atomicAdd(fFieldBuffer[4 * pair.f + thread], field[thread]);
@@ -292,6 +292,158 @@ GLSL(field_bvh_dual_leaf_src, 450,
     if (field != vec3(0) && thread < 3) {
       const uvec3 addr = uvec3(4 * pair.f) + uvec3(0, 1, 2);
       atomicAdd(fFieldBuffer[addr[thread]], field[thread]);
+    }
+  }
+);
+
+GLSL(push_ext_src, 450,
+  // Wrapper structure for bounds data
+  struct Bounds {
+    vec2 min;
+    vec2 max;
+    vec2 range;
+    vec2 invRange;
+  };
+
+  // Wrapper structure for node data
+  struct Node {
+    vec2 min;
+    vec2 center;
+    vec2 max;
+    uint begin;
+    uint extent;
+    vec3 field;
+  };
+
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+  // Buffer bindings
+  layout(binding = 0, std430) restrict readonly buffer VNod0 { vec4 node0Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer VNod1 { vec4 node1Buffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer VPixe { uvec2 posBuffer[]; };
+  layout(binding = 3, std430) restrict coherent buffer VFiel { vec3 fieldBuffer[]; };
+  layout(binding = 4, std430) restrict readonly buffer LFlag { uint leafBuffer[]; };
+  layout(binding = 5, std430) restrict readonly buffer LHead { uint leafHead; };
+  layout(binding = 6, std430) restrict readonly buffer Bound { Bounds bounds; };
+
+  // Image bindings
+  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
+
+  Node readNode(uint i) {
+    vec4 node0 = node0Buffer[i];
+    vec4 node1 = node1Buffer[i];
+    node0.xy = (node0.xy - bounds.min) * bounds.invRange;
+    node1.xy = node1.xy * bounds.invRange;
+    return Node(
+      node0.xy, 
+      node0.xy + 0.5 * node1.xy,
+      node0.xy + node1.xy,
+      uint(node1.w),
+      uint(node0.w),
+      node0.w > 0.f ? fieldBuffer[i].xyz : vec3(0.f)
+    );
+  }
+
+  // De-interleave 30-wide interleaved bits to 15
+  uint shrinkBits15(uint i) {
+    i = i & 0x55555555u;               // 1010101010101010101010101010101 (31 bits)
+    i = (i | (i >> 1u)) & 0x33333333u; //  110011001100110011001100110011 (30 bits)
+    i = (i | (i >> 2u)) & 0x0F0F0F0Fu; //    1111000011110000111100001111 (28 bits)
+    i = (i | (i >> 4u)) & 0x00FF00FFu; //        111111110000000011111111 (24 bits)
+    i = (i | (i >> 8u)) & 0x0000FFFFu; //                1111111111111111 (16 bits)
+    return i;
+  }
+
+  // Interleave 15 continuous bits to 30-wide
+  uint expandBits15(uint i) {
+    i = (i | (i << 8u)) & 0x00FF00FFu; //        111111110000000011111111 (24 bits)
+    i = (i | (i << 4u)) & 0x0F0F0F0Fu; //    1111000011110000111100001111 (28 bits)
+    i = (i | (i << 2u)) & 0x33333333u; //  110011001100110011001100110011 (30 bits)
+    i = (i | (i << 1u)) & 0x55555555u; // 1010101010101010101010101010101 (31 bits)
+    return i;
+  }
+
+  uint encode(ivec2 uv) {
+    uint x = expandBits15(uint(uv.x));
+    uint y = expandBits15(uint(uv.y));
+    return x | (y << 1);
+  }
+
+  ivec2 decode(uint i) {
+    uint x = shrinkBits15(i);
+    uint y = shrinkBits15(i >> 1);
+    return ivec2(x, y);
+  }
+
+  uint findLvl(uint i) {
+    uint lvl = 0u;
+    do { lvl++; } while ((i = ( i - 1) >> BVH_LOGK_2D) > 0);
+    return lvl;
+  }
+
+  vec3 safeMix(in vec3 a, in vec3 b, in float c, in uint an, in uint bn) {
+    if (an > 0 && bn > 0) {
+      return mix(a, b, c);
+    } else if (an > 0) {
+      return a;
+    } else if (bn > 0) {
+      return b;
+    } else {
+      return vec3(0);
+    }
+  }
+
+  void main() {
+    // Check if invoc is within nr of items on leaf queue
+    const uint j = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    if (j >= leafHead) {
+      return;
+    }
+
+    // Get leaf node
+    uint i = leafBuffer[j];
+    const Node leafNode = readNode(i);
+
+    // Determine nr of nodes before current level
+    uint lvl = findLvl(i);
+    uint nNodes = 0u;
+    for (uint i = 0; i < lvl; ++i) {
+      nNodes |= 1u << (BVH_LOGK_2D * i);
+    }
+
+    vec3 field = leafNode.field;
+    while (lvl > 0) { // 0 will never approximate, so it can be skipped
+      // Ascend one level in hierarchy
+      lvl--;
+      i = (i - 1) >> BVH_LOGK_2D;
+      nNodes -= 1u << (BVH_LOGK_2D * lvl); // FIXME check on paper
+
+      // Get new node
+      const Node nearNode = readNode(i);
+      const ivec2 nearPos = decode(i - nNodes);
+
+      // Determine in which direction to grab neighbours (left, right, up, down)
+      const int xDir = (nearNode.center.x <= leafNode.center.x) ? 1 : -1;
+      const int yDir = (nearNode.center.y <= leafNode.center.y) ? 1 : -1;
+
+      // Read neighbour node data. Data is placed along morton order
+      const Node horiNode = readNode(nNodes + encode(nearPos + ivec2(xDir, 0)));
+      const Node vertNode = readNode(nNodes + encode(nearPos + ivec2(0, yDir)));
+      const Node diagNode = readNode(nNodes + encode(nearPos + ivec2(xDir, yDir)));
+
+      // Interpolation factor
+      vec2 a = (leafNode.center - nearNode.min) / (nearNode.max - nearNode.min);
+      a = abs(a - 0.5f);
+
+      // Interpolate and add to leaf node
+      field += safeMix(safeMix(nearNode.field, horiNode.field, a.x, nearNode.extent, horiNode.extent),
+                       safeMix(vertNode.field, diagNode.field, a.x, vertNode.extent, diagNode.extent),
+                       a.y, nearNode.extent + horiNode.extent, vertNode.extent + diagNode.extent);
+      // field += nearNode.field;
+    }
+
+    for (uint i = leafNode.begin; i < leafNode.begin + leafNode.extent; i++) {
+      imageStore(fieldImage, ivec2(posBuffer[i]), vec4(field, 0));
     }
   }
 );

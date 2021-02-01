@@ -42,58 +42,87 @@ namespace hdi::dbg::_2d {
       vec2 range;
       vec2 invRange;
     };
+    
+    // Ten nice colors for color mapping
+    const vec3 labels[10] = vec3[10](
+      vec3(16, 78, 139),
+      vec3(139, 90, 43),
+      vec3(138, 43, 226),
+      vec3(0, 128, 0),
+      vec3(255, 150, 0),
+      vec3(204, 40, 40),
+      vec3(131, 139, 131),
+      vec3(0, 205, 0),
+      vec3(20, 20, 20),
+      vec3(0, 150, 255)
+    );
 
-    layout (location = 0) in vec2 vert; // instanced
-    layout (location = 1) in vec2 minb;
-    layout (location = 2) in vec4 node;
-    layout (location = 3) in float flag;
-    layout (location = 0) out vec2 pos;
-    layout (location = 1) out float theta;
-    layout (location = 2) out float fflag;
-    layout (location = 0) uniform mat4 uTransform;
+    layout(location = 0) in vec2 vert; // instanced
+    layout(location = 1) in vec2 minb;
+    layout(location = 2) in vec4 node0;
+    layout(location = 3) in vec4 node1;
+    layout(location = 4) in uint flag;
+
+    layout(location = 0) out vec2 posOut;
+    layout(location = 1) out vec3 colorOut;
+    // layout(location = 1) out float fflag;
+
+    layout(location = 0) uniform mat4 uTransform;
+    layout(location = 1) uniform float uCubeOpacity;
+    layout(location = 2) uniform uint lvl;
+    layout(location = 3) uniform bool doLvl;
+    layout(location = 4) uniform bool doFlags;
+
     layout (binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
 
     void main() {
-      fflag = flag;
+      // Calculate range in which instance should fall
+      uint nBegin = 0;
+      for (uint i = 0; i < lvl; ++i) {
+        nBegin |= 1u << (BVH_LOGK_2D * i);
+      }
+      uint nEnd = nBegin | (1u << (BVH_LOGK_2D * (lvl)));
 
       // Obtain normalized [0, 1] boundary values
       vec2 _minb = (minb - bounds.min) * bounds.invRange;
-      vec2 _diam = node.xy * bounds.invRange;
+      vec2 _diam = node1.xy * bounds.invRange;
 
+      // Embedding node leaves have zero area, account for this in visualization
+      if (_diam == vec2(0.f)) {
+        _diam = vec2(0.005f);
+        _minb = _minb - 0.5f * _diam;
+      }
+      
       // Generate position from instanced data
-      pos = _minb + (0.5 + vert) * _diam;
+      if (node0.w == 0 || (doFlags && flag == 0) || (doLvl && (gl_InstanceID < nBegin || gl_InstanceID >= nEnd))) {
+        posOut = vec2(-999); 
+      } else {
+        posOut = _minb + (0.5f + vert) * _diam;
+        posOut.y = 1.f - posOut.y;
+      }
 
-      // Compute uhh, anisotropy of box
-      theta = dot(normalize(_diam), normalize(vec2(1)));
+      // Output color
+      colorOut = labels[doFlags ? 0 : gl_InstanceID % 10] / 255.f;
 
       // Apply camera transformation to output data
-      gl_Position = uTransform * vec4(pos, 0, 1);
+      gl_Position = uTransform * vec4(posOut, 0, 1);
     }
   );
 
   GLSL(bvh_frag, 450,
-    layout (location = 0) in vec2 pos;
-    layout (location = 1) in float theta;
-    layout (location = 2) in float flag;
-    layout (location = 0) out vec4 color;
-    layout (location = 1) uniform float uCubeOpacity;
-    layout (location = 2) uniform float uBarnesHutOpacity;
-    layout (location = 3) uniform float uTheta;
+    layout(location = 0) in vec2 posIn;
+    layout(location = 1) in vec3 colorIn;
+
+    layout(location = 0) out vec4 colorOut;
+
+    layout(location = 0) uniform mat4 uTransform;
+    layout(location = 1) uniform float uCubeOpacity;
+    layout(location = 2) uniform uint lvl;
+    layout(location = 3) uniform bool doLvl;
     
     void main() {
-      if (uBarnesHutOpacity > 0.f && flag > 0.f) {
-        if (theta < uTheta) {
-          color =  vec4(1, 0, 0, 1);
-        } else {
-          color =  vec4(0, 0, 0, uBarnesHutOpacity);
-        }
-      } else if (uCubeOpacity > 0.f) {
-        if (theta < uTheta) {
-          color =  vec4(1, 0, 0, 1);
-        } else {
-          color =  vec4(0.0, 0.25, 1, uCubeOpacity);
-          // color =  vec4(normalize(pos), 0, uCubeOpacity);
-        }
+      if (uCubeOpacity > 0.f) {
+        colorOut =  vec4(colorIn, uCubeOpacity);
       } else {
         discard;
       }

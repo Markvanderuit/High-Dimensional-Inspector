@@ -44,7 +44,7 @@
 namespace hdi::dr {
   // Magic numbers
   constexpr float pointSize = 3.f;                          // Point size in voxel grid
-  constexpr uint bvhRebuildIters = 4;                       // Nr. of iterations where the embedding hierarchy is refitted
+  constexpr uint bvhRebuildIters = 5;                       // Nr. of iterations where the embedding hierarchy is refitted
   constexpr uint pairsInputBufferSize = 256 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
   constexpr uint pairsLeafBufferSize = 64 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
   constexpr AlignedVec<3, unsigned> fieldBvhDims(128);      // Initial fieldBvh dims. Expansion isn't cheap.
@@ -191,8 +191,8 @@ namespace hdi::dr {
       // Init BufferType::ePairsInit to initialize hierarchy traversal starting node pairs
       {
         // Start levels for the field/embedding hierarchies
-        const uint fStartLvl = 1;//2;//4;
-        const uint eStartLvl = 1;//2;//2;
+        const uint fStartLvl = 3;
+        const uint eStartLvl = 3;
 
         // Determine nr of nodes in each tree level
         uint fBegin = 0, fNodes = 1;
@@ -275,12 +275,10 @@ namespace hdi::dr {
    */
   void Field3dCompute::compute(uvec dims, unsigned iteration, unsigned n,
                                 GLuint positionBuffer, GLuint boundsBuffer, GLuint interpBuffer) {
-    constexpr uint kNode = BVH_KNODE_3D;
-    constexpr uint logk = BVH_LOGK_3D;
-
-    // Rescale field texture as the required dimensions change
+    // Rescale textures if necessary
     if (_dims != dims) {
       _dims = dims;
+      _bvhRebuildIters = 0;
 
       glDeleteTextures(1, &_textures(TextureType::eField));
       glCreateTextures(GL_TEXTURE_3D, 1, &_textures(TextureType::eField));
@@ -313,18 +311,13 @@ namespace hdi::dr {
 
     // Build BVH structure over embedding
     if (_useEmbeddingBvh) {
-      _embeddingBvh.compute(_bvhRebuildIters == 0, iteration, positionBuffer, boundsBuffer);
-
-      // Rebuild BVH fully only once every X iterations
-      if (iteration <= _params.removeExaggerationIter || _bvhRebuildIters >= bvhRebuildIters) {
-        _bvhRebuildIters = 0;
-      } else {
-        _bvhRebuildIters++;
-      }
+      _embeddingBvh.compute(_bvhRebuildIters == 0, positionBuffer, boundsBuffer);
     }
 
     // Generate list of pixels in the field that require computation
-    compactField(n, positionBuffer, boundsBuffer);
+    if (_bvhRebuildIters == 0) {
+      compactField(n, positionBuffer, boundsBuffer);
+    }
 
     // Clear field texture
     glClearTexImage(_textures(TextureType::eField), 0, GL_RGBA, GL_FLOAT, nullptr);
@@ -340,8 +333,7 @@ namespace hdi::dr {
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
          static_cast<int>(fieldBvhLayout.nLvls) < DUAL_BVH_LVL_DIFFERENCE; // Trees within certain depth of each other  
     if (fieldBvhActive) {
-      _fieldBvh.compute(iteration, fieldBvhLayout, 
-        _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
+      _fieldBvh.compute(_bvhRebuildIters == 0, fieldBvhLayout, _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
       if (_fieldBvh.didResize()) {
         _fieldBVHRenderer.destr();
         _fieldBVHRenderer.init(_fieldBvh, boundsBuffer);
@@ -362,20 +354,29 @@ namespace hdi::dr {
 
     // Query field texture at all embedding positions
     queryField(n, positionBuffer, boundsBuffer, interpBuffer);
+    
+    // Rebuild BVH fully only once every X iterations
+    if (_useEmbeddingBvh && (iteration <= _params.removeExaggerationIter || _bvhRebuildIters >= bvhRebuildIters)) {
+      _bvhRebuildIters = 0;
+    } else {
+      _bvhRebuildIters++;
+    }
 
     glPollTimers(_timers.size(), _timers.data());  
-#ifdef LOG_FIELD_ITER
-    // Output nice message during runtime
-    const std::string method = fieldBvhActive  ? "dual tree"
-                          : _useEmbeddingBvh ? "single tree"
-                                          : "full";
-    utils::secureLogValue(_logger,
-      std::string("  Field (") + method + ") ",
-      std::string("iter ") + std::to_string(iteration) 
-      + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
-      + std::string(" - ") + std::to_string(_timers(TimerType::eField).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>())
-      + std::string(" \xE6s")
-    );
+#ifdef LOG_FIELD
+    if (iteration % LOG_FIELD_ITER == 0) {
+      // Output nice message during runtime
+      const std::string method = fieldBvhActive  ? "dual tree"
+                            : _useEmbeddingBvh ? "single tree"
+                                            : "full";
+      utils::secureLogValue(_logger,
+        std::string("  Field (") + method + ") ",
+        std::string("iter ") + std::to_string(iteration) 
+        + std::string(" - ") + std::to_string(nPixels) + std::string(" px") 
+        + std::string(" - ") + std::to_string(_timers(TimerType::eField).get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>())
+        + std::string(" \xE6s")
+      );
+    }
 #endif
   }
 
@@ -637,8 +638,8 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, _buffers(BufferType::ePairsLeaf));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, _buffers(BufferType::ePairsLeafHead));
 
-      // Process pair queues until empty
-      const uint nLvls = fLayout.nLvls + eLayout.nLvls - 3; // TODO maybe make this less seemingly arbitrary?
+      // Process pair queues until empty. Always ends at (eLvl + fLvl - 3). Dunno why 3, it just is.
+      const uint nLvls = fLayout.nLvls + eLayout.nLvls - 3; // TODO maybe make this less arbitrary?
       for (uint i = _startLvl; i < nLvls; i++) {
         // Reset output queue head
         glClearNamedBufferSubData(_buffers(BufferType::ePairsOutputHead),
