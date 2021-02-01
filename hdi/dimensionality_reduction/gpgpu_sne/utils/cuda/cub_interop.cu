@@ -29,6 +29,7 @@
  */
 
 #include <numeric>
+#define THRUST_IGNORE_CUB_VERSION_CHECK
 #include <cub/cub.cuh>
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/interop.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/cuda/cub_interop.h"
@@ -115,6 +116,7 @@ namespace hdi {
       cub::DeviceRadixSort::SortPairs<uint, uint>(
         nullptr, _tempSize, nullptr, nullptr, nullptr, nullptr, maxn
       );
+      // _tempSize *= 2;
 
       // Initialize buffers and interops
       _buffers.resize(E_PAIR_SORTER_BUFFER_LENGTH);
@@ -143,7 +145,6 @@ namespace hdi {
 
       const int msb = 30;
       const int lsb = msb - bits;
-
       cub::DeviceRadixSort::SortPairs<uint, uint>(
         (void *) _buffers[E_PAIR_SORTER_TEMP],
         _tempSize,
