@@ -64,8 +64,10 @@ GLSL(field_bvh_dual_src, 450,
   layout(binding = 7, std430) restrict readonly buffer IQHea { uint iQueueHead; };       // Atomic
   layout(binding = 8, std430) restrict writeonly buffer OQue { Pair oQueueBuffer[]; };   // Output
   layout(binding = 9, std430) restrict readonly buffer OQHea { uint oQueueHead; };       // Atomic
-  layout(binding = 10, std430) restrict writeonly buffer LQu { Pair lQueueBuffer[]; }; // Leaf
-  layout(binding = 11, std430) restrict coherent buffer LQHe { uint lQueueHead; };      // Atomic
+  layout(binding = 10, std430) restrict writeonly buffer LQu { Pair lQueueBuffer[]; };   // Leaf
+  layout(binding = 11, std430) restrict coherent buffer LQHe { uint lQueueHead; };       // Atomic
+  // layout(binding = 12, std430) restrict writeonly buffer DQu { Pair dQueueBuffer[]; };   // Dfs
+  // layout(binding = 13, std430) restrict coherent buffer DQHe { uint dQueueHead; };       // Atomic
   
   // Uniform values
   layout(location = 0) uniform uint eLvls;    // Nr. of levels in embedding hierarchy
@@ -124,8 +126,15 @@ GLSL(field_bvh_dual_src, 450,
     bool eCanSubdiv = eLvl < eLvls - 1 && eNode.extent > EMB_BVH_KLEAF_2D;
     bool fCanSubdiv = fLvl < fLvls - 1 && fNode.extent > 1;
 
-    // Decision is based on (a) is anyone a leaf already and (b) which bbox has the larger diameter
-    const bool fDidSubdiv = (fCanSubdiv && sdot(fNode.diam) > sdot(eNode.diam)) || !eCanSubdiv;
+    // Compute relative squared diameters for subdivision decision
+    // 1. Reflect vector between nodes so it always approaches almost-orthogonal to the diameter
+    const vec2 b = normalize(abs(fNode.center - eNode.center) * vec2(-1, 1));
+    // 2. Compute relative squared diameters
+    const float er2 = sdot(eNode.diam - b * dot(eNode.diam, b));
+    const float fr2 = sdot(fNode.diam - b * dot(fNode.diam, b));
+
+    // Decision is based on (a) which is a leaf already (b) which has the larger relative diam
+    const bool fDidSubdiv = !eCanSubdiv || (fCanSubdiv && fr2 > er2);
 
     // Perform subdivision on one hierarchy
     if (fDidSubdiv) {
@@ -156,19 +165,16 @@ GLSL(field_bvh_dual_src, 450,
     // invocation alive for now
     vec3 field = vec3(0);
     if (eNode.extent != 0 && fNode.extent != 0) {
-      // Compute distance between nodes
+      // Compute relative squared radii for approximation decision
+      // 1. Compute distance between nodes
       const vec2 t = fNode.center - eNode.center;
       const float t2 = dot(t, t);
-
-      // Align the distance vector so it is always coming from the same part of the axes
-      // such that the largest possible diameter of the bounding box becomes visible
+      // 2. Reflect vector so it always approaches almost-orthogonal to the diameter
       const vec2 b = normalize(abs(t) * vec2(-1, 1));
-
-      // Compute largest squared diameter, adjusted for viewing angle, for either node
-      // This is the vector rejection of diam onto unit vector b
+      // 3. Compute relative squared diameters
       const float r2 = max(
-        sdot(eNode.diam - b * dot(eNode.diam, b)), // Vector rejection of b onto p's vector
-        sdot(fNode.diam - b * dot(fNode.diam, b))  // Vector rejection of b onto v's vector
+        sdot(eNode.diam - b * dot(eNode.diam, b)),
+        sdot(fNode.diam - b * dot(fNode.diam, b))
       );
 
       // Dual-tree Barnes-Hut approximation is currently based on the
@@ -181,7 +187,7 @@ GLSL(field_bvh_dual_src, 450,
         const float tStud = 1.f / (1.f + t2);
         field = eNode.extent * vec3(tStud, t * (tStud * tStud));// / float(fNode.extent);
       } else if (!fCanSubdiv && !eCanSubdiv) {
-        // Leaf is reached. Large leaves are dealt with in separate shader
+        // Leaf is reached in both hierarchies. Large leaves are dealt with in separate shader
         // as leaves require iterating over all contained data
         if (eNode.extent > DUAL_BVH_LARGE_LEAF) {
           lQueueBuffer[atomicAdd(lQueueHead, 1)] = pair;
@@ -192,6 +198,10 @@ GLSL(field_bvh_dual_src, 450,
             field += vec3(tStud, t * (tStud * tStud));
           }
         }
+      // } else if (!fCanSubdiv || !eCanSubdiv) {
+      //   // Leaf is reached in one hierarchy. Optimize remaining traversal in separate shader
+      //   // using depth-first-search
+      //   dQueueBuffer[atomicAdd(dQueueHead, 1)] = pair;
       } else {
         // Push pair on work queue for further subdivision
         oQueueBuffer[atomicAdd(oQueueHead, 1)] = pair;
@@ -213,6 +223,128 @@ GLSL(field_bvh_dual_src, 450,
         atomicAdd(fFieldBuffer[4 * pair.f + thread], field[thread]);
       }
     }
+  }
+);
+
+GLSL(field_bvh_dual_dfs_src, 450,
+  GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
+
+  // Wrapper structure for pair queue data
+  struct Pair {
+    uint f;       // Field hierarchy node index
+    uint e;       // Embedding hierarchy node index
+  };
+
+  // Wrapper structure for node data
+  struct Node {
+    vec2 center; 
+    uint begin;
+    vec2 diam;
+    uint extent;
+  };
+
+  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+  
+  // Buffer bindings
+  layout(binding = 0, std430) restrict readonly buffer ENod0 { vec4 eNode0Buffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer ENod1 { vec4 eNode1Buffer[]; };
+  layout(binding = 2, std430) restrict readonly buffer EPosi { vec2 ePosBuffer[]; };
+  layout(binding = 3, std430) restrict readonly buffer FNod0 { vec4 fNode0Buffer[]; };
+  layout(binding = 4, std430) restrict readonly buffer FNod1 { vec4 fNode1Buffer[]; };
+  layout(binding = 5, std430) restrict coherent buffer FFiel { float fFieldBuffer[]; }; // atomic rw
+  layout(binding = 6, std430) restrict readonly buffer DQueu { Pair dQueueBuffer[]; };
+  layout(binding = 7, std430) restrict coherent buffer DQHea { uint dQueueHead; }; // atomic rw 
+  
+  // Fun stuff for fast modulo and division and stuff
+  const uint bitmask = ~((~0u) << BVH_LOGK_2D);
+
+  // Traversal data
+  uint lvl = 1u; // We start a level lower, as the root node will probably never approximate
+  uint loc = 1u;
+  uint stack = 1u | (bitmask << (BVH_LOGK_2D * lvl));
+
+  // Thread constants
+  const uint nThreads = 4; // Threads to handle all the buffer reads together
+  const uint thread = gl_LocalInvocationID.x % nThreads;
+
+  void descend() {
+    // Move down tree
+    lvl++;
+    loc = loc * BVH_KNODE_2D + 1u;
+
+    // Push unvisited locations on stack
+    stack |= (bitmask << (BVH_LOGK_2D * lvl));
+  }
+
+  void ascend() {
+    // Find distance to next level on stack
+    uint nextLvl = findMSB(stack) / BVH_LOGK_2D;
+    uint dist = lvl - nextLvl;
+
+    // Move dist up to where next available stack position is
+    // and one to the right
+    if (dist > 0) {
+      loc >>= BVH_LOGK_2D * dist;
+    } else {
+      loc++;
+    }
+    lvl = nextLvl;
+
+    // Pop visited location from stack
+    uint shift = BVH_LOGK_2D * lvl;
+    uint b = (stack >> shift) - 1;
+    stack &= ~(bitmask << shift);
+    stack |= b << shift;
+  }
+
+  bool approx(vec2 pos, inout vec3 field) {
+    //  ...
+    return false;
+  }
+
+  vec3 traverse(vec2 pos) {
+    vec3 field = vec3(0);
+
+    do {
+      if (approx(pos, field)) {
+        ascend();
+      } else {
+        descend();
+      }
+    } while (lvl > 0u);
+
+    return field;
+  }
+
+  void main() {
+    // Check if invoc is within nr of items on leaf queue
+    uint j = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nThreads;
+    if (j >= lQueueHead) {
+      return;
+    }
+
+    // Load node pair from queue, skip culled pairs
+    Pair pair = lQueueBuffer[j];
+
+    // Read node data using subgroup operations
+    const vec4 fNode0 = subgroupShuffle((thread == 0) 
+      ? fNode0Buffer[pair.f] : vec4(0),
+      gl_LocalInvocationID.x - thread);
+    const vec4 fNode1 = subgroupShuffle((thread == 1) 
+      ? fNode1Buffer[pair.f] : vec4(0),
+      gl_LocalInvocationID.x + 1 - thread);
+    const vec4 eNode0 = subgroupShuffle((thread == 2) 
+      ? eNode0Buffer[pair.e] : vec4(0),
+      gl_LocalInvocationID.x + 2 - thread);
+    const vec4 eNode1 = subgroupShuffle((thread == 3) 
+      ? eNode1Buffer[pair.e] : vec4(0),
+      gl_LocalInvocationID.x + 3 - thread);
+    const Node eNode = Node(eNode0.xy, uint(eNode1.w), eNode1.xy, uint(eNode0.w));
+    const Node fNode = Node(fNode0.xy + 0.5 * fNode1.xy, uint(fNode1.w),  fNode1.xy, uint(fNode0.w));
+
+    // ...
   }
 );
 
@@ -277,7 +409,7 @@ GLSL(field_bvh_dual_leaf_src, 450,
     const Node eNode = Node(eNode0.xy, uint(eNode1.w), eNode1.xy, uint(eNode0.w));
     const Node fNode = Node(fNode0.xy + 0.5 * fNode1.xy, uint(fNode1.w),  fNode1.xy, uint(fNode0.w));
 
-    // Compute forces for this node pair directly
+    // Directly compute forces for this node pair using group of threads
     vec3 field = vec3(0);
     for (uint i = eNode.begin + thread; 
               i < eNode.begin + eNode.extent; 
@@ -296,7 +428,7 @@ GLSL(field_bvh_dual_leaf_src, 450,
   }
 );
 
-GLSL(push_ext_src, 450,
+/* GLSL(push_ext_src, 450,
   // Wrapper structure for bounds data
   struct Bounds {
     vec2 min;
@@ -446,7 +578,7 @@ GLSL(push_ext_src, 450,
       imageStore(fieldImage, ivec2(posBuffer[i]), vec4(field, 0));
     }
   }
-);
+); */
 
 GLSL(push_src, 450,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;

@@ -124,8 +124,15 @@ GLSL(field_bvh_dual_src, 450,
     bool eCanSubdiv = eLvl < eLvls - 1 && eNode.extent > EMB_BVH_KLEAF_3D;
     bool fCanSubdiv = fLvl < fLvls - 1 && fNode.extent > 1;
 
-    // Decision is based on (a) is anyone a leaf already and (b) which bbox has the larger diameter
-    const bool fDidSubdiv = (fCanSubdiv && sdot(fNode.diam) > sdot(eNode.diam)) || !eCanSubdiv;
+    // Compute relative squared diameters for subdivision decision
+    // 1. Reflect vector between nodes so it always approaches almost-orthogonal to the diameter
+    const vec3 b = normalize(abs(fNode.center - eNode.center) * vec3(-1, -1, 1));
+    // 2. Compute relative squared diameters
+    const float er2 = sdot(eNode.diam - b * dot(eNode.diam, b));
+    const float fr2 = sdot(fNode.diam - b * dot(fNode.diam, b));
+
+    // Decision is based on (a) which is a leaf already (b) which has the larger relative diam
+    const bool fDidSubdiv = !eCanSubdiv || (fCanSubdiv && fr2 > er2);
 
     // Perform subdivision on one hierarchy
     if (fDidSubdiv) {
@@ -156,19 +163,16 @@ GLSL(field_bvh_dual_src, 450,
     // invocation alive for now
     vec4 field = vec4(0);
     if (eNode.extent != 0 && fNode.extent != 0) {
-      // Compute distance between nodes
+      // Compute relative squared radii for approximation decision
+      // 1. Compute distance between nodes
       const vec3 t = fNode.center - eNode.center;
       const float t2 = dot(t, t);
-
-      // Align the distance vector so it is always coming from the same part of the axes
-      // such that the largest possible diameter of the bounding box becomes visible
+      // 2. Reflect vector so it always approaches almost-orthogonal to the diameter
       const vec3 b = normalize(abs(t) * vec3(-1, -1, 1));
-
-      // Compute largest squared diameter, adjusted for viewing angle, for either node
-      // This is the vector rejection of diam onto unit vector b
+      // 3. Compute relative squared diameters
       const float r2 = max(
-        sdot(eNode.diam - b * dot(eNode.diam, b)), // Vector rejection of b onto p's vector
-        sdot(fNode.diam - b * dot(fNode.diam, b))  // Vector rejection of b onto v's vector
+        sdot(eNode.diam - b * dot(eNode.diam, b)),
+        sdot(fNode.diam - b * dot(fNode.diam, b))
       );
 
       // Dual-tree Barnes-Hut approximation is currently based on the
@@ -200,7 +204,7 @@ GLSL(field_bvh_dual_src, 450,
 
     // Add computed forces to field hierarchy
     if (fDidSubdiv && field != vec4(0)) {
-      // When the field hierarchy is subdivided, each invocation must do its own write
+      // When the field hierarchy is subdivided, each invocation must do its own writes
       const uvec4 addr = uvec4(4 * pair.f) + uvec4(0, 1, 2, 3);
       atomicAdd(fFieldBuffer[addr.x], field.x);
       atomicAdd(fFieldBuffer[addr.y], field.y);
@@ -208,7 +212,7 @@ GLSL(field_bvh_dual_src, 450,
       atomicAdd(fFieldBuffer[addr.w], field.w);
     } else if (!fDidSubdiv) {
       // All threads can enter this so the subgroup can be used without inactive invocations
-      // When the embedding hierarchy is subdivided, BVH_KNODE_3D invocations can write to the same field node
+      // When the embedding hierarchy is subdivided, four invocations can write to the same field node
       field = subgroupClusteredAdd(field, BVH_KNODE_3D);
       if (thread < 4 && field != vec4(0)) {
         atomicAdd(fFieldBuffer[4 * pair.f + thread], field[thread]);
