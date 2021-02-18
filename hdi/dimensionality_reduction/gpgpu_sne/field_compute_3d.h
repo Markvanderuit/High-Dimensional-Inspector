@@ -39,9 +39,10 @@
 #include "hdi/dimensionality_reduction/gpgpu_sne/utils/timer.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/embedding_bvh.h"
 #include "hdi/dimensionality_reduction/gpgpu_sne/bvh/field_bvh.h"
+#include "hdi/dimensionality_reduction/gpgpu_sne/hierarchy/field_hierarchy.h"
 #include "hdi/debug/renderer/field.hpp"
 #include "hdi/debug/renderer/embedding_bvh.hpp" 
-#include "hdi/debug/renderer/field_bvh.hpp" 
+#include "hdi/debug/renderer/field_hierarchy.hpp" 
 
 namespace hdi::dr {
   /**
@@ -74,6 +75,12 @@ namespace hdi::dr {
                  GLuint interpBuffer);
 
   private:
+    enum class MethodType {
+      eFull,
+      eSingleHierarchy,
+      eDualhierarchy
+    };
+
     enum class BufferType {
       eDispatch,
 
@@ -90,6 +97,10 @@ namespace hdi::dr {
       ePairsLeaf,
       ePairsLeafHead,
 
+      // Queue + head for list of node pairs where one has reached a leaf early
+      ePairsDfs,
+      ePairsDfsHead,
+
       // Queues + heads for list of node pairs for iterative traversal of hierarchy
       ePairsInput,
       ePairsOutput,
@@ -102,7 +113,7 @@ namespace hdi::dr {
     enum class ProgramType {
       eGrid,
       ePixels,
-      eDivideDispatch,
+      eDispatch,
       eInterp,
       eField,
 
@@ -113,6 +124,7 @@ namespace hdi::dr {
       // Dual hierarchy programs
       eFieldDual,
       eFieldDualLeaf,
+      eFieldDualDfs,
       ePush,
 
       Length
@@ -121,6 +133,8 @@ namespace hdi::dr {
     enum class TimerType {
       eFlags,
       eField, 
+      eFieldLeaf,
+      eFieldDfs,
       ePush,
       eInterp,
 
@@ -135,9 +149,9 @@ namespace hdi::dr {
       Length 
     };
 
-    // BVH components
+    // Hierarchies
+    FieldHierarchy<3> _fieldHier;
     EmbeddingBVH<3> _embeddingBvh;
-    FieldBVH<3> _fieldBvh;
 
     // Pretty much all buffer, program and texture handles
     EnumArray<BufferType, GLuint> _buffers;
@@ -148,7 +162,7 @@ namespace hdi::dr {
     // Subcomponents for the debug renderer
     dbg::FieldRenderer<3> _fieldRenderer;
     dbg::EmbeddingBVHRenderer<3> _embeddingBVHRenderer;
-    dbg::FieldBVHRenderer<3> _fieldBVHRenderer;
+    dbg::FieldHierarchyRenderer<3> _fieldHierRenderer;
 
     // Misc
     bool _isInit;
@@ -161,8 +175,6 @@ namespace hdi::dr {
     GLuint _voxelVao;
     GLuint _voxelFbo;
     uint _bvhRebuildIters;
-    uint _startLvl;
-    size_t _pairsInitSize;
     
   private:
     // Functions called by Field3dCompute::compute()
@@ -185,6 +197,8 @@ namespace hdi::dr {
                     GLuint positionsBuffer,
                     GLuint boundsBuffer,
                     GLuint interpBuffer);
+
+    void logIter(uint iteration, bool fieldBvhActive) const;
 
   public:
     void setLogger(utils::AbstractLog* logger) {
