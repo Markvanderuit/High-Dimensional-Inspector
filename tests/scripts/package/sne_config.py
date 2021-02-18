@@ -31,10 +31,12 @@ class SneConfig:
       perm.run(self, snePath)
 
   def result(self):
-    print("xKey=" + self.xKey + ", yKey=" + self.yKey)
+    print("Result: xKey=" + self.xKey + ", yKey=" + self.yKey)
+    print("  ", end="")
     for perm in self.permute():
       result = perm.result(self)
       print("(" + str(getattr(perm, self.xKey)) + ", " + str(getattr(result, self.yKey)) + ")", end="")
+    print()
 
   def permute(self):
     return [
