@@ -111,7 +111,6 @@ namespace hdi {
       return (n + div - 1) / div;
     }
 
-
     /**
      * Simple bounding box type for D dimensions.
      */

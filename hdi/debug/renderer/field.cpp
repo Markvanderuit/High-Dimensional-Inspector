@@ -23,6 +23,7 @@ namespace _2d {
       // Write to output texture
       vec3 v = vec3(0.5f);
       if (field != vec4(0)) {
+        // v += vec3(0.5 * (field.yz), 0);
         v += vec3(0.5 * normalize(field.yz), 0);
       }
       imageStore(outputImage, ivec2(i), vec4(v, 1));

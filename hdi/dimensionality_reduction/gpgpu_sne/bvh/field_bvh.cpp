@@ -370,7 +370,7 @@ namespace hdi::dr {
 
   template <unsigned D>
   void FieldBVH<D>::logTimerAverage() const {
-    utils::secureLogValue(_logger, "\nPixelBVH builds", _iteration);
+    utils::secureLogValue(_logger, "\nFieldBVH builds", _iteration);
     LOG_TIMER(_logger, TimerType::eMorton, "  Morton");
     LOG_TIMER(_logger, TimerType::eSort, "  Sorting");
     LOG_TIMER(_logger, TimerType::eSubdiv, "  Subdiv");

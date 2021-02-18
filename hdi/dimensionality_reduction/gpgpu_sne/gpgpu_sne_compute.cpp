@@ -258,7 +258,7 @@ namespace hdi::dr {
       const vec range = _bounds.range();
       const float ratio = D == 2 ?  _params.texture2dScaling : _params.texture3dScaling;
       uvec dims = dr::max(uvec(range * ratio), uvec(FIELD_MIN_SIZE));
-      // dims = uvec(glm::pow(2, glm::ceil(glm::log(static_cast<float>(dims.x)) / glm::log(2.f))));
+      dims = uvec(glm::pow(2, glm::ceil(glm::log(static_cast<float>(dims.x)) / glm::log(2.f))));
 #else
       const uvec dims = uvec(FIELD_FIXED_SIZE);
 #endif

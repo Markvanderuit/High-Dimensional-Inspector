@@ -6,10 +6,12 @@ file(GLOB headers
   gpgpu_sne/*.h 
   gpgpu_sne/sort/*.h 
   gpgpu_sne/bvh/*.h
+  gpgpu_sne/hierarchy/*.h
   gpgpu_sne/utils/*.h
   gpgpu_sne/utils/cuda/*.h
   gpgpu_sne/*.hpp
   gpgpu_sne/bvh/*.hpp
+  gpgpu_sne/hierarchy/*.hpp
 )
 
 file(GLOB sources
@@ -17,6 +19,7 @@ file(GLOB sources
   gpgpu_sne/*.cpp 
   gpgpu_sne/bvh/*.cpp 
   gpgpu_sne/utils/*.cpp 
+  gpgpu_sne/hierarchy/*.cpp
   gpgpu_sne/*.cu 
   gpgpu_sne/utils/*.cu 
   gpgpu_sne/utils/cuda/*.cu 

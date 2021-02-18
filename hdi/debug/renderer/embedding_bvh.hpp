@@ -66,7 +66,7 @@ namespace hdi::dbg {
     const dr::EmbeddingBVH<D> *_bvh;
     
     // ImGui default settings
-    bool _drawCube = true;
+    bool _drawCube = false;
     bool _drawLvl = false;
     bool _drawFlags = false;
     uint _bvhLvl = 1;
