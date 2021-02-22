@@ -158,7 +158,7 @@ GLSL(field_bvh_dual_src, 450,
       if (eNode0.w > 0 && fNode > 0) {
         const bool eCanSubdiv = eLvl < eLvls - 1 && eNode0.w > EMB_BVH_KLEAF_2D;
 
-        /* // Compute relative squared radii for approximation decision
+        // Compute relative squared radii for approximation decision
         // 1. Compute distance between nodes
         const vec2 t = fpos - eNode0.xy;
         const float t2 = dot(t, t); // squared eucl. dist.
@@ -168,16 +168,12 @@ GLSL(field_bvh_dual_src, 450,
         const float r2 = max(
           sdot(eNode1.xy - b * dot(eNode1.xy, b)),
           sdot(fbbox - b * dot(fbbox, b))
-        ); */
-
-        const vec2 t = fpos - eNode0.xy;
-        const float t2 = dot(t, t);
-        const float r2 = max(sdot(fbbox), sdot(eNode1.xy));
+        );
 
         if (r2 / t2 < theta2) {
           // Approximation passes, compute approximated value and truncate
           const float tStud = 1.f / (1.f + t2);
-          field += eNode0.w * vec3(tStud, t * (tStud * tStud));// / float(fNode.extent);
+          field += eNode0.w * vec3(tStud, t * (tStud * tStud));
         } else if (fCanSubdiv && eCanSubdiv) {
           // Push pair on work queue for further subdivision
           oQueueBuffer[atomicAdd(oQueueHead, 1)] = pair;
@@ -194,7 +190,7 @@ GLSL(field_bvh_dual_src, 450,
           // Leaf is reached in both hierarchies. Compute small leaves directly
           for (uint j = uint(eNode1.w); j < uint(eNode1.w) + uint(eNode0.w); ++j) {
             const vec2 t = fpos - ePosBuffer[j];
-            const float tStud = 1.f / (1.f +  dot(t, t));
+            const float tStud = 1.f / (1.f + dot(t, t));
             field += vec3(tStud, t * (tStud * tStud));
           }
         }
@@ -209,7 +205,7 @@ GLSL(field_bvh_dual_src, 450,
 
     // Add computed forces to field hierarchy
     if (field != vec3(0)) {
-      const uvec3 addr = uvec3(4 * pair.f) + uvec3(0, 1, 2);
+      const uvec4 addr = uvec4(4 * pair.f) + uvec4(0, 1, 2, 3);
       atomicAdd(fFieldBuffer[addr.x], field.x);
       atomicAdd(fFieldBuffer[addr.y], field.y);
       atomicAdd(fFieldBuffer[addr.z], field.z);
@@ -510,8 +506,8 @@ GLSL(field_bvh_dual_leaf_src, 450,
     for (uint i = eNode.begin + thread; 
               i < eNode.begin + eNode.extent; 
               i += nThreads) {
-      vec2 t = fpos - ePosBuffer[i];
-      float tStud = 1.f / (1.f +  dot(t, t));
+      const vec2 t = fpos - ePosBuffer[i];
+      const float tStud = 1.f / (1.f +  dot(t, t));
       field += vec3(tStud, t * (tStud * tStud));
     }
     field = subgroupClusteredAdd(field, nThreads);
@@ -569,8 +565,7 @@ GLSL(push_src, 450,
                     + encode(px);
 
     // Determine stop address based on topmost used hierarchy level
-    const uint stop = (0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (startLvl - 1)))
-                    + (1u << (BVH_LOGK_2D * (startLvl - 1)));
+    const uint stop = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (startLvl));
         
     // Push forces down by ascending up tree to root
     // ignore root, it will never approximate
