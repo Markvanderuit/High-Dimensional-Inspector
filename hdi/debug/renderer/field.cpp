@@ -20,10 +20,9 @@ namespace _2d {
       // Sample input texture
       vec4 field = texture(inputSampler, (vec2(i) + 0.5) / vec2(outputSize));
 
-      // Write to output texture
       vec3 v = vec3(0.5f);
       if (field != vec4(0)) {
-        // v += vec3(0.5 * (field.yz), 0);
+        // v += vec3(0.5 * vec3(field.y));
         v += vec3(0.5 * normalize(field.yz), 0);
       }
       imageStore(outputImage, ivec2(i), vec4(v, 1));
@@ -82,7 +81,10 @@ namespace hdi::dbg {
     _fieldTexture = fieldTexture;
     _dims = ImVec2(0, 0);
     glCreateTextures(GL_TEXTURE_2D, 1, &_outputTexture);
-    
+    glCreateSamplers(1, &_sampler);
+    glSamplerParameteri(_sampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(_sampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
     // Build shader program
     try {
       _program.create();
@@ -106,6 +108,7 @@ namespace hdi::dbg {
     _fieldTexture = nullptr;
     _dims = ImVec2(0, 0);
     glDeleteTextures(1, &_outputTexture);
+    glDeleteSamplers(1, &_sampler);
     RenderComponent::destr();
   }
 
@@ -136,6 +139,7 @@ namespace hdi::dbg {
     {
       _program.bind();
       glBindTextureUnit(0, *_fieldTexture);
+      glBindSampler(0, _sampler); // supercedes sampling strategy used by texture bound to unit 0
       glBindImageTexture(0, _outputTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
       _program.uniform2ui("outputSize", _dims.x, _dims.y);
       if constexpr (D == 3) {
@@ -145,6 +149,8 @@ namespace hdi::dbg {
                         dr::ceilDiv(static_cast<unsigned>(_dims.y), 16u), 
                         1);
       glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+      glBindSampler(0, 0); // clear state!
+
     }
 
     ImGui::Image((void *) (intptr_t) _outputTexture, ImVec2(_dims.x, _dims.y));

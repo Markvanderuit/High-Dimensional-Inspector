@@ -20,6 +20,7 @@ namespace hdi::dbg {
   private:
     GLuint *_fieldTexture; // ouch
     GLuint _outputTexture;
+    GLuint _sampler;
     ShaderProgram _program;
     
     // ImGui default settings
