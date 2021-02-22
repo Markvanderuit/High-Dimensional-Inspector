@@ -74,8 +74,6 @@ namespace hdi::dr {
     // Wrapper object to pass some buffer object handles to external code
     struct Buffers {
       GLuint node;      // Node data: node type (2 lsb), singleton ptr (30 msb)
-      GLuint node0;     // Node data: pix/voxel min (xy, z) and range mass
-      GLuint node1;     // Node data: pix/voxel extent (xy, z) and range begin
       GLuint field;     // Node data: field density (x) and gradient (yz, w)
     };
 
@@ -96,8 +94,6 @@ namespace hdi::dr {
   private:
     enum class BufferType {
       eNode,             // Node data: node type (2 lsb), singleton ptr (30 msb)
-      eNode0,            // Node data: pix/voxel min (xy, z) and range mass
-      eNode1,            // Node data: pix/voxel extent (xy, z) and range begin
       eField,            // Node data: field density (x) and gradient (yz, w)
       
       Length
@@ -136,8 +132,6 @@ namespace hdi::dr {
     Buffers buffers() const {
       return {
         _buffers(BufferType::eNode),
-        _buffers(BufferType::eNode0),
-        _buffers(BufferType::eNode1),
         _buffers(BufferType::eField)
       };
     }

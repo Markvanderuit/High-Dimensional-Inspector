@@ -31,7 +31,8 @@ namespace hdi::dbg {
       eCubeVertices,
       eCubeIndices,
       eQuadVertices,
-      eQuadIndices,
+      eQuadLineIndices,
+      eQuadTriangleIndices,
       eFlags,
       
       Length
@@ -77,6 +78,7 @@ namespace hdi::dbg {
     bool _drawLvl = false;
     bool _drawFlags = false;
     bool _drawField = false;
+    bool _drawFieldOld = false;
     uint _bvhLvl = 1;
     uint _fieldLvl = 0;
     float _fieldDepth = 0.5f;

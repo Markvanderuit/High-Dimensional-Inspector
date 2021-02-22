@@ -40,8 +40,12 @@ namespace {
     glm::vec2(-0.5, 0.5)    // 3
   };
 
-  std::array<unsigned, 8> quadIndices = {
+  std::array<unsigned, 8> quadLineIndices = {
     0, 1,  1, 2,  2, 3,  3, 0
+  };
+
+  std::array<unsigned, 6> quadTriangleIndices = {
+    0, 1, 2,  2, 3, 0
   };
 
   std::array<glm::vec4, 8> cubeVertices = {
@@ -127,13 +131,15 @@ namespace hdi::dbg {
     glNamedBufferStorage(_buffers(BufferType::eCubeVertices), 8 * sizeof(glm::vec4), cubeVertices.data(), GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eCubeIndices), 24 * sizeof(unsigned), cubeIndices.data(), GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eQuadVertices), 4 * sizeof(glm::vec2), quadVertices.data(), GL_DYNAMIC_STORAGE_BIT);
-    glNamedBufferStorage(_buffers(BufferType::eQuadIndices), 8 * sizeof(unsigned), quadIndices.data(), GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eQuadLineIndices), 8 * sizeof(unsigned), quadLineIndices.data(), GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eQuadTriangleIndices), 6 * sizeof(unsigned), quadTriangleIndices.data(), GL_DYNAMIC_STORAGE_BIT);
     glNamedBufferStorage(_buffers(BufferType::eFlags), sizeof(uint) * (layout.nNodes), nullptr, GL_DYNAMIC_STORAGE_BIT);
 
     // Specify vertex array object for instanced draw
     if constexpr (D == 2) {
       // Specify vertex array object for instanced draw
-      glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), _buffers(BufferType::eQuadIndices));
+      glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), 
+        _drawField ? _buffers(BufferType::eQuadTriangleIndices) : _buffers(BufferType::eQuadLineIndices));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 0, _buffers(BufferType::eQuadVertices), 0, sizeof(glm::vec2));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 1, buffers.node, 0, sizeof(uint));
       glVertexArrayVertexBuffer(_vertexArrays(VertexArrayType::eQuad), 2, _buffers(BufferType::eFlags), 0, sizeof(uint));
@@ -215,9 +221,14 @@ namespace hdi::dbg {
         const uint lvlMax = layout.nLvls - 1;
         ImGui::SliderScalar("Level", ImGuiDataType_U32, &_bvhLvl, &lvlMin, &lvlMax);
       }
-      /* if (_pairsBuffer != 0) {
-        ImGui::Checkbox("Flagged only", &_drawFlags);
-      } */
+      if constexpr (D == 2) {
+        ImGui::Checkbox("Draw", &_drawField);
+        if (_drawField != _drawFieldOld) {
+          glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), 
+            _drawField ? _buffers(BufferType::eQuadTriangleIndices) : _buffers(BufferType::eQuadLineIndices));
+          _drawFieldOld = _drawField;
+        }
+      }
     }
     ImGui::End();
 
@@ -254,6 +265,7 @@ namespace hdi::dbg {
 
       // Bind buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _hierarchy->buffers().field);
 
       // Set draw config
       glLineWidth(_cubeLineWidth);
@@ -262,7 +274,11 @@ namespace hdi::dbg {
       // Perform instanced draw
       if constexpr (D == 2) {
         glBindVertexArray(_vertexArrays(VertexArrayType::eQuad));
-        glDrawElementsInstanced(GL_LINES, 8, GL_UNSIGNED_INT, nullptr, layout.nNodes);
+        if (_drawField) {
+          glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, layout.nNodes);
+        } else {
+          glDrawElementsInstanced(GL_LINES, 8, GL_UNSIGNED_INT, nullptr, layout.nNodes);
+        }
       } else if constexpr (D == 3) {
         glBindVertexArray(_vertexArrays(VertexArrayType::eCube));
         glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, layout.nNodes);
@@ -274,57 +290,58 @@ namespace hdi::dbg {
       glAssert("dbg::field_hierarchy::render::quads()");
     } // drawCube
     
-    ImGui::Begin("FieldHier Slice");
-    ImGui::Checkbox("Draw", &_drawField);
-    if (_drawField) {
-      const auto layout = _hierarchy->layout();
-      const auto buffers = _hierarchy->buffers(); 
+    if constexpr (D == 3) {
+      ImGui::Begin("FieldHier Slice");
+      ImGui::Checkbox("Draw", &_drawField);
+      if (_drawField) {
+        const auto layout = _hierarchy->layout();
+        const auto buffers = _hierarchy->buffers(); 
 
-      if constexpr (D == 3) {
-        ImGui::SliderFloat("Depth Value", &_fieldDepth, 0.f, 1.f);
-      }
-      const uint lvlMin = 1;
-      const uint lvlMax = layout.nLvls - 1;
-      ImGui::SliderScalar("Level", ImGuiDataType_U32, &_fieldLvl, &lvlMin, &lvlMax);
-      
-      ImVec2 outputDims = ImGui::GetWindowSize();
-      if (_outputDims.x != outputDims.x) {
-        _outputDims = ImVec2(outputDims.x, outputDims.x);
-        glDeleteTextures(1, &_textures(TextureType::eOutput));
-        glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eOutput));
-        glTextureStorage2D(_textures(TextureType::eOutput), 1, GL_RGBA32F, _outputDims.x, _outputDims.y);
-      }
-
-      // Get a slice from the pixelBvh for a specified level
-      {
-        // Bind program and uniforms
-        auto &program = _programs(ProgramType::eFieldSlice);
-        program.bind();
-        program.uniform2ui("dims", _outputDims.x, _outputDims.y);
-        program.uniform1ui("lvl", _fieldLvl);
         if constexpr (D == 3) {
-          program.uniform1ui("depth", static_cast<uint>(_fieldDepth * static_cast<float>(layout.dims.z)));
-          program.uniform1ui("depthDims", layout.dims.z);
+          ImGui::SliderFloat("Depth Value", &_fieldDepth, 0.f, 1.f);
+        }
+        const uint lvlMin = 1;
+        const uint lvlMax = layout.nLvls - 1;
+        ImGui::SliderScalar("Level", ImGuiDataType_U32, &_fieldLvl, &lvlMin, &lvlMax);
+        
+        ImVec2 outputDims = ImGui::GetWindowSize();
+        if (_outputDims.x != outputDims.x) {
+          _outputDims = ImVec2(outputDims.x, outputDims.x);
+          glDeleteTextures(1, &_textures(TextureType::eOutput));
+          glCreateTextures(GL_TEXTURE_2D, 1, &_textures(TextureType::eOutput));
+          glTextureStorage2D(_textures(TextureType::eOutput), 1, GL_RGBA32F, _outputDims.x, _outputDims.y);
         }
 
-        // Bind buffer objects
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.field);
+        // Get a slice from the pixelBvh for a specified level
+        {
+          // Bind program and uniforms
+          auto &program = _programs(ProgramType::eFieldSlice);
+          program.bind();
+          program.uniform2ui("dims", _outputDims.x, _outputDims.y);
+          program.uniform1ui("lvl", _fieldLvl);
+          if constexpr (D == 3) {
+            program.uniform1ui("depth", static_cast<uint>(_fieldDepth * static_cast<float>(layout.dims.z)));
+            program.uniform1ui("depthDims", layout.dims.z);
+          }
 
-        // Bind and clear output image
-        glClearTexImage(_textures(TextureType::eOutput), 0, GL_RGBA, GL_FLOAT, nullptr);
-        glBindImageTexture(0, _textures(TextureType::eOutput), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+          // Bind buffer objects
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.field);
+
+          // Bind and clear output image
+          glClearTexImage(_textures(TextureType::eOutput), 0, GL_RGBA, GL_FLOAT, nullptr);
+          glBindImageTexture(0, _textures(TextureType::eOutput), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+          
+          glDispatchCompute(dr::ceilDiv(static_cast<uint>(_outputDims.x), 16u), 
+                            dr::ceilDiv(static_cast<uint>(_outputDims.y), 16u), 
+                            1);
+          glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+        }
         
-        glDispatchCompute(dr::ceilDiv(static_cast<uint>(_outputDims.x), 16u), 
-                          dr::ceilDiv(static_cast<uint>(_outputDims.y), 16u), 
-                          1);
-        glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
-      }
-      
-      // Draw slice using ImGui
-      ImGui::Image((void *) (intptr_t) _textures(TextureType::eOutput), ImVec2(_outputDims.x, _outputDims.y));
-    } // drawField
-
-    ImGui::End();
+        // Draw slice using ImGui
+        ImGui::Image((void *) (intptr_t) _textures(TextureType::eOutput), ImVec2(_outputDims.x, _outputDims.y));
+      } // drawField
+      ImGui::End();
+    }
   }
 
   // Explicit template instantiations for 2 and 3 dimensions

@@ -76,12 +76,18 @@ namespace hdi::dbg::_2d {
 
       // Sample and proccess field value
       vec4 field = fieldBuffer[addr];
-      if (field != vec4(0)) {
-        // field = vec4(0.5, 0.5, 0.5, 1) + vec4(0.5f * field.yz, 0, 0);
-        field = vec4(0.5, 0.5, 0.5, 1) + vec4(0.5f * normalize(field.yz), 0, 0);
-      } else {
-        field = vec4(0.5, 0.5, 0.5, 1);
-      }
+      // if (field != vec4(0)) {
+      //   // field = vec4(0.5, 0.5, 0.5, 1) + vec4(0.5f * field.yz, 0, 0);
+      //   field = vec4(0.5, 0.5, 0.5, 1) + vec4(0.5f * normalize(field.yz), 0, 0);
+      // } else {
+      //   field = vec4(0.5, 0.5, 0.5, 1);
+      // }
+
+      // Do some debug stuff
+      // field = vec4(field.x / 512.f, field.y, field.z, 1);
+      // field = vec4(vec3(field.x / pow(2.f, 17 - lvl)), 1);
+      field = vec4(vec3(field.x / pow(2.f, 21 - lvl)), 1);
+      // field = vec4(0.5 + 0.5 * vec3(field.yz / pow(2.f, int(lvl) - 4), 0), 1);
 
       // Output field value to image
       imageStore(outputImage, ivec2(xy), field);
@@ -125,6 +131,7 @@ namespace hdi::dbg::_2d {
     layout(location = 4) uniform bool doFlags;
 
     layout(binding = 0, std430) restrict readonly buffer BoundsBuffer { Bounds bounds; };
+    layout(binding = 1, std430) restrict readonly buffer FieldBuffer { vec3 fieldBuffer[]; };
   
     uint shrinkBits15(uint i) {
       i = i & 0x55555555u;
@@ -168,8 +175,25 @@ namespace hdi::dbg::_2d {
         posOut.y = 1.f - posOut.y;
       }
 
+      /* // Gather field values for this node
+      const uint addr = uint(gl_InstanceID);
+      const uint stop = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (2));
+      vec3 field = vec3(0);
+      for (uint k = addr; k >= stop; k = (k - 1) >> BVH_LOGK_2D) {
+        field += fieldBuffer[k];
+      } */
+
+      // Gather field values for this node
+      vec3 field = fieldBuffer[uint(gl_InstanceID)];
+
       // Output color
-      colorOut = labels[doFlags ? 1 : gl_InstanceID % 10] / 255.f;
+      if (field != vec3(0)) {
+        // colorOut = vec3(0.5 + 0.5 * vec3(field.y));
+        colorOut = vec3(0.5 + 0.5 * normalize(field.yz), 0.5);
+        // colorOut = vec3((field.yz), 0.5);
+      } else {
+        colorOut = vec3(0.5);
+      }
 
       // Apply camera transformation to output data
       gl_Position = uTransform * vec4(posOut, 0, 1);
