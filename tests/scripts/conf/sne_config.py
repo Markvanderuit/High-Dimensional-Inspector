@@ -21,6 +21,7 @@ class SneConfig:
   perp = [50]        # Used perplexity during minimization
   theta = [0.5]      # Theta param. for single-hierarchy approx.
   theta2 = [0.5]     # Theta param. for dual-hierarchy approx.
+  scaling = [2.0]    # Field scaling (2.0 for 2d, 1.2 for 3d are recommended)
 
   # Result config (for LaTeX/Pgfplots output)
   xKey = "n"         # Test key, should match a config parameter name
@@ -47,7 +48,8 @@ class SneConfig:
                      iters=iters,
                      perp=perp,
                      theta=theta,
-                     theta2=theta2)
+                     theta2=theta2,
+                     scaling=scaling)
       for dataset in self.datasets
       for n in self.n
       for hd in self.hd
@@ -56,4 +58,5 @@ class SneConfig:
       for perp in self.perp
       for theta in self.theta
       for theta2 in self.theta2
+      for scaling in self.scaling
     ]

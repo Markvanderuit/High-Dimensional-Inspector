@@ -19,6 +19,7 @@ class SnePermutation:
   perp = 50
   theta = 0.5
   theta2 = 0.5
+  scaling = 2.0
 
   def __init__(self, **args):
     self.__dict__.update(args)
@@ -29,7 +30,7 @@ class SnePermutation:
       + ", n=" + str(self.n) + ", hd=" + str(self.hd)\
       + ", ld=" + str(self.ld) + ", i=" + str(self.iters)\
       + ", p=" + str(self.perp) + ", t1=" + str(self.theta)\
-      + ", t2=" + str(self.theta2)
+      + ", t2=" + str(self.theta2) + ", s=" + str(self.scaling)
     return argstr
 
   def run(self, config, snePath):
@@ -54,11 +55,12 @@ class SnePermutation:
       "-p", str(self.perp),
       "-t", str(self.theta),
       "-a", str(self.theta2),
+      "-s", str(self.scaling),
       "--vis" if config.doVis else "",
       "--lbl" if config.doLbl else "",
       "--kld" if config.doKLD else "",
       "--nnp" if config.doNNP else "",
-      "--txt", str(resultPath / "values.txt")
+      "--txt", str(resultPath / "values.txt") 
     ]
     subprocess.run(args, stdout=f) if config.doLog else subprocess.run(args)
 
