@@ -552,8 +552,8 @@ GLSL(pixels_bvh_src, 450,
     // Compute information about this voxel
     vec2 center = (vec2(xy) + 0.5) / vec2(textureSize); // Map to [0, 1]
     center = bounds.min + bounds.range * center; // Map to embedding domain
-    const vec2 minb = center - 1.5f * bbox; ;// - 0.5 * bbox;
-    const vec2 maxb = center + 1.5f * bbox; ;// + 0.5 * bbox;
+    const vec2 minb = center - 2.f * bbox;
+    const vec2 maxb = center + 2.f * bbox;
 
     // Traverse tree to find out if there is a closest or contained point
     do {

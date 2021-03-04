@@ -42,6 +42,7 @@
 #include "hdi/debug/renderer/field.hpp"
 #include "hdi/debug/renderer/embedding_bvh.hpp" 
 #include "hdi/debug/renderer/field_hierarchy.hpp" 
+#include "hdi/debug/renderer/dual_hierarchy.hpp" 
 
 namespace hdi::dr {
   /**
@@ -100,6 +101,12 @@ namespace hdi::dr {
       ePairsInputHead,
       ePairsOutputHead,
 
+#ifdef INSERT_DH_DEBUG
+      // Queue + head for tracking all pairs interacting with one node
+      eDebugQueue,
+      eDebugHead,
+#endif // INSERT_DH_DEBUG
+
       Length
     };
 
@@ -154,6 +161,9 @@ namespace hdi::dr {
     dbg::FieldRenderer<2> _fieldRenderer;
     dbg::EmbeddingBVHRenderer<2> _embeddingBVHRenderer;
     dbg::FieldHierarchyRenderer<2> _fieldHierRenderer;
+#ifdef INSERT_DH_DEBUG
+    dbg::DualHierarchyRenderer<2> _dualHierRenderer;
+#endif // INSERT_DH_DEBUG
 
     // Misc
     bool _isInit;
