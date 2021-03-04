@@ -45,6 +45,12 @@
 #define LOG_FIELD_RESIZE
 
 /**
+ * Debug component parameters
+ * - insert dh debug: inserts deadly expensive dual hierarchy debugging code for visualization
+ */
+// #define INSERT_DH_DEBUG
+
+/**
  * Gradient descent parameters. We use two collections of values. The former (from HDI) provides
  * better results for small datasets such as MNIST/Fashion-MNIST, while the latter (from CUDA-tSNE) 
  * does the same for much larger datasets such as ImageNet and Word2Vec.

@@ -175,6 +175,7 @@ namespace hdi::dbg {
 
     // Render components in added order into framebuffer
     for (auto *ptr : _components) {
+      glBindFramebuffer(GL_FRAMEBUFFER, _framebuffer);
       ptr->render(transform, viewport);
     }
 

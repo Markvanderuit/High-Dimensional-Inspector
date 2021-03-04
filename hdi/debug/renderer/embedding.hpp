@@ -53,7 +53,7 @@ namespace hdi::dbg {
     dr::EnumArray<ProgramType, ShaderProgram> _programs;
 
     // ImGui default settings
-    bool _draw = true;
+    bool _draw = false;
     bool _drawLabels = true;
     bool _drawGaussian = true;
     float _quadSize = 0.006f;

@@ -253,10 +253,7 @@ namespace hdi::dbg {
   template <unsigned D>
   void EmbeddingBVHRenderer<D>::render(glm::mat4 transform, glm::ivec4 viewport)
   {
-    if (!_isInit) {
-      return;
-    }
-    if (!_bvh) {
+    if (!_isInit || !_bvh) {
       return;
     }
     

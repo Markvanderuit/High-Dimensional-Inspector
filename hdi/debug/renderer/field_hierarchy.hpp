@@ -74,12 +74,12 @@ namespace hdi::dbg {
     const dr::FieldHierarchy<D> *_hierarchy;
     
     // ImGui default settings
-    bool _drawCube = false;
-    bool _drawLvl = false;
+    bool _drawCube = true;
+    bool _drawLvl = true;
     bool _drawFlags = false;
     bool _drawField = false;
     bool _drawFieldOld = false;
-    uint _bvhLvl = 1;
+    uint _bvhLvl = 7;
     uint _fieldLvl = 0;
     float _fieldDepth = 0.5f;
     ImVec2 _fieldDims = ImVec2(0, 0);
