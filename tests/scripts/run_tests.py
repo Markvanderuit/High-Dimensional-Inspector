@@ -9,8 +9,8 @@ evalPath = Path("../../build/applications/release/evaluation_cmd.exe")
 # Configure test run
 baseSneConf = conf.sneConfig()
 baseSneConf.doKLD = True
-baseSneConf.doVis = False
-# baseSneConf.doLog = True
+baseSneConf.doVis = True
+baseSneConf.doLog = False
 
 # Example MNIST60k test run with 60k points
 sne = baseSneConf
@@ -23,8 +23,8 @@ sne.ld = [2]
 sne.iters = [1000]
 sne.perp = [50]
 sne.theta = [0.5]
-sne.theta2 = [0.35]
-sne.scaling = [1.0, 2.0]
+sne.theta2 = [0.3]
+sne.scaling = [2.0]
 
 # Example W2V300m test run with 300k points
 # sne = baseSneConf
@@ -39,7 +39,7 @@ sne.scaling = [1.0, 2.0]
 # sne.theta2 = [0.25]
 
 # # Gather results for pgfplots
-# sne.run(snePath)
+sne.run(snePath)
 sne.xKey = "theta2"
 sne.yKey = "minTime"
 sne.result()
