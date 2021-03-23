@@ -88,9 +88,7 @@ namespace hdi::dbg::_2d {
 
       // Output label color
       colorOut = vec4(labels[drawLabels ? labelIn % 10 : 0] / 255.f, opacity);       
-      // if (!drawLabels) {
-      //   colorOut = vec4(0, 0, 0, opacity);
-      // }
+      colorOut = vec4(0, 0, 0, opacity); // for header image
     }
   );
 

@@ -282,11 +282,20 @@ namespace hdi::dr::_2d {
   );
 
   GLSL(bbox_src, 450,
+    // Wrapper structure for dode data
     struct Node {
       vec4 node0; // center of mass (xy/z) and range size (w)
       vec4 node1; // bbox bounds extent (xy/z) and range begin (w)
       vec2 minb;  // bbox minimum bounds
     };
+
+    /* // Wrapper structure for bounds data
+    struct Bounds {
+      vec2 min;
+      vec2 max;
+      vec2 range;
+      vec2 invRange;
+    }; */
 
     layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -294,6 +303,7 @@ namespace hdi::dr::_2d {
     layout(binding = 0, std430) restrict buffer Node0 { vec4 node0Buffer[]; };
     layout(binding = 1, std430) restrict buffer Node1 { vec4 node1Buffer[]; };
     layout(binding = 2, std430) restrict buffer MinBB { vec2 minbBuffer[]; };
+    // layout(binding = 3, std430) restrict buffer Bound { Bounds bounds; };
 
     // Uniforms
     layout(location = 0) uniform uint rangeBegin;
@@ -306,7 +316,7 @@ namespace hdi::dr::_2d {
     Node read(uint i) {
       // If node has no mass, return early with empty node
       vec4 node0 = node0Buffer[i];
-      if (node0.w == 0) {
+      if (node0.w == 0) { 
         return Node(vec4(0), vec4(0), vec2(0));
       }
       return Node(node0, node1Buffer[i], minbBuffer[i]);
@@ -361,9 +371,19 @@ namespace hdi::dr::_2d {
 
       // Let first invocation store result
       if (t == 0 && sharedNode[s].node0.w > 0) {
-        uint j = i / BVH_KNODE_2D;
+        const uint j = i / BVH_KNODE_2D;
         write(j, sharedNode[s]);
       }
+
+      /* // Root node, overwrite bounds data
+      if (j == 0 && t < 4) {
+        vec2 range = sharedNode[s].node1.xy;
+        vec2 minb = sharedNode[s].minb;
+        bounds.min = minb;
+        bounds.max = minb + range;
+        bounds.range = range;
+        bounds.invRange = vec2(1) / range;
+      } */
     }
   );
 } // namespace hdi::dr::_2d

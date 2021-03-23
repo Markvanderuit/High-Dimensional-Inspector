@@ -174,12 +174,14 @@ namespace hdi::dr {
     // Delegate sorting of position indices over morton codes to the CUDA CUB library
     // This means we pay a cost for OpenGL-CUDA interopability, unfortunately.
     // Afterwards generate sorted list of positions based on sorted indices
-    if (rebuild) {
+    {
       auto &timer = _timers(TimerType::eSort);
       timer.tick();
-      
-      _sorter.sort(_layout.nPos, _layout.nLvls * logk); // ohboy
-      
+
+      if (rebuild) {
+        _sorter.sort(_layout.nPos, _layout.nLvls * logk); // ohboy
+      } // rebuild
+
       auto &program = _programs(ProgramType::ePosSorted);
       program.bind();
       program.uniform1ui("nPoints", _layout.nPos);
@@ -193,7 +195,7 @@ namespace hdi::dr {
 
       glAssert("EmbeddingBVH::compute::posSorted()");
       timer.tock();
-    } // rebuild
+    }
 
     // Perform subdivision based on generated morton codes
     if (rebuild) {
@@ -282,6 +284,7 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::eNode0));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eNode1));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _buffers(BufferType::eMinB));
+      /* glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, boundsBuffer); */
 
       // Iterate through levels from bottom to top.
       uint end = _layout.nNodes - 1;

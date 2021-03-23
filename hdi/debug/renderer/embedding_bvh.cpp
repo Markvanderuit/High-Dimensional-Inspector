@@ -82,7 +82,7 @@ namespace {
 namespace hdi::dbg {
   template <unsigned D>
   EmbeddingBVHRenderer<D>::EmbeddingBVHRenderer()
-  : RenderComponent(1, false),
+  : RenderComponent(2, false),
     _bvh(nullptr)
   { }
 
@@ -303,6 +303,7 @@ namespace hdi::dbg {
       program.uniform1ui("doFlags", _drawFlags);
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _boundsBuffer);
       glLineWidth(_cubeLineWidth);
+      glDepthMask(GL_FALSE);
       if constexpr (D == 2) {
         glBindVertexArray(_vertexArrays(VertexArrayType::eQuad));
         glDrawElementsInstanced(GL_LINES, 8, GL_UNSIGNED_INT, nullptr, _nCube);
@@ -310,6 +311,7 @@ namespace hdi::dbg {
         glBindVertexArray(_vertexArrays(VertexArrayType::eCube));
         glDrawElementsInstanced(GL_LINES, 24, GL_UNSIGNED_INT, nullptr, _nCube);
       }
+      glDepthMask(GL_TRUE);
       program.release();
     }
   }

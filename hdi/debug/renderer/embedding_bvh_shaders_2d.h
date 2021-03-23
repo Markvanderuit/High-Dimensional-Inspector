@@ -65,7 +65,6 @@ namespace hdi::dbg::_2d {
 
     layout(location = 0) out vec2 posOut;
     layout(location = 1) out vec3 colorOut;
-    // layout(location = 1) out float fflag;
 
     layout(location = 0) uniform mat4 uTransform;
     layout(location = 1) uniform float uCubeOpacity;
@@ -77,32 +76,32 @@ namespace hdi::dbg::_2d {
 
     void main() {
       // Calculate range in which instance should fall
-      uint nBegin = 0;
-      for (uint i = 0; i < lvl; ++i) {
-        nBegin |= 1u << (BVH_LOGK_2D * i);
-      }
-      uint nEnd = nBegin | (1u << (BVH_LOGK_2D * (lvl)));
+      const uint offset = (0x2AAAAAAAu >> (31u - BVH_LOGK_2D * lvl));
+      const uint range = offset + (1u << (BVH_LOGK_2D * lvl));
 
       // Obtain normalized [0, 1] boundary values
       vec2 _minb = (minb - bounds.min) * bounds.invRange;
       vec2 _diam = node1.xy * bounds.invRange;
 
       // Embedding node leaves have zero area, account for this in visualization
-      if (_diam == vec2(0.f)) {
+      /* if (_diam == vec2(0.f)) {
         _diam = vec2(0.005f);
         _minb = _minb - 0.5f * _diam;
-      }
+      } */
       
       // Generate position from instanced data
-      if (node0.w == 0 || (doFlags && flag == 0) || (doLvl && (gl_InstanceID < nBegin || gl_InstanceID >= nEnd))) {
+      if (node0.w == 0 
+        || (doFlags && flag == 0) 
+        || (doLvl && (gl_InstanceID < offset || gl_InstanceID >= range))) {
         posOut = vec2(-999); 
       } else {
-        posOut = _minb + (0.5f + vert) * _diam;
+        posOut = _minb + (vert + 0.5) * _diam;
         posOut.y = 1.f - posOut.y;
       }
 
       // Output color
       colorOut = labels[doFlags ? 0 : gl_InstanceID % 10] / 255.f;
+      colorOut = vec3(0.1, 0.4, 1.0); // for header image
 
       // Apply camera transformation to output data
       gl_Position = uTransform * vec4(posOut, 0, 1);
