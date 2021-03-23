@@ -31,7 +31,7 @@ namespace {
 namespace hdi::dbg {
   template <unsigned D>
   EmbeddingRenderer<D>::EmbeddingRenderer()
-  : RenderComponent(10, false), _hasLabels(false) { }
+  : RenderComponent(999, false), _hasLabels(false) { }
 
   template <unsigned D>
   EmbeddingRenderer<D>::~EmbeddingRenderer() {

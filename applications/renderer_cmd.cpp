@@ -59,7 +59,7 @@ float boundsComputationTime = 0.f;
 
 // Visual debugger default window settings
 constexpr uint windowFlags = 
-                          //  hdi::dbg::WindowInfo::bDecorated | 
+                           hdi::dbg::WindowInfo::bDecorated | 
                            hdi::dbg::WindowInfo::bSRGB |
                            hdi::dbg::WindowInfo::bFocused |
                            hdi::dbg::WindowInfo::bResizable;

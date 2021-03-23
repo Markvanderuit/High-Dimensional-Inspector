@@ -120,7 +120,7 @@ namespace hdi::dbg {
       return;
     }
 
-    ImGui::Begin("Field Rendering");
+    /* ImGui::Begin("Field Rendering");
     ImVec2 dims = ImGui::GetWindowSize();
     if constexpr (D == 3) {
       ImGui::SliderFloat("Depth Value", &_depthValue, 0.f, 1.f);
@@ -155,7 +155,7 @@ namespace hdi::dbg {
 
     ImGui::Image((void *) (intptr_t) _outputTexture, ImVec2(_dims.x, _dims.y));
     ImGui::End();
-
+ */
     glAssert("FieldRenderer::render::end()");
   }
   

@@ -223,6 +223,7 @@ namespace hdi::dbg {
       }
       if constexpr (D == 2) {
         ImGui::Checkbox("Draw", &_drawField);
+        ImGui::Checkbox("Sum", &_doSum);
         if (_drawField != _drawFieldOld) {
           glVertexArrayElementBuffer(_vertexArrays(VertexArrayType::eQuad), 
             _drawField ? _buffers(BufferType::eQuadTriangleIndices) : _buffers(BufferType::eQuadLineIndices));
@@ -273,6 +274,7 @@ namespace hdi::dbg {
 
       // Perform instanced draw
       if constexpr (D == 2) {
+        program.uniform1ui("doSum", _doSum);
         glBindVertexArray(_vertexArrays(VertexArrayType::eQuad));
         if (_drawField) {
           glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, layout.nNodes);
