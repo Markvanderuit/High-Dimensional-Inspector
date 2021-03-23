@@ -121,7 +121,7 @@ GLSL(field_src, 450,
     vec3 invRange;
   };
 
-  layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
   // Buffer object bindings
   layout(binding = 0, std430) restrict readonly buffer Posit { vec3 posBuffer[]; };

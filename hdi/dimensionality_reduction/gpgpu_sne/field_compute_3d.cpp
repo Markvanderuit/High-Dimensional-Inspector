@@ -45,9 +45,8 @@ namespace hdi::dr {
   // Magic numbers
   constexpr float pointSize = 3.f;                          // Point size in voxel grid
   constexpr uint bvhRebuildIters = 5;                       // Nr. of iterations where the embedding hierarchy is refitted
-  constexpr uint pairsInputBufferSize = 256 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
-  constexpr uint pairsLeafBufferSize = 64 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
-  constexpr uint pairsDfsBufferSize = 64 * 1024 * 1024;     // Initial dfs queue size in Mb. There is one such queue.
+  constexpr uint pairsInputBufferSize = 2048 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
+  constexpr uint pairsLeafBufferSize = 2048 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
   constexpr AlignedVec<3, unsigned> fieldBvhDims(128);      // Initial fieldBvh dims. Expansion isn't cheap.
   constexpr uint fieldHierarchyStartLvl = 2;
   constexpr uint embeddingHierarchyStartLvl = 2;
@@ -87,6 +86,7 @@ namespace hdi::dr {
   : _isInit(false), 
     _logger(nullptr),
     _dims(0), 
+    _nPixels(0),
     _useVoxelGrid(false),
     _useEmbeddingBvh(false),
     _useFieldBvh(false),
@@ -141,7 +141,7 @@ namespace hdi::dr {
 #endif // EMB_BVH_WIDE_TRAVERSAL_3D
 
       _programs(ProgramType::eFieldDual).addShader(COMPUTE, field_bvh_dual_src);
-      _programs(ProgramType::eFieldDualDfs).addShader(COMPUTE, field_bvh_dual_dfs_src);
+      _programs(ProgramType::eFieldDualRest).addShader(COMPUTE, field_bvh_dual_rest_src);
       _programs(ProgramType::eFieldDualLeaf).addShader(COMPUTE, field_bvh_dual_leaf_src);
       _programs(ProgramType::ePush).addShader(COMPUTE, push_src);
 
@@ -162,10 +162,9 @@ namespace hdi::dr {
     glCreateBuffers(_buffers.size(), _buffers.data());
 
     // Specify buffers used in general
-    constexpr glm::uvec4 dispatch(1);
-    glNamedBufferStorage(_buffers(BufferType::ePixelsHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
-    glNamedBufferStorage(_buffers(BufferType::ePixelsHeadReadback), sizeof(uint), glm::value_ptr(dispatch), GL_CLIENT_STORAGE_BIT);
-    glNamedBufferStorage(_buffers(BufferType::eDispatch), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
+    glNamedBufferStorage(_buffers(BufferType::ePixelsHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
+    glNamedBufferStorage(_buffers(BufferType::ePixelsHeadReadback), sizeof(uint), glm::value_ptr(glm::uvec4(1)), GL_CLIENT_STORAGE_BIT);
+    glNamedBufferStorage(_buffers(BufferType::eDispatch), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
 
     // Specify needed objects if the voxel grid is used for pixel flagging, i.e. no hierarchies used
     if (_useVoxelGrid) {
@@ -204,13 +203,13 @@ namespace hdi::dr {
       // Glorp all the VRAM. Hey look, it's the downside of a dual hierarchy traversal
       glNamedBufferStorage(_buffers(BufferType::ePairsInput), pairsInputBufferSize, nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsOutput), pairsInputBufferSize, nullptr, 0);
+      // glNamedBufferStorage(_buffers(BufferType::ePairsRest), pairsInputBufferSize, nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsLeaf), pairsLeafBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsDfs), pairsDfsBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsInputHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsOutputHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsLeafHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsDfsHead), sizeof(glm::uvec4), glm::value_ptr(dispatch), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInit), initPairs.size() * sizeof(glm::uvec2), initPairs.data(), 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsInputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsOutputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsRestHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsLeafHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInitHead), sizeof(glm::uvec3), glm::value_ptr(glm::uvec3(initPairs.size(), 1, 1)), 0);
 
       utils::secureLogValue(_logger, "   Field3dCompute", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
@@ -304,7 +303,7 @@ namespace hdi::dr {
     }
 
     // Generate list of pixels in the field that require computation
-    if (_bvhRebuildIters == 0) {
+    if (!_useEmbeddingBvh || _bvhRebuildIters == 0) {
       compactField(n, positionBuffer, boundsBuffer);
     }
 
@@ -312,11 +311,10 @@ namespace hdi::dr {
     glClearTexImage(_textures(TextureType::eField), 0, GL_RGBA, GL_FLOAT, nullptr);
 
     // Read nr of flagged pixels back from host-side buffer now some time has passed
-    uint nPixels;
-    glGetNamedBufferSubData(_buffers(BufferType::ePixelsHeadReadback), 0, sizeof(uint), &nPixels);
+    glGetNamedBufferSubData(_buffers(BufferType::ePixelsHeadReadback), 0, sizeof(uint), &_nPixels);
 
     // Build hierarchy over flagged pixels if certain conditions are met
-    const auto fieldHierLayout = FieldHierarchy<3>::Layout(nPixels, _dims);
+    const auto fieldHierLayout = FieldHierarchy<3>::Layout(_nPixels, _dims);
     const bool fieldBvhActive = _useFieldBvh
       && iteration >= _params.removeExaggerationIter                       // After early exaggeration phase
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
@@ -585,27 +583,34 @@ namespace hdi::dr {
     const auto fLayout = _fieldHier.layout();
     const auto fBuffers = _fieldHier.buffers();
 
+    // Reset queue heads, travesal queue
+    glCopyNamedBufferSubData(_buffers(BufferType::ePairsInit), _buffers(BufferType::ePairsInput),
+      0, 0, initPairs.size() * sizeof(glm::uvec2));
+    glCopyNamedBufferSubData(_buffers(BufferType::ePairsInitHead), _buffers(BufferType::ePairsInputHead),
+      0, 0, sizeof(uint));
+    glClearNamedBufferSubData(_buffers(BufferType::ePairsLeafHead), 
+      GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+    glClearNamedBufferSubData(_buffers(BufferType::ePairsRestHead), 
+      GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+
     // Compute part of field through rotating dual-hierarchy traversal
     { // Dual
       auto &timer = _timers(TimerType::eField);
       timer.tick();
 
-      // Reset queues
-      glCopyNamedBufferSubData(_buffers(BufferType::ePairsInit), _buffers(BufferType::ePairsInput),
-        0, 0, initPairs.size() * sizeof(glm::uvec2));
-      glCopyNamedBufferSubData(_buffers(BufferType::ePairsInitHead), _buffers(BufferType::ePairsInputHead),
-        0, 0, sizeof(uint));
-      glClearNamedBufferSubData(_buffers(BufferType::ePairsLeafHead), 
-        GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-      glClearNamedBufferSubData(_buffers(BufferType::ePairsDfsHead), 
-        GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-
-      // Bind traversal program and set uniform values
+      // Bind two-sided traversal program and set uniform values
       auto &dtProgram = _programs(ProgramType::eFieldDual);
       dtProgram.bind();
       dtProgram.uniform1ui("eLvls", eLayout.nLvls);
       dtProgram.uniform1ui("fLvls", fLayout.nLvls);
       dtProgram.uniform1f("theta2", _params.dualHierarchyTheta * _params.dualHierarchyTheta);
+
+      // Bind single-sided traversal program and set uniform values
+      auto &dfProgram = _programs(ProgramType::eFieldDualRest);
+      dfProgram.bind();
+      dfProgram.uniform1ui("eLvls", eLayout.nLvls);
+      dfProgram.uniform1ui("fLvls", fLayout.nLvls);
+      dfProgram.uniform1f("theta2", _params.dualHierarchyTheta * _params.dualHierarchyTheta);
 
       // Bind dispatch divide program and set uniform values
       auto &dsProgram = _programs(ProgramType::eDispatch);
@@ -620,99 +625,93 @@ namespace hdi::dr {
       // Buffers 5-8 are bound/rebound below ...
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, _buffers(BufferType::ePairsLeaf));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, _buffers(BufferType::ePairsLeafHead));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, _buffers(BufferType::ePairsDfs));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, _buffers(BufferType::ePairsDfsHead));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, boundsBuffer);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, boundsBuffer);
+      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, _buffers(BufferType::ePairsRest));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, _buffers(BufferType::ePairsRestHead));
 
       // Process pair queues until empty.
-      // std::cout << "e " << eLayout.nLvls << "\t f " << fLayout.nLvls << std::endl;
-      for (uint i = fieldHierarchyStartLvl; i < fLayout.nLvls - 1; ++i) {
+      const uint minLvl = std::min(fLayout.nLvls, eLayout.nLvls);
+      const uint maxLvl = std::max(fLayout.nLvls, eLayout.nLvls);
+      const uint progrIter = minLvl - 2;
+     /*  const uint progrIter = minLvl 
+        - std::abs((int) fLayout.nLvls - (int) eLayout.nLvls) 
+        - (minLvl == maxLvl ? 2 : 1); */
+      const uint nIters = ceilDiv(maxLvl + minLvl, 2u) + 1u;
+
+      /* std::cout << "dual (fLvls " << fLayout.nLvls << " eLvls " << eLayout.nLvls << ")" << '\n'; */
+      TraversalState state = TraversalState::eDualSubdivide;
+      for (uint iter = fieldHierarchyStartLvl; iter <= nIters; ++iter) {
+        // State progression
+        if (state == TraversalState::eDualSubdivide && iter == progrIter) {
+          state = TraversalState::eLastDualSubdivide;
+        } else if (state == TraversalState::eLastDualSubdivide) {
+          state = TraversalState::ePushRest;
+          break;
+        } else if (state == TraversalState::ePushRest) {
+          state = TraversalState::eSingleSubdivide;
+        }
+
+        // Select input, output queues for current iteration
+        GLuint inputHead = (state == TraversalState::ePushRest) 
+                         ? _buffers(BufferType::ePairsRestHead): _buffers(BufferType::ePairsInputHead);
+        GLuint inputBuffer = (state == TraversalState::ePushRest) 
+                           ? _buffers(BufferType::ePairsRest) : _buffers(BufferType::ePairsInput);
+        GLuint outputHead = _buffers(BufferType::ePairsOutputHead);
+        GLuint outputBuffer = _buffers(BufferType::ePairsOutput);
+
         // Reset output queue head
-        glClearNamedBufferSubData(_buffers(BufferType::ePairsOutputHead),
-          GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+        if (state != TraversalState::ePushRest) {
+          glClearNamedBufferSubData(outputHead,  GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+        }
+
+        // Divide inputHead buffer by workgroupsize
+        {
+          dsProgram.bind();
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, inputHead);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
+          glDispatchCompute(1, 1, 1);
+          glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+        }
         
-        // Bind dispatch divide program and divide BufferType::ePairsInputHead by workgroupsize
-        dsProgram.bind();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePairsInputHead));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
-        glDispatchCompute(1, 1, 1);
-        glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+        // Perform one step down dual tree
+        {
+          if (state == TraversalState::eDualSubdivide || state == TraversalState::eLastDualSubdivide) {
+            dtProgram.bind();
+            dtProgram.uniform1ui("dhLvl", iter + 1);
+          } else {
+            dfProgram.bind();
+          }
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, eBuffers.node0);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, eBuffers.node1);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, inputBuffer);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, inputHead);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, outputBuffer);
+          glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, outputHead);
+          glDispatchComputeIndirect(0);
+          glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
 
-        // Bind dual-tree traversal program and perform one step down dual tree based on Buffertype::eDispatch
-        dtProgram.bind();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, eBuffers.node0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, eBuffers.node1);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::ePairsInput));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _buffers(BufferType::ePairsInputHead));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, _buffers(BufferType::ePairsOutput));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, _buffers(BufferType::ePairsOutputHead));
-        glDispatchComputeIndirect(0);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        // Debug output
+        /* {
+          uint input, output, leaf, rest;
+          glGetNamedBufferSubData(inputHead, 0, sizeof(uint), &input);
+          glGetNamedBufferSubData(outputHead, 0, sizeof(uint), &output);
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsLeafHead), 0, sizeof(uint), &leaf);
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsRestHead), 0, sizeof(uint), &rest);
+          std::cout << '\t' << iter << " " << state << '\t' 
+                    << input << " -> " << output << "\t(l " << leaf << ")\t(r " << rest << ")\n";
+        } */
 
-        /* { // TODO Remove
-          uint inputHead, outputHead, leafHead, dfsHead;
-          glGetNamedBufferSubData(_buffers(BufferType::ePairsInputHead), 0, sizeof(uint), &inputHead);
-          glGetNamedBufferSubData(_buffers(BufferType::ePairsOutputHead), 0, sizeof(uint), &outputHead);
-          glGetNamedBufferSubData(_buffers(BufferType::ePairsLeafHead), 0, sizeof(uint), &leafHead);
-          glGetNamedBufferSubData(_buffers(BufferType::ePairsDfsHead), 0, sizeof(uint), &dfsHead);
-          std::cout << "i " << i 
-                    << " inpt: " << inputHead 
-                    << ", oupt: " << outputHead 
-                    << ", leaf: " << leafHead 
-                    << ", dfs:" << dfsHead << std::endl;
-        } // TODO Remove */
-
-        // Swap input and output queue buffer handles
-        std::swap(_buffers(BufferType::ePairsInput), _buffers(BufferType::ePairsOutput));
-        std::swap(_buffers(BufferType::ePairsInputHead), _buffers(BufferType::ePairsOutputHead));
+        // Swap input and output queues
+        if (state != TraversalState::eLastDualSubdivide) {
+          std::swap(_buffers(BufferType::ePairsInput), _buffers(BufferType::ePairsOutput));
+          std::swap(_buffers(BufferType::ePairsInputHead), _buffers(BufferType::ePairsOutputHead));
+        }
       }
-      // std::cout << std::endl;
 
       glAssert("Field3dCompute::compute::dt()");
       timer.tock();
     } // Dual
-
-    // Use DFS to compute forces in subtrees where one leaf was reached
-    /* { // DFS
-      auto &timer = _timers(TimerType::eFieldDfs);
-      timer.tick();
-
-      // Divide values in BufferType::ePairsDfsHead and store in BufferType::eDispatch
-      {
-        auto &_program = _programs(ProgramType::eDispatch);
-        _program.bind();
-        _program.uniform1ui("div", 256); 
-
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePairsDfsHead));
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _buffers(BufferType::eDispatch));
-
-        glDispatchCompute(1, 1, 1);
-      }
-
-      auto &program = _programs(ProgramType::eFieldDualDfs);
-      program.bind();
-      program.uniform1ui("eLvls", eLayout.nLvls);
-      program.uniform1ui("fLvls", fLayout.nLvls);
-      program.uniform1f("theta2", _params.singleHierarchyTheta * _params.singleHierarchyTheta);
-
-      // Bind buffers
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, eBuffers.node0);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, eBuffers.node1);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, eBuffers.pos);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, fBuffers.field);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _buffers(BufferType::ePairsDfs));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _buffers(BufferType::ePairsDfsHead));
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, boundsBuffer);
-
-      // Dispatch compute shader based on Buffertype::eDispatch
-      glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, _buffers(BufferType::eDispatch));
-      glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
-      glDispatchComputeIndirect(0);
-      glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-      glAssert("Field3dCompute::compute::dfs()");
-      timer.tock();
-    } // DFS */
 
     // Compute forces in the remaining large leaves of the dual hierarchy
     { // Leaf
@@ -826,19 +825,17 @@ namespace hdi::dr {
     // Runtimes in us
     const double fieldTime = _timers(TimerType::eField)
       .get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>();
-    const double dfsTime = _timers(TimerType::eFieldDfs)
-      .get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>();
     const double leafTime = _timers(TimerType::eFieldLeaf)
       .get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>();
     const double pushTime = _timers(TimerType::ePush)
       .get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>();
-    const double time = fieldBvhActive ? (fieldTime + dfsTime + leafTime + pushTime) : fieldTime;
+    const double time = fieldBvhActive ? (fieldTime + leafTime + pushTime) : fieldTime;
 
     // Log method name, iteration, nr. of pixels flagged, and total field computation time.
     utils::secureLogValue(_logger,
       std::string("  Field (") + mtd + ") ",
       std::string("iter ") + std::to_string(iteration) 
-      + std::string(" - ") + std::to_string(_fieldHier.layout().nPixels) + std::string(" px") 
+      + std::string(" - ") + std::to_string(_nPixels) + std::string(" px") 
       + std::string(" - ") + std::to_string(time)
       + std::string(" \xE6s")
     );
@@ -847,9 +844,6 @@ namespace hdi::dr {
     if (fieldBvhActive) {
       utils::secureLogValue(_logger, "    Field", 
         std::to_string(fieldTime)
-        + std::string(" \xE6s"));
-      utils::secureLogValue(_logger, "    Dfs", 
-        std::to_string(dfsTime)
         + std::string(" \xE6s"));
       utils::secureLogValue(_logger, "    Leaf", 
         std::to_string(leafTime)
@@ -877,7 +871,6 @@ namespace hdi::dr {
     LOG_TIMER(_logger, TimerType::eFlags, "  Flags");
     LOG_TIMER(_logger, TimerType::eField, "  Field");
     if (_useFieldBvh) {
-      LOG_TIMER(_logger, TimerType::eFieldDfs, "  Dfs");
       LOG_TIMER(_logger, TimerType::eFieldLeaf, "  Leaf");
       LOG_TIMER(_logger, TimerType::ePush, "  Push");
     }

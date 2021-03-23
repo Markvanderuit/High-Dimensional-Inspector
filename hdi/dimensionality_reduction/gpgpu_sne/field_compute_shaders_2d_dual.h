@@ -65,15 +65,15 @@ GLSL(field_bvh_dual_src, 450,
   layout(binding = 8, std430) restrict readonly buffer OQHea { uint oQueueHead; };       // Atomic
   layout(binding = 9, std430) restrict writeonly buffer LQue { Pair lQueueBuffer[]; };   // Leaf
   layout(binding = 10, std430) restrict coherent buffer LQHe { uint lQueueHead; };       // Atomic
-  layout(binding = 11, std430) restrict writeonly buffer DQu { Pair dQueueBuffer[]; };   // Dfs
-  layout(binding = 12, std430) restrict coherent buffer DQHe { uint dQueueHead; };       // Atomic
-  layout(binding = 13, std430) restrict readonly buffer Boun { Bounds boundsBuffer; };
+  layout(binding = 11, std430) restrict readonly buffer Boun { Bounds boundsBuffer; };
+  layout(binding = 12, std430) restrict writeonly buffer RQu { Pair rQueueBuffer[]; };       // Atomic
+  layout(binding = 13, std430) restrict coherent buffer RQHe { uint rQueueHead; };       // Atomic
   
 /* // #ifdef INSERT_DH_DEBUG
   layout(binding = 14, std430) restrict writeonly buffer BQu { Pair dbgQueueBuffer[]; }; // Debug
   layout(binding = 15, std430) restrict coherent buffer BQHe { uint dbgQueueHead; };     // Atomic
-  layout(location = 3) uniform bool doDebugNode;
-  layout(location = 4) uniform uint debugNode;
+  layout(location = 4) uniform bool doDebugNode;
+  layout(location = 5) uniform uint debugNode;
 // #endif // INSERT_DH_DEBUG */
 
   // Uniform values
@@ -136,9 +136,6 @@ GLSL(field_bvh_dual_src, 450,
     vec4 eNode0 = eNode0Buffer[pair.e];       // packed as: bbox c.o.m. (xy(z)), range extent (w)
     vec4 eNode1 = eNode1Buffer[pair.e];       // packed as: bbox extent (xy(z)), range min    (w)
 
-    // Values accumulated or kept constant during rotation
-    const uint pairBase = pair.e - thread;
-
     // Move down singleton chain to leaf node if necessary
     if ((fNode & 3u) == 1u) {
       pair.f = fNode >> 2u;
@@ -149,8 +146,11 @@ GLSL(field_bvh_dual_src, 450,
     const uvec2 px = decode(pair.f - (0x2AAAAAAAu >> (31u - BVH_LOGK_2D * fLvl)));
     const vec2 fbbox = bounds.range / vec2(1u << fLvl);
     const vec2 fpos = bounds.min + fbbox * (vec2(px) + 0.5);
-
-    // Local storage to buffer atomic writes
+    
+    // Values accumulated or kept constant during rotation
+    const uint pairBase = pair.e - thread;
+    const bool fIsLeaf = (fNode & 3u) == 1u;
+    const uint eOffset = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (eLvls - 1));
     vec3 field = vec3(0);
 
     // Compare node pairs BVH_KNODE_2D times, rotating embedding nodes through the subgroup
@@ -175,18 +175,26 @@ GLSL(field_bvh_dual_src, 450,
         sdot(eNode1.xy - b * dot(eNode1.xy, b)),
         sdot(fbbox - b * dot(fbbox, b))
       );
+      
+      // More rotate data
+      const uint rot_e = pairBase + (thread + i + 1) % BVH_KNODE_2D;
+      const bool eIsLeaf = eNode0.w <= EMB_BVH_KLEAF_2D || rot_e >= eOffset;
 
       // Barnes-Hut test
       if (r2 / t2 < theta2) {
         // Approximation passes, compute approximated value and truncate
         const float tStud = 1.f / (1.f + t2);
         field += eNode0.w * vec3(tStud, t * (tStud * tStud));
-      } else if ((fNode & 3u) > 1u && eNode0.w > EMB_BVH_KLEAF_2D) {
+      } else if (!eIsLeaf && !fIsLeaf) {
         // Push pair on work queue for further subdivision
-        oQueueBuffer[atomicAdd(oQueueHead, 1)] = Pair(pair.f, pairBase + (thread + i + 1) % BVH_KNODE_2D);
+        oQueueBuffer[atomicAdd(oQueueHead, 1)] = Pair(pair.f, rot_e);
+      // } else if (!fIsLeaf) {
+      /* } else if (!eIsLeaf || !fIsLeaf) {
+        // Push pair on secondary work queue for further subdivision
+        rQueueBuffer[atomicAdd(rQueueHead, 1)] = Pair(pair.f, rot_e); */
       } else if (eNode0.w > DUAL_BVH_LARGE_LEAF) {
         // Optimize large leaves in separate shader
-        lQueueBuffer[atomicAdd(lQueueHead, 1)] = Pair(pair.f, pairBase + (thread + i + 1) % BVH_KNODE_2D);
+        lQueueBuffer[atomicAdd(lQueueHead, 1)] = Pair(pair.f, rot_e);
       } else {
         // Compute small leaves directly
         const uint begin = uint(eNode1.w);
@@ -198,7 +206,7 @@ GLSL(field_bvh_dual_src, 450,
         }
       }
     }
-
+    
     // Add computed forces to field hierarchy
     if (field != vec3(0)) {
       const uvec4 addr = uvec4(4 * pair.f) + uvec4(0, 1, 2, 3);
@@ -209,21 +217,15 @@ GLSL(field_bvh_dual_src, 450,
   }
 );
 
-GLSL(field_bvh_dual_dfs_src, 450,
+GLSL(field_bvh_dual_rest_src, 450,
   GLSL_PROTECT( #extension GL_NV_shader_atomic_float : require )        // atomicAdd(f32) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_clustered : require ) // subgroupClusteredAdd(...) support
+  GLSL_PROTECT( #extension GL_KHR_shader_subgroup_shuffle : require )   // subgroupShuffle(...) support
 
   // Wrapper structure for pair queue data
   struct Pair {
     uint f;       // Field hierarchy node index
     uint e;       // Embedding hierarchy node index
-  };
-
-  // Wrapper structure for node data
-  struct Node {
-    vec2 center; 
-    uint begin;
-    vec2 diam;
-    uint extent;
   };
 
   // Wrapper structure for bounding box data
@@ -235,31 +237,41 @@ GLSL(field_bvh_dual_dfs_src, 450,
   };
 
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-  
+
   // Buffer bindings
   layout(binding = 0, std430) restrict readonly buffer ENod0 { vec4 eNode0Buffer[]; };
   layout(binding = 1, std430) restrict readonly buffer ENod1 { vec4 eNode1Buffer[]; };
   layout(binding = 2, std430) restrict readonly buffer EPosi { vec2 ePosBuffer[]; };
-  layout(binding = 3, std430) restrict coherent buffer FFiel { float fFieldBuffer[]; }; // atomic rw
-  layout(binding = 4, std430) restrict readonly buffer DQueu { Pair dQueueBuffer[]; };
-  layout(binding = 5, std430) restrict coherent buffer DQHea { uint dQueueHead; }; // atomic rw 
-  layout(binding = 6, std430) restrict readonly buffer Bound { Bounds boundsBuffer; };
+  layout(binding = 3, std430) restrict readonly buffer FNode { uint fNodeBuffer[]; };
+  layout(binding = 4, std430) restrict coherent buffer FFiel { float fFieldBuffer[]; };  // Atomic
+  layout(binding = 5, std430) restrict readonly buffer IQueu { Pair iQueueBuffer[]; };   // Input
+  layout(binding = 6, std430) restrict readonly buffer IQHea { uint iQueueHead; };       // Atomic
+  layout(binding = 7, std430) restrict writeonly buffer OQue { Pair oQueueBuffer[]; };   // Output
+  layout(binding = 8, std430) restrict readonly buffer OQHea { uint oQueueHead; };       // Atomic
+  layout(binding = 9, std430) restrict writeonly buffer LQue { Pair lQueueBuffer[]; };   // Leaf
+  layout(binding = 10, std430) restrict coherent buffer LQHe { uint lQueueHead; };       // Atomic
+  layout(binding = 11, std430) restrict readonly buffer Boun { Bounds boundsBuffer; };
   
-  layout(location = 0) uniform uint eLvls;    // Nr. of levels in embedding hierarchy
-  layout(location = 1) uniform uint fLvls;    // Nr. of levels in embedding hierarchy
+  // Uniform values
+  layout(location = 0) uniform uint eLvls;    // Total nr. of levels in embedding hierarchy
+  layout(location = 1) uniform uint fLvls;    // Total nr. of levels in field hierarchy
   layout(location = 2) uniform float theta2;  // Squared approximation param. for Barnes-Hut
-
+  
   // Shared memory
   shared Bounds bounds;
 
-  // Traversal data
-  const uint bitmask = ~((~0u) << BVH_LOGK_2D);
-  uint lvl = 0;
-  uint loc = 0;
-  uint stack = 0;
-  vec2 fpos;
-  vec2 fbbox;
+  // Constants
+  const uint nThreads = BVH_KNODE_2D;
+  const uint thread = gl_SubgroupInvocationID % nThreads;
+  const uint base = gl_SubgroupInvocationID - thread;
+  const uint fLeafOffset = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (fLvls - 1));
+  const uint eLeafOffset = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (eLvls - 1));
 
+  // Compute dot product of vector with itself, ie. squared eucl. distance to vector from origin
+  float sdot(in vec2 v) {
+    return dot(v, v);
+  }
+  
   uint shrinkBits15(uint i) {
     i = i & 0x55555555u;
     i = (i | (i >> 1u)) & 0x33333333u;
@@ -275,84 +287,9 @@ GLSL(field_bvh_dual_dfs_src, 450,
     return uvec2(x, y);
   }
 
-  float sdot(in vec2 v) {
-    return dot(v, v);
-  }
-
-  void descend() {
-    // Move down tree
-    lvl++;
-    loc = loc * BVH_KNODE_2D + 1u;
-
-    // Push unvisited locations on stack
-    stack |= (bitmask << (BVH_LOGK_2D * lvl));
-  }
-
-  void ascend() {
-    // Find distance to next level on stack
-    uint nextLvl = findMSB(stack) / BVH_LOGK_2D;
-    uint dist = lvl - nextLvl;
-
-    // Move dist up to where next available stack position is
-    // and one to the right
-    if (dist > 0) {
-      loc >>= BVH_LOGK_2D * dist;
-    } else {
-      loc++;
-    }
-    lvl = nextLvl;
-
-    // Pop visited location from stack
-    uint shift = BVH_LOGK_2D * lvl;
-    uint b = (stack >> shift) - 1;
-    stack &= ~(bitmask << shift);
-    stack |= b << shift;
-  }
-
-  bool approx(inout vec3 field) {
-    // Load node data
-    Node eNode;
-    const vec4 eNode0 = eNode0Buffer[loc];
-    if (eNode0.w == 0) {
-      return true;
-    } else {
-      const vec4 eNode1 = eNode1Buffer[loc];
-      eNode = Node(eNode0.xy, uint(eNode1.w), eNode1.xy, uint(eNode0.w));
-    }
-
-    // Compute relative squared radii for approximation decision
-    // 1. Compute distance between nodes
-    const vec2 t = fpos - eNode.center;
-    const float t2 = dot(t, t);
-    // 2. Reflect vector so it always approaches almost-orthogonal to the diameter
-    const vec2 b = normalize(abs(t) * vec2(-1, 1));
-    // 3. Compute relative squared diameters
-    const float r2 = max(
-      sdot(eNode.diam - b * dot(eNode.diam, b)),
-      sdot(fbbox - b * dot(fbbox, b))
-    );
-
-    if (r2 / t2 < theta2) {
-      // Approximation passes, compute approximated value and truncate
-      const float tStud = 1.f / (1.f + t2);
-      field += eNode.extent * vec3(tStud, t * (tStud * tStud));
-      return true;
-    } else if (eNode.extent <= EMB_BVH_KLEAF_2D || lvl == eLvls - 1) {
-      // Iterate over all leaf points (hi, thread divergence here to ruin your day)
-      for (uint j = eNode.begin; j < eNode.begin + eNode.extent; ++j) {
-        const vec2 t = fpos - ePosBuffer[j];
-        const float tStud = 1.f / (1.f +  dot(t, t));
-        field += vec3(tStud, t * (tStud * tStud));
-      }
-      return true;
-    }
-    return false;
-  }
-
   void main() {
-    // Check if invoc is within nr of items on dfs queue
-    uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
-    if (i >= dQueueHead) {
+    const uint idx = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / BVH_KNODE_2D;
+    if (idx >= iQueueHead) {
       return;
     }
 
@@ -362,44 +299,125 @@ GLSL(field_bvh_dual_dfs_src, 450,
     }
     barrier();
 
-    // Load node pair from dfs queue, then load the field hierarchy's leaf
-    Pair pair = dQueueBuffer[i];
+    // Read node pair indices once, share with subgroup operations
+    Pair pair;
+    if (thread == 0) {
+      pair = iQueueBuffer[idx];
+    }
+    pair.f = subgroupShuffle(pair.f, base);
+    pair.e = subgroupShuffle(pair.e, base);
 
-    // Determine implicit fNode bbox and pos
-    const uint fLvl = fLvls - 1;
-    const uvec2 px = decode(pair.f - (0x2AAAAAAAu >> (31u - BVH_LOGK_2D * fLvl)));
-    fbbox = bounds.range / vec2(1u << fLvl);
-    fpos = bounds.min + fbbox * (vec2(px) + 0.5);
-
-    // Determine root node level for subtree
-    uint root = 0;
+    // Determine node pair's levels in hierarchies
+    uint fLvl = 0;
+    uint eLvl = 0;
     {
+      uint f = pair.f;
       uint e = pair.e;
-      do { root++; } while ((e = (e - 1) >> BVH_LOGK_2D) > 0);
+      do { fLvl++; } while ((f = (f - 1) >> BVH_LOGK_2D) > 0);
+      do { eLvl++; } while ((e = (e - 1) >> BVH_LOGK_2D) > 0);
     }
 
-    // Set traversal data to start at root's first leftmost child
-    lvl = root + 1;
-    loc = pair.e * BVH_KNODE_2D + 1u;
-    stack = (bitmask << (BVH_LOGK_2D * lvl));
+    // Read node data for determining subdivision
+    uint fNode; // loaded at a later point
+    vec4 eNode0 = subgroupShuffle((thread == 0) ? eNode0Buffer[pair.e] : vec4(0), base);
+    vec4 eNode1 = subgroupShuffle((thread == 2) ? eNode1Buffer[pair.e] : vec4(0), base + 2);
 
-    // Depth-first traverse subtree, accumulating field avlues
+    // Determine whether we are dealing with leaf nodes
+    bool fIsLeaf = (pair.f >= fLeafOffset);
+    bool eIsLeaf = (pair.e >= eLeafOffset) || (eNode0.w <= EMB_BVH_KLEAF_2D);    
+
+    // Subdivide one side. All invocs subdivide the same side!
+    // TODO subdivide the larger projected diagonal node
+    const bool eSubdiv = fIsLeaf || (!eIsLeaf && eLvl < fLvl);
+    if (eSubdiv) {
+      // Descend hierarchy
+      eLvl++;
+      pair.e = pair.e * BVH_KNODE_2D + 1 + thread;
+      
+      // Load new node data (now we can load fNode)
+      fNode = subgroupShuffle((thread == 0) ? fNodeBuffer[pair.f] : 0u, base);
+      eNode0 = eNode0Buffer[pair.e];
+      eNode1 = eNode1Buffer[pair.e];
+
+      // Update leaf status
+      eIsLeaf = (pair.e >= eLeafOffset) || (eNode0.w <= EMB_BVH_KLEAF_2D);
+    } else {
+      // Descend hierarchy
+      fLvl++;
+      pair.f = pair.f * BVH_KNODE_2D + 1 + thread;
+
+      // Load new node data (other node already loaded)
+      fNode = fNodeBuffer[pair.f];
+
+      // Update leaf status
+      fIsLeaf = (pair.f >= fLeafOffset) || ((fNode & 3u) == 1u);
+    }
+
+    // Skip singleton chain in field hierarchy if encountered
+    if ((fNode & 3u) == 1u) {
+      pair.f = fNode >> 2u;
+      fLvl = fLvls - 1;
+      fIsLeaf = true;
+    }
+
+    // Skip computation if dead node is encountered
     vec3 field = vec3(0);
-    do {
-      if (approx(field)) {
-        ascend();
-      } else {
-        descend();
-      }
-    } while (lvl > root);
+    if (eNode0.w != 0 && fNode != 0) {
+      // Determine fNode bbox and center implicitly
+      const uvec2 px = decode(pair.f - (0x2AAAAAAAu >> (31u - BVH_LOGK_2D * fLvl)));
+      const vec2 fbbox = bounds.range / vec2(1u << fLvl);
+      const vec2 fpos = bounds.min + fbbox * (vec2(px) + 0.5);
 
-    // Store data tracked during traversal
+      // Barnes-Hut approximation components
+      // 1. Compute vector dist. and squared eucl dist. between nodes
+      const vec2 t = fpos - eNode0.xy;
+      const float t2 = dot(t, t);
+      // 2. Reflect vector so it always approaches almost-orthogonal to the diameter
+      const vec2 b = normalize(abs(t) * vec2(-1, 1));
+      // 3. Compute relative squared diams
+      const float r2 = max(
+        sdot(eNode1.xy - b * dot(eNode1.xy, b)),
+        sdot(fbbox - b * dot(fbbox, b))
+      );
+
+      // Barnes-Hut test
+      if (r2 / t2 < theta2) {
+        // Approximation passes, compute approximated value and truncate
+        const float tStud = 1.f / (1.f + t2);
+        field += eNode0.w * vec3(tStud, t * (tStud * tStud));
+      // } else if (!fIsLeaf) {
+      } else if (!eIsLeaf || !fIsLeaf) {
+        // Push pair on work queue for further subdivision
+        oQueueBuffer[atomicAdd(oQueueHead, 1)] = pair;
+      } else if (eNode0.w >= DUAL_BVH_LARGE_LEAF) {
+        // Optimize large leaf pairs in separate shader
+        lQueueBuffer[atomicAdd(lQueueHead, 1)] = pair;
+      } else {
+        // Compute small leaves directly
+        const uint begin = uint(eNode1.w);
+        const uint end = begin + uint(eNode0.w);
+        for (uint j = begin; j < end; ++j) {
+          const vec2 t = fpos - ePosBuffer[j];
+          const float tStud = 1.f / (1.f +  dot(t, t));
+          field += vec3(tStud, t * (tStud * tStud));
+        }
+      }
+    }
+    
+    if (eSubdiv) {
+      field = subgroupClusteredAdd(field, nThreads);
+    }
+
     if (field != vec3(0)) {
-      // When the field hierarchy is subdivided, each invocation must do its own write
-      const uvec3 addr = uvec3(4 * pair.f) + uvec3(0, 1, 2);
-      atomicAdd(fFieldBuffer[addr.x], field.x);
-      atomicAdd(fFieldBuffer[addr.y], field.y);
-      atomicAdd(fFieldBuffer[addr.z], field.z);
+      const uvec4 addr = uvec4(4 * pair.f) + uvec4(0, 1, 2, 3);
+      if (!eSubdiv) {
+        atomicAdd(fFieldBuffer[addr.x], field.x);
+        atomicAdd(fFieldBuffer[addr.y], field.y);
+        atomicAdd(fFieldBuffer[addr.z], field.z);
+      } else if (thread < 3) {
+        // Long live subgroups!
+        atomicAdd(fFieldBuffer[addr[thread]], field[thread]);
+      }
     }
   }
 );
@@ -442,7 +460,8 @@ GLSL(field_bvh_dual_leaf_src, 450,
 
   // Constants
   const uint nThreads = 4; // Threads to handle all the buffer reads together
-  const uint thread = gl_LocalInvocationID.x % nThreads;
+  const uint thread = gl_SubgroupInvocationID % nThreads;
+  const uint base = gl_SubgroupInvocationID - thread;
   const uint foffset = 0x2AAAAAAAu >> (31u - BVH_LOGK_2D * (fLvls - 1));
   const vec2 fbbox = vec2(1.f / float(1u << (fLvls - 1)));
 
@@ -463,8 +482,8 @@ GLSL(field_bvh_dual_leaf_src, 450,
 
   void main() {
     // Check if invoc is within nr of items on leaf queue
-    uint j = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nThreads;
-    if (j >= lQueueHead) {
+    uint idx = (gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationID.x) / nThreads;
+    if (idx >= lQueueHead) {
       return;
     }
 
@@ -474,34 +493,35 @@ GLSL(field_bvh_dual_leaf_src, 450,
     }
     barrier();
 
-    // Load node pair from queue, skip culled pairs
-    Pair pair = lQueueBuffer[j];
-
-    // Determine implicit field node center
-    const vec2 fpos = bounds.min + bounds.range * fbbox * (vec2(decode(pair.f - foffset)) + 0.5);
+    // Load node pair from queue using subgroup operations
+    Pair pair;
+    if (thread == 0) {
+      pair = lQueueBuffer[idx];
+    }
+    pair.f = subgroupShuffle(pair.f, base);
+    pair.e = subgroupShuffle(pair.e, base);
     
     // Read node data using subgroup operations
-    const vec4 eNode0 = subgroupShuffle((thread == 0) 
-      ? eNode0Buffer[pair.e] : vec4(0), gl_LocalInvocationID.x - thread);
-    const vec4 eNode1 = subgroupShuffle((thread == 1) 
-      ? eNode1Buffer[pair.e] : vec4(0), gl_LocalInvocationID.x + 1 - thread);
+    const vec4 eNode0 = subgroupShuffle((thread == 0) ? eNode0Buffer[pair.e] : vec4(0), base);
+    const vec4 eNode1 = subgroupShuffle((thread == 2) ? eNode1Buffer[pair.e] : vec4(0), base + 2);
 
-    // Range of embedding positions to iterate
-    const uint begin = uint(eNode1.w) + thread;
-    const uint end = begin + uint(eNode0.w);
+    // Determine field node position
+    const vec2 fpos = bounds.min + bounds.range * fbbox * (vec2(decode(pair.f - foffset)) + 0.5);
+
+    // Range of embedding positions to iterate over
+    const uint eBegin = uint(eNode1.w) + thread;
+    const uint eEnd = uint(eNode1.w) + uint(eNode0.w);
 
     // Directly compute forces over embedding positions using subgroup of threads
     vec3 field = vec3(0);
-    for (uint i = begin; 
-         i < end;
-         i += nThreads) {
+    for (uint i = eBegin; i < eEnd; i += nThreads) {
       const vec2 t = fpos - ePosBuffer[i];
       const float tStud = 1.f / (1.f +  dot(t, t));
       field += vec3(tStud, t * (tStud * tStud));
     }
     field = subgroupClusteredAdd(field, nThreads);
 
-    // Add computed forces to field, using one thread per field component
+    // Add computed forces to field leaf, using one thread per field component
     if (field != vec3(0) && thread < 3) {
       const uvec4 addr = uvec4(4 * pair.f) + uvec4(0, 1, 2, 3);
       atomicAdd(fFieldBuffer[addr[thread]], field[thread]);
@@ -566,7 +586,7 @@ GLSL(push_src, 450,
   }
 );
 
-GLSL(push_smoothed_src, 450,
+/* GLSL(push_smoothed_src, 450,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
   // Wrapper structure for bounding box data
@@ -679,7 +699,7 @@ GLSL(push_smoothed_src, 450,
     // Store resulting value in field image
     imageStore(fieldImage, ivec2(px), vec4(field, 0));
   }
-);
+); */
 
 /* GLSL(interp_hierarchy_src, 450,
   layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;

@@ -71,70 +71,76 @@ GLSL(divide_dispatch_src, 450,
 );
 
 GLSL(field_src, 450,
-  layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-  layout(binding = 0, std430) restrict readonly buffer Pos { vec2 Positions[]; };
-  layout(binding = 1, std430) restrict readonly buffer Bounds { 
-    vec2 minBounds;
-    vec2 maxBounds;
+  // Wrapper structure for Bounds data
+  struct Bounds {
+    vec2 min;
+    vec2 max;
     vec2 range;
     vec2 invRange;
   };
-  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fields_texture;
+
+  layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+  // Buffer object bindings
+  layout(binding = 0, std430) restrict readonly buffer Posit { vec2 posBuffer[]; };
+  layout(binding = 1, std430) restrict readonly buffer Bound { Bounds bounds; };
+  layout(binding = 2, std430) restrict readonly buffer Queue { uvec2 queueBuffer[]; };
+  layout(binding = 0, rgba32f) restrict writeonly uniform image2D fieldImage;
+
+  // Uniform locations
   layout(location = 0) uniform uint nPoints;
   layout(location = 1) uniform uvec2 textureSize;
-  layout(location = 2) uniform usampler2D stencilTexture;
 
   // Reduction components
   const uint groupSize = gl_WorkGroupSize.x;
   const uint halfGroupSize = groupSize / 2;
   shared vec3 reductionArray[halfGroupSize];
 
+  // Shared memory for pixel positiovn
+  shared uvec2 px;
+
   void main() {
-    // Location of current workgroup
-    ivec2 xyFixed = ivec2(gl_WorkGroupID.xy);
-    uint lid = gl_LocalInvocationIndex.x;
+    // Read pixel position from work queue. Make sure not to exceed queue head
+    const uint i = gl_WorkGroupID.x;
+    const uint li = gl_LocalInvocationID.x;
+    if (li == 0) {
+      px = queueBuffer[i];
+    }
+    barrier();
 
-    // Skip pixel if stencil is empty
-    if (texelFetch(stencilTexture, xyFixed, 0).x == 0u) {
-      if (lid < 1) {
-        imageStore(fields_texture, xyFixed, vec4(0));
-      }
-      return;
-    } 
+    // Compute pixel position in [0, 1]
+    // Then map pixel position to domain bounds
+    vec2 pos = (vec2(px) + 0.5) / vec2(textureSize);
+    pos = pos * bounds.range + bounds.min;
 
-    // Map to domain pos
-    vec2 domain_pos = (vec2(xyFixed) + vec2(0.5)) / vec2(textureSize);
-    domain_pos = domain_pos * range + minBounds;
-
-    // Iterate over points to obtain density/gradient
-    vec3 v = vec3(0);
-    for (uint i = lid; i < nPoints; i += groupSize) {
-      vec2 t = domain_pos - Positions[i];
-      float t_stud = 1.f / (1.f + dot(t, t));
-      vec2 t_stud_2 = t * (t_stud * t_stud);
-
-      // Field layout is: S, V.x, V.y
-      v += vec3(t_stud, t_stud_2);
+     // Iterate over points to obtain density/gradient field values
+    vec3 field = vec3(0);
+    for (uint j = li; j < nPoints; j += groupSize) {
+      // Field layout is: S, V.x, V.y,
+      vec2 t = pos - posBuffer[j];
+      float tStud = 1.f / (1.f + dot(t, t));
+      field += vec3(tStud, t * (tStud * tStud));
     }
     
     // Perform reduce add over all computed points for this pixel
-    if (lid >= halfGroupSize) {
-      reductionArray[lid - halfGroupSize] = v;
+    if (li >= halfGroupSize) {
+      reductionArray[li - halfGroupSize] = field;
     }
     barrier();
-    if (lid < halfGroupSize) {
-      reductionArray[lid] += v;
+    if (li < halfGroupSize) {
+      reductionArray[li] += field;
     }
     for (uint i = halfGroupSize / 2; i > 1; i /= 2) {
       barrier();
-      if (lid < i) {
-        reductionArray[lid] += reductionArray[lid + i];
+      if (li < i) {
+        reductionArray[li] += reductionArray[li + i];
       }
     }
     barrier();
-    if (lid < 1) {
+    
+    if (li == 0) {
       vec3 reducedArray = reductionArray[0] + reductionArray[1];
-      imageStore(fields_texture, xyFixed, vec4(reducedArray, 0));
+      imageStore(fieldImage, ivec2(px), vec4(reducedArray, 0));
     }
   }
 );
@@ -441,7 +447,7 @@ GLSL(field_bvh_wide_src, 450,
   }
 );
 
-GLSL(pixels_bvh_src, 450,
+GLSL(flag_bvh_src, 450,
   // Return types for approx(...) function below
   #define STOP 0\n // Voxel encompasses node, stop traversal
   #define DESC 1\n // Node encompasses voxel, descend
@@ -570,6 +576,29 @@ GLSL(pixels_bvh_src, 450,
         return;
       }
     } while (lvl > 0);
+  }
+);
+
+GLSL(grid_flag_src, 450,
+  layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+  
+  layout(binding = 0, std430) restrict writeonly buffer Queue { uvec2 queueBuffer[]; };
+  layout(binding = 1, std430) restrict coherent buffer QHead { uint queueHead; }; 
+
+  layout(location = 0) uniform uvec2 textureSize;
+  layout(location = 1) uniform usampler2D stencilSampler;
+  
+  void main() {
+    // Check that invocation is inside stencil texture dimensions
+    const uvec2 i = gl_WorkGroupID.xy * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy;
+    if (min(i, textureSize - 1) != i) {
+      return;
+    }
+
+    // Push pixel on queue if not to be skipped in stencil texture
+    if (texelFetch(stencilSampler, ivec2(i), 0).x  != 0u) {
+      queueBuffer[atomicAdd(queueHead, 1)] = i;
+    }
   }
 );
 

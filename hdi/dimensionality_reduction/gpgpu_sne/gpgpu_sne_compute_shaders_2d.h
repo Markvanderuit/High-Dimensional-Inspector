@@ -35,6 +35,8 @@
 namespace hdi::dr::_2d {
   GLSL(bounds_src, 450,
     layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+    // Buffer bindings
     layout(binding = 0, std430) restrict readonly buffer Pos { vec2 positions[]; };
     layout(binding = 1, std430) restrict buffer BoundsReduce {
       vec2 minBoundsReduceAdd[128];
@@ -46,10 +48,13 @@ namespace hdi::dr::_2d {
       vec2 range;
       vec2 invRange;
     };
+
+    // Uniform bindings
     layout(location = 0) uniform uint nPoints;
     layout(location = 1) uniform uint iter;
     layout(location = 2) uniform float padding;
 
+    // Constants, shared memory
     const uint halfGroupSize = gl_WorkGroupSize.x / 2;
     shared vec2 min_reduction[halfGroupSize];
     shared vec2 max_reduction[halfGroupSize];
@@ -63,8 +68,8 @@ namespace hdi::dr::_2d {
         // First iteration adds all values
         for (uint i = gl_WorkGroupID.x * gl_WorkGroupSize.x + lid;
             i < nPoints;
-            i += gl_WorkGroupSize.x * gl_NumWorkGroups.x) {
-          vec2 pos = positions[i];
+            i += gl_NumWorkGroups.x * gl_WorkGroupSize.x) {
+          const vec2 pos = positions[i];
           min_local = min(pos, min_local);
           max_local = max(pos, max_local);
         }
@@ -92,6 +97,7 @@ namespace hdi::dr::_2d {
         }
       }
       barrier();
+      
       // perform store in starting unit
       if (lid < 1) {
         min_local = min(min_reduction[0], min_reduction[1]);

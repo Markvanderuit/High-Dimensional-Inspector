@@ -75,6 +75,20 @@ namespace hdi::dr {
                  GLuint interpBuffer);
 
   private:
+    enum TraversalState {
+      // Subdivide both nodes simultaneously
+      eDualSubdivide = 0,
+      
+      // Subdivide both nodes simultaneously, don't swap input/output buffers
+      eLastDualSubdivide = 1,
+
+      // Subdivide non-leaf nodes into current output buffer
+      ePushRest = 2,
+
+      // Subdivide one node only
+      eSingleSubdivide = 3
+    };
+
     enum class MethodType {
       eFull,
       eSingleHierarchy,
@@ -97,15 +111,15 @@ namespace hdi::dr {
       ePairsLeaf,
       ePairsLeafHead,
 
-      // Queue + head for list of node pairs where one has reached a leaf early
-      ePairsDfs,
-      ePairsDfsHead,
-
       // Queues + heads for list of node pairs for iterative traversal of hierarchy
       ePairsInput,
       ePairsOutput,
       ePairsInputHead,
       ePairsOutputHead,
+
+      // Queue + head for list of node pairs which fall outside iterative traversal
+      ePairsRest,
+      ePairsRestHead,
 
       Length
     };
@@ -123,8 +137,8 @@ namespace hdi::dr {
 
       // Dual hierarchy programs
       eFieldDual,
+      eFieldDualRest,
       eFieldDualLeaf,
-      eFieldDualDfs,
       ePush,
 
       Length
@@ -134,7 +148,6 @@ namespace hdi::dr {
       eFlags,
       eField, 
       eFieldLeaf,
-      eFieldDfs,
       ePush,
       eInterp,
 
@@ -167,6 +180,7 @@ namespace hdi::dr {
     // Misc
     bool _isInit;
     uvec _dims;
+    uint _nPixels;
     TsneParameters _params;
     utils::AbstractLog* _logger;
     bool _useVoxelGrid;
