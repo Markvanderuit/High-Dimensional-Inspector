@@ -2,7 +2,7 @@ import conf
 from pathlib import Path
 
 # Paths to executables
-dataPath = Path.home() / "Documents/Repositories/hdi/tests/data"
+dataPath = Path("C:/Surfdrive/Documents/hdi/tests/data")
 resPath = Path("C:/Surfdrive/Documents/hdi/tests/results")
 snePath = Path.home() / "Documents/Builds/hdi/applications/release_tsne_cmd.exe"
 evalPath = Path.home() / "Documents/Builds/hdi/applications/release_evaluation_cmd.exe"
