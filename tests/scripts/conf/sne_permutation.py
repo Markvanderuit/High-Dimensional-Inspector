@@ -35,7 +35,7 @@ class SnePermutation:
 
   def run(self, config):
     dataPath = config.dataPath / self.dataset / "data.bin"
-    resultPath = config.resultsPath / self.dataset / self.genArgStr(config)
+    resultPath = config.resPath / self.dataset / self.genArgStr(config)
 
     # Ensure results directory exists
     if not os.path.exists(resultPath):
@@ -66,7 +66,7 @@ class SnePermutation:
     subprocess.run(args, stdout=f) if config.doLog else subprocess.run(args)
 
   def result(self, config):
-    resultPath = config.resultsPath / self.dataset / self.genArgStr(config)
+    resultPath = config.resPath / self.dataset / self.genArgStr(config)
     
     # Open file
     # print(resultPath)

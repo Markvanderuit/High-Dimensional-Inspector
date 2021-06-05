@@ -27,9 +27,9 @@ class CuPermutation:
       + ", i=" + str(self.iters) + ", p=" + str(self.perp)
     return argstr
 
-  def run(self, config, snePath, evalPath):
-    dataPath = Path("../data") / self.dataset / "data.bin"
-    resultPath = Path("../results") / self.dataset / self.genArgStr(config)
+  def run(self, config):
+    dataPath = config.dataPath / self.dataset / "data.bin"
+    resultPath = config.resPath / self.dataset / self.genArgStr(config)
 
     # Ensure results directory exists
     if not os.path.exists(resultPath):
@@ -39,7 +39,7 @@ class CuPermutation:
     f = open(str(resultPath / "log.txt"), 'w')
 
     args = [
-      str(snePath),
+      str(config.snePath),
       str(dataPath),
       str(resultPath / "embedding.bin"),
       str(self.n),
@@ -53,7 +53,7 @@ class CuPermutation:
 
     if (config.doNNP or config.doKLD):
       args = [
-        str(evalPath),
+        str(config.evalPath),
         str(dataPath),
         str(resultPath / "embedding.bin"),
         str(self.n),
@@ -77,7 +77,7 @@ class CuPermutation:
         ft.close()
 
   def result(self, config):
-    resultPath = Path("../results") / self.dataset / self.genArgStr(config)
+    resultPath = config.resPath / self.dataset / self.genArgStr(config)
     
     # Open file
     f = open(resultPath / "values.txt", "r")

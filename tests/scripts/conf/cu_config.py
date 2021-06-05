@@ -33,9 +33,9 @@ class CuConfig:
     self.dataPath = data
     self.resPath = res
 
-  def run(self, snePath, evalPath):
+  def run(self):
     for perm in self.permute():
-      perm.run(self, snePath, evalPath)
+      perm.run(self)
 
   def result(self):
     print("Result: xKey=" + self.xKey + ", yKey=" + self.yKey)
