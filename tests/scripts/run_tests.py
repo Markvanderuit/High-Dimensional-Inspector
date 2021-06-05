@@ -6,7 +6,7 @@ dataPath = Path("C:/Surfdrive/Documents/hdi/tests/data")
 resPath = Path("C:/Surfdrive/Documents/hdi/tests/results")
 snePath = Path.home() / "Documents/Builds/hdi/applications/release/tsne_cmd.exe"
 evalPath = Path.home() / "Documents/Builds/hdi/applications/release/evaluation_cmd.exe"
-cuPath = Path("C:/Drive/Documents/Tu Delft/T-SNE/CUDA/build/applications/release/tsne_cmd.exe")
+cuPath = Path.home() / "Documents/Builds/cuda_tsne/applications/release/tsne_cmd.exe"
 
 # Configure test run
 baseSneConf = conf.sneConfig(snePath, dataPath, resPath)
