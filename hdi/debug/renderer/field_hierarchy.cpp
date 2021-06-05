@@ -207,8 +207,8 @@ namespace hdi::dbg {
       return;
     }
     
+#ifdef INSERT_IMGUI
     ImGui::Begin("FieldHier Rendering");
-
     ImGui::Text("Tree bounding boxes");
     ImGui::Checkbox("Draw##1", &_drawCube);
     if (_drawCube) {
@@ -232,8 +232,7 @@ namespace hdi::dbg {
       }
     }
     ImGui::End();
-
-    glAssert("dbg::field_hierarchy::render::ehhh()");
+#endif // INSERT_IMGUI
 
     if (_drawCube && _drawFlags) {
       uint head = 0;
@@ -292,6 +291,7 @@ namespace hdi::dbg {
       glAssert("dbg::field_hierarchy::render::quads()");
     } // drawCube
     
+#ifdef INSERT_IMGUI
     if constexpr (D == 3) {
       ImGui::Begin("FieldHier Slice");
       ImGui::Checkbox("Draw", &_drawField);
@@ -344,6 +344,7 @@ namespace hdi::dbg {
       } // drawField
       ImGui::End();
     }
+#endif // INSERT_IMGUI
   }
 
   // Explicit template instantiations for 2 and 3 dimensions

@@ -69,8 +69,8 @@ constexpr uint windowFlags =
                            hdi::dbg::WindowInfo::bSRGB |
                            hdi::dbg::WindowInfo::bFocused |
                            hdi::dbg::WindowInfo::bResizable;
-constexpr uint windowWidth = 2048u;
-constexpr uint windowHeight = 2048u;
+constexpr uint windowWidth = 1024u;
+constexpr uint windowHeight = 1024u;
 constexpr const char *windowTitle = "tSNE";
 
 void parseCli(hdi::utils::AbstractLog *logger, int argc, char* argv[]) {
@@ -203,6 +203,13 @@ int main(int argc, char *argv[]) {
 
     if (doVisualisation) {
       window.display();
+
+      // Inserted for video recordings
+      std::cout << "Press any key to perform minimization" << std::endl;
+      window.processEvents();
+      renderManager.render();
+      window.display();
+      std::getchar();
     }
 
     // Perform tSNE minimization

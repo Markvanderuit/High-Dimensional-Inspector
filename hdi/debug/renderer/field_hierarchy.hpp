@@ -74,8 +74,8 @@ namespace hdi::dbg {
     const dr::FieldHierarchy<D> *_hierarchy;
     
     // ImGui default settings
-    bool _drawCube = false;
-    bool _drawLvl = true;
+    bool _drawCube = true;
+    bool _drawLvl = false;
     bool _drawFlags = false;
     bool _doSum = false;
     bool _drawField = false;
@@ -85,7 +85,7 @@ namespace hdi::dbg {
     float _fieldDepth = 0.5f;
     ImVec2 _fieldDims = ImVec2(0, 0);
     ImVec2 _outputDims = ImVec2(0, 0);
-    float _cubeLineWidth = 1.f;
-    float _cubeOpacity = 1.0f;
+    float _cubeLineWidth = 2.f;
+    float _cubeOpacity = 0.0f;
   };
 }

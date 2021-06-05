@@ -1,6 +1,11 @@
 from .cu_permutation import CuPermutation
 
 class CuConfig:
+  snePath = ""
+  evalPath = ""
+  dataPath = ""
+  resPath = ""
+
   # Output config
   doNNP = False
   doKLD = False
@@ -21,6 +26,12 @@ class CuConfig:
   # Result config (for LaTeX/Pgfplots output)
   xKey = "n"         # Test key, should match a config parameter name
   yKey = "minTime"       # Output key, should match a output data key name
+
+  def __init__(self, sne, eval, data, res):
+    self.snePath = sne
+    self.evalPath = eval
+    self.dataPath = data
+    self.resPath = res
 
   def run(self, snePath, evalPath):
     for perm in self.permute():

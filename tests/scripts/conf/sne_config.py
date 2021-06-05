@@ -1,6 +1,10 @@
 from .sne_permutation import SnePermutation
 
 class SneConfig:
+  snePath = ""
+  dataPath = ""
+  resPath = ""
+
   # Output config
   doVis = False
   doNNP = False
@@ -27,9 +31,14 @@ class SneConfig:
   xKey = "n"         # Test key, should match a config parameter name
   yKey = "minTime"       # Output key, should match a output data key name
 
-  def run(self, snePath):
+  def __init__(self, sne, data, res):
+    self.snePath = sne
+    self.dataPath = data
+    self.resPath = res
+
+  def run(self):
     for perm in self.permute():
-      perm.run(self, snePath)
+      perm.run(self)
 
   def result(self):
     print("Result: xKey=" + self.xKey + ", yKey=" + self.yKey)

@@ -9,6 +9,7 @@ evalPath = Path("../../build/applications/release/evaluation_cmd.exe")
 
 # Configure test run
 baseSneConf = conf.sneConfig()
+
 baseSneConf.doKLD = True
 baseSneConf.doVis = False
 baseSneConf.doLbl = True
@@ -21,64 +22,65 @@ baseSneConf.perp = [50]
 baseSneConf.theta = [0.5]
 
 # Varying parameter values we test for
-theta2 = linspace(0.1, 1.05, 19, False)     # 0.1 to 1.0 in 0.05 increments
-scaling = linspace(0.5, 2.625, 17, False)   # 0.5 to 2.5 in 0.125 increments
+theta2 = linspace(0.15, 1.05, 18, False)     # 0.1 to 1.0 in 0.05 increments
+# scaling = linspace(0.5, 2.625, 17, False)   # 0.5 to 2.5 in 0.125 increments
+scaling = linspace(0.5, 2.5625, 33, False)   # 0.5 to 2.5 in 0.125 increments
 
-# # First test: vary theta2 from 0.1 to 1 given 2d and fieldScaling = 2.0
+# # First test: vary theta2 given 2d and fieldScaling = 2.0
 # sne = baseSneConf
 # sne.prefix = "parameter_tests/test0/"
 # sne.ld = [2]
 # sne.scaling = [2.0]
 # sne.theta2 = theta2
-# # sne.run(snePath)
-
-# # Gather results for pgfplots
-# print(sne.prefix)
-# sne.xKey = "theta2"
-# sne.yKey = "minTime"
-# sne.result()
-# sne.yKey = "kld"
-# sne.result()
-
-# # Second test: vary theta2 from 0.1 to 1 given 3d and fieldScaling = 1.4
-# sne = baseSneConf
-# sne.prefix = "parameter_tests/test1/"
-# sne.ld = [3]
-# sne.scaling = [1.4]
-# sne.theta2 = theta2
-# # sne.run(snePath)
-
-# # Gather results for pgfplots
-# print(sne.prefix)
-# sne.xKey = "theta2"
-# sne.yKey = "minTime"
-# sne.result()
-# sne.yKey = "kld"
-# sne.result()
-
-# Third test: vary scaling from 0.5 to 2.5 given 2d and theta2 = 0.35
-sne = baseSneConf
-sne.prefix = "parameter_tests/test2/"
-sne.ld = [2]
-sne.scaling = scaling
-sne.theta2 = [0.3]
 # sne.run(snePath)
+
+# # Gather results for pgfplots
+# print(sne.prefix)
+# sne.xKey = "theta2"
+# sne.yKey = "minTime"
+# sne.result()
+# sne.yKey = "kld"
+# sne.result()
+
+# Second test: vary theta2 given 3d and fieldScaling = 1.4
+sne = baseSneConf
+sne.prefix = "parameter_tests/test1/"
+sne.ld = [3]
+sne.scaling = [1.5]
+sne.theta2 = theta2
+sne.run(snePath)
 
 # Gather results for pgfplots
 print(sne.prefix)
-sne.xKey = "scaling"
+sne.xKey = "theta2"
 sne.yKey = "minTime"
 sne.result()
 sne.yKey = "kld"
 sne.result()
+
+# # Third test: vary scaling given 2d and theta2 = 0.35
+# sne = baseSneConf
+# sne.prefix = "parameter_tests/test2/"
+# sne.ld = [2]
+# sne.scaling = scaling
+# sne.theta2 = [0.4]
+# sne.run(snePath)
+
+# # Gather results for pgfplots
+# print(sne.prefix)
+# sne.xKey = "scaling"
+# sne.yKey = "minTime"
+# sne.result()
+# sne.yKey = "kld"
+# sne.result()
 
 # Fourth test: vary scaling from 0.5 to 2.5 given 3d and theta2 = 0.35
 sne = baseSneConf
 sne.prefix = "parameter_tests/test3/"
 sne.ld = [3]
 sne.scaling = scaling
-sne.theta2 = [0.3]
-# sne.run(snePath)
+sne.theta2 = [0.4]
+sne.run(snePath)
 
 # Gather results for pgfplots
 print(sne.prefix)

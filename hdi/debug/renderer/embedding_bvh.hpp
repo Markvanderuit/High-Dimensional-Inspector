@@ -70,7 +70,7 @@ namespace hdi::dbg {
     bool _drawLvl = false;
     bool _drawFlags = false;
     uint _bvhLvl = 1;
-    float _cubeLineWidth = 1.f;
+    float _cubeLineWidth = 2.f;
     float _cubeOpacity = 1.0f;
   };
 }

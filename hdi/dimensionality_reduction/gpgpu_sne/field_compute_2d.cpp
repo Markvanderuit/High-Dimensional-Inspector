@@ -42,8 +42,10 @@ namespace hdi::dr {
   // Magic numbers
   constexpr float pointSize = 3.f;                          // Point size for stencil. Only used if emb. hierarchy is not used
   constexpr uint bvhRebuildIters = 4;                       // Max nr. of iterations embedding hierarchy is simply refitted
-  constexpr uint pairsInputBufferSize = 1024 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
-  constexpr uint pairsLeafBufferSize = 1024 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
+  constexpr uint inputBufferMinSize = 256 * 1024 * 1024;      // Minimum pair queue size in Mb. There are two such queues.
+  constexpr uint leafBufferMinSize = 128 * 1024 * 1024;        // Minimum leaf queue size in Mb. There is one such queue.
+  // constexpr uint pairsInputBufferSize = 256 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
+  // constexpr uint pairsLeafBufferSize = 256 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
   constexpr uint pairsDbgBufferSize = 64 * 1024 * 1024;     // Initial dbg queue size in Mb. There is one such queue.
   constexpr AlignedVec<2, unsigned> fieldBvhDims(256);      // Initial fieldBvh dims. Expansion isn't cheap.
   constexpr uint fieldHierarchyStartLvl = 3;                // Start level for dual traversal of embedding hierarcy
@@ -171,7 +173,7 @@ namespace hdi::dr {
     glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTextureParameteri(_textures(TextureType::eField), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
+    
     // Initialize hierarchy over embedding if any hierarchy is used
     if (_useEmbeddingBvh || _useFieldBvh) {
       _embeddingBvh.setLogger(_logger);
@@ -185,13 +187,23 @@ namespace hdi::dr {
       _fieldHier.setLogger(_logger);
       _fieldHier.init(params, FieldHierarchy<2>::Layout(fieldBvhDims), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
 
+      // Linearly grow buffers in powers of two for finer approximation
+      const uint iBufferSize = static_cast<uint>(std::pow(2, std::ceil(std::log2((
+        std::pow(8, 2.f * std::max(0.0, 0.5 - _params.dualHierarchyTheta))
+      ))))) * inputBufferMinSize;
+      // const uint iBufferSize = inputBufferMinSize;
+      const uint lBufferSize = static_cast<uint>(std::pow(2, std::ceil(std::log2((
+        std::pow(8, 2.f * std::max(0.0, 0.5 - _params.dualHierarchyTheta))
+      ))))) * leafBufferMinSize;
+      // const uint lBufferSize = leafBufferMinSize;
+
       // Glorp all the VRAM. Hey look, it's the downside of a dual hierarchy traversal
       constexpr uint initSize = initPairs.size() * sizeof(glm::uvec2);
-      glNamedBufferStorage(_buffers(BufferType::ePairsInput), pairsInputBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsOutput), pairsInputBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsRest), pairsInputBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsLeaf), pairsLeafBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsInit), initSize, initPairs.data(), 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsInput), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsOutput), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsRest), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsLeaf), lBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsInit), initPairs.size() * sizeof(glm::uvec2), initPairs.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsOutputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsRestHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
@@ -355,6 +367,7 @@ namespace hdi::dr {
     }
 
     glPollTimers(_timers.size(), _timers.data());
+    
 #ifdef LOG_FIELD
     if (iteration % LOG_FIELD_ITER == 0) {
       // Output nice message during runtime
@@ -633,17 +646,18 @@ namespace hdi::dr {
           state = TraversalState::eSingleSubdivide;
         }
 
-        // Select input, output queues for current iteration
+        /* // Select input, output queues for current iteration
         GLuint inputHead = (state == TraversalState::ePushRest) 
                          ? _buffers(BufferType::ePairsRestHead): _buffers(BufferType::ePairsInputHead);
         GLuint inputBuffer = (state == TraversalState::ePushRest) 
                            ? _buffers(BufferType::ePairsRest) : _buffers(BufferType::ePairsInput);
         GLuint outputHead = _buffers(BufferType::ePairsOutputHead);
-        GLuint outputBuffer = _buffers(BufferType::ePairsOutput);
+        GLuint outputBuffer = _buffers(BufferType::ePairsOutput); */
 
         // Reset output queue head
         if (state != TraversalState::ePushRest) {
-          glClearNamedBufferSubData(outputHead,  GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+          glClearNamedBufferSubData(_buffers(BufferType::ePairsOutputHead),  GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+          // glClearNamedBufferSubData(outputHead,  GL_R32UI, 0, sizeof(uint), GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
         }
         
         // Divide inputHead buffer by workgroupsize

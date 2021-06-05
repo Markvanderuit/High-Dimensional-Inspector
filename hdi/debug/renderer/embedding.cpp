@@ -134,6 +134,7 @@ namespace hdi::dbg {
       return;
     }
 
+#ifdef INSERT_IMGUI
     ImGui::Begin("Embedding Rendering");
     ImGui::Checkbox("Draw", &_draw);
     if (_draw) {
@@ -151,6 +152,7 @@ namespace hdi::dbg {
       }
     }
     ImGui::End();
+#endif // INSERT_IMGUI
 
     if (_draw) {
       // Set program uniforms

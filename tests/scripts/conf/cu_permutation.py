@@ -55,11 +55,11 @@ class CuPermutation:
       args = [
         str(evalPath),
         str(dataPath),
-      str(resultPath / "embedding.bin"),
+        str(resultPath / "embedding.bin"),
         str(self.n),
         str(self.hd),
-        "-p", str(self.perp),
         "2",
+        "-p", str(self.perp),
         "--lbl" if config.doLbl else "",
         "--txt", str(resultPath / "values.temp"),
         "--kld",    

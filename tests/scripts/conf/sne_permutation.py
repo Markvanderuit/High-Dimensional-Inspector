@@ -33,9 +33,9 @@ class SnePermutation:
       + ", t2=" + str(self.theta2) + ", s=" + str(self.scaling)
     return argstr
 
-  def run(self, config, snePath):
-    dataPath = Path("../data") / self.dataset / "data.bin"
-    resultPath = Path("../results") / self.dataset / self.genArgStr(config)
+  def run(self, config):
+    dataPath = config.dataPath / self.dataset / "data.bin"
+    resultPath = config.resultsPath / self.dataset / self.genArgStr(config)
 
     # Ensure results directory exists
     if not os.path.exists(resultPath):
@@ -45,7 +45,7 @@ class SnePermutation:
     f = open(str(resultPath / "log.txt"), 'w')
 
     args = [
-      str(snePath),
+      str(config.snePath),
       str(dataPath),
       str(resultPath / "embedding.bin"),
       str(self.n),
@@ -56,18 +56,20 @@ class SnePermutation:
       "-t", str(self.theta),
       "-a", str(self.theta2),
       "-s", str(self.scaling),
+      "--txt", str(resultPath / "values.txt"),
       "--vis" if config.doVis else "",
       "--lbl" if config.doLbl else "",
       "--kld" if config.doKLD else "",
       "--nnp" if config.doNNP else "",
-      "--txt", str(resultPath / "values.txt") 
+        str(resultPath / "nnp.txt") if config.doNNP else ""
     ]
     subprocess.run(args, stdout=f) if config.doLog else subprocess.run(args)
 
   def result(self, config):
-    resultPath = Path("../results") / self.dataset / self.genArgStr(config)
+    resultPath = config.resultsPath / self.dataset / self.genArgStr(config)
     
     # Open file
+    # print(resultPath)
     f = open(resultPath / "values.txt", "r")
     
     # Parse stored values

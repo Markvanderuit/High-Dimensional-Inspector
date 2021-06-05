@@ -257,6 +257,7 @@ namespace hdi::dbg {
       return;
     }
     
+#ifdef INSERT_IMGUI
     ImGui::Begin("EmbeddingBVH Rendering");
     ImGui::Text("Tree bounding boxes");
     ImGui::Checkbox("Draw##1", &_drawCube);
@@ -275,6 +276,7 @@ namespace hdi::dbg {
       }
     }
     ImGui::End();
+#endif // INSERT_IMGUI
 
     if (_drawCube && _drawFlags) {
       uint head = 0;

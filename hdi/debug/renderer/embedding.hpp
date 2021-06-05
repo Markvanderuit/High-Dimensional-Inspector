@@ -55,8 +55,8 @@ namespace hdi::dbg {
     // ImGui default settings
     bool _draw = true;
     bool _drawLabels = true;
-    bool _drawGaussian = true;
-    float _quadSize = 0.006f;
-    float _pointOpacity = 1.f;
+    bool _drawGaussian = false;
+    float _quadSize = 0.002f;
+    float _pointOpacity = 1.0f;
   };
 }

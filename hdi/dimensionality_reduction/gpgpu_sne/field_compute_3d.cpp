@@ -43,13 +43,13 @@
 
 namespace hdi::dr {
   // Magic numbers
-  constexpr float pointSize = 3.f;                          // Point size in voxel grid
-  constexpr uint bvhRebuildIters = 5;                       // Nr. of iterations where the embedding hierarchy is refitted
-  constexpr uint pairsInputBufferSize = 2048 * 1024 * 1024;  // Initial pair queue size in Mb. There are two such queues.
-  constexpr uint pairsLeafBufferSize = 2048 * 1024 * 1024;    // Initial leaf queue size in Mb. There is one such queue.
-  constexpr AlignedVec<3, unsigned> fieldBvhDims(128);      // Initial fieldBvh dims. Expansion isn't cheap.
-  constexpr uint fieldHierarchyStartLvl = 2;
-  constexpr uint embeddingHierarchyStartLvl = 2;
+  constexpr float pointSize = 3.f;                            // Point size in voxel grid
+  constexpr uint bvhRebuildIters = 4;                         // Nr. of iterations where the embedding hierarchy is refitted
+  constexpr uint inputBufferMinSize = 256 * 1024 * 1024;      // Minimum pair queue size in Mb. There are two such queues.
+  constexpr uint leafBufferMinSize = 128 * 1024 * 1024;        // Minimum leaf queue size in Mb. There is one such queue.
+  constexpr AlignedVec<3, unsigned> fieldBvhDims(128);        // Initial fieldBvh dims. Expansion isn't cheap.
+  constexpr uint fieldHierarchyStartLvl = 2;                  
+  constexpr uint embeddingHierarchyStartLvl = 2;              
 
   // Incrementing bit flags for fast voxel grid computation
   constexpr auto cellData = []() {  
@@ -200,17 +200,28 @@ namespace hdi::dr {
       _fieldHier.init(params, FieldHierarchy<3>::Layout(fieldBvhDims), _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead));
       _fieldHierRenderer.init(_fieldHier, boundsBuffer);
 
+      // Linearly grow buffers in powers of two for finer approximation
+      const uint iBufferSize = static_cast<uint>(std::pow(2, std::ceil(std::log2((
+        std::pow(8, 2.f * std::max(0.0, 0.5 - _params.dualHierarchyTheta))
+      ))))) * inputBufferMinSize;
+      // const uint iBufferSize = 2048 * 1024 * 1024;
+      const uint lBufferSize = static_cast<uint>(std::pow(2, std::ceil(std::log2((
+        std::pow(8, 2.f * std::max(0.0, 0.5 - _params.dualHierarchyTheta))
+      ))))) * leafBufferMinSize;
+      // const uint lBufferSize = 1024 * 1024 * 1024;
+
       // Glorp all the VRAM. Hey look, it's the downside of a dual hierarchy traversal
-      glNamedBufferStorage(_buffers(BufferType::ePairsInput), pairsInputBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsOutput), pairsInputBufferSize, nullptr, 0);
-      // glNamedBufferStorage(_buffers(BufferType::ePairsRest), pairsInputBufferSize, nullptr, 0);
-      glNamedBufferStorage(_buffers(BufferType::ePairsLeaf), pairsLeafBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsInput), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsOutput), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsRest), iBufferSize, nullptr, 0);
+      glNamedBufferStorage(_buffers(BufferType::ePairsLeaf), lBufferSize, nullptr, 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInit), initPairs.size() * sizeof(glm::uvec2), initPairs.data(), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsOutputHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsRestHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsLeafHead), sizeof(glm::uvec4), glm::value_ptr(glm::uvec4(1)), 0);
       glNamedBufferStorage(_buffers(BufferType::ePairsInitHead), sizeof(glm::uvec3), glm::value_ptr(glm::uvec3(initPairs.size(), 1, 1)), 0);
+      glFinish();
 
       utils::secureLogValue(_logger, "   Field3dCompute", std::to_string(bufferSize(_buffers) / 1'000'000) + "mb");
     }
@@ -303,9 +314,9 @@ namespace hdi::dr {
     }
 
     // Generate list of pixels in the field that require computation
-    if (!_useEmbeddingBvh || _bvhRebuildIters == 0) {
+    // if (!_useEmbeddingBvh || _bvhRebuildIters == 0) {
       compactField(n, positionBuffer, boundsBuffer);
-    }
+    // }
 
     // Clear field texture
     glClearTexImage(_textures(TextureType::eField), 0, GL_RGBA, GL_FLOAT, nullptr);
@@ -320,7 +331,8 @@ namespace hdi::dr {
       && static_cast<int>(_embeddingBvh.layout().nLvls) -
          static_cast<int>(fieldHierLayout.nLvls) < DUAL_BVH_LVL_DIFFERENCE; // Trees within certain depth of each other  
     if (fieldBvhActive) {
-      _fieldHier.compute(_bvhRebuildIters == 0, fieldHierLayout, _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
+      _fieldHier.compute(true, fieldHierLayout, _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
+      // _fieldHier.compute(_bvhRebuildIters == 0, fieldHierLayout, _buffers(BufferType::ePixels), _buffers(BufferType::ePixelsHead), boundsBuffer);
       // Re-init fieldHier renderer if it is used
       if (_fieldHier.didResize()) {
         _fieldHierRenderer.destr();
@@ -626,16 +638,16 @@ namespace hdi::dr {
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, _buffers(BufferType::ePairsLeaf));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, _buffers(BufferType::ePairsLeafHead));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, boundsBuffer);
-      // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, _buffers(BufferType::ePairsRest));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, _buffers(BufferType::ePairsRest));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, _buffers(BufferType::ePairsRestHead));
 
       // Process pair queues until empty.
       const uint minLvl = std::min(fLayout.nLvls, eLayout.nLvls);
       const uint maxLvl = std::max(fLayout.nLvls, eLayout.nLvls);
       const uint progrIter = minLvl - 2;
-     /*  const uint progrIter = minLvl 
-        - std::abs((int) fLayout.nLvls - (int) eLayout.nLvls) 
-        - (minLvl == maxLvl ? 2 : 1); */
+      /* const uint progrIter = minLvl
+          - std::abs((int) fLayout.nLvls - (int) eLayout.nLvls) 
+          - (minLvl == maxLvl ? 2 : 1); */
       const uint nIters = ceilDiv(maxLvl + minLvl, 2u) + 1u;
 
       /* std::cout << "dual (fLvls " << fLayout.nLvls << " eLvls " << eLayout.nLvls << ")" << '\n'; */
@@ -678,6 +690,7 @@ namespace hdi::dr {
           if (state == TraversalState::eDualSubdivide || state == TraversalState::eLastDualSubdivide) {
             dtProgram.bind();
             dtProgram.uniform1ui("dhLvl", iter + 1);
+            dtProgram.uniform1ui("divideFurther", true);
           } else {
             dfProgram.bind();
           }
@@ -691,8 +704,8 @@ namespace hdi::dr {
           glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
 
-        // Debug output
-        /* {
+        /* // Debug output
+        {
           uint input, output, leaf, rest;
           glGetNamedBufferSubData(inputHead, 0, sizeof(uint), &input);
           glGetNamedBufferSubData(outputHead, 0, sizeof(uint), &output);
@@ -700,6 +713,30 @@ namespace hdi::dr {
           glGetNamedBufferSubData(_buffers(BufferType::ePairsRestHead), 0, sizeof(uint), &rest);
           std::cout << '\t' << iter << " " << state << '\t' 
                     << input << " -> " << output << "\t(l " << leaf << ")\t(r " << rest << ")\n";
+        } */
+
+        /* {
+          uint input, output, leaf, rest;
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsInputHead), 0, sizeof(uint), &input);
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsOutputHead), 0, sizeof(uint), &output);
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsLeafHead), 0, sizeof(uint), &leaf);
+          glGetNamedBufferSubData(_buffers(BufferType::ePairsRestHead), 0, sizeof(uint), &rest);
+          
+          uint iorCeil = (2048 * 1024 * 1024) / 8;
+          uint lCeil = (1024 * 1024 * 1024) / 8;
+          if (input >= iorCeil || output >= iorCeil) {
+            std::cerr << "i/o range\n"
+                      << "\ti " << (100.f * ((float) input / (float) iorCeil)) << '\n'
+                      << "\to " << (100.f * ((float) output  / (float) iorCeil)) << '\n';
+          }
+          if (rest >= iorCeil) {
+            std::cerr << "r range\n"
+                      << "\tr " << (100.f * ((float) rest / (float) iorCeil)) << '\n';
+          }
+          if (leaf >= lCeil) {
+            std::cerr << "l range\n"
+                      << "\tl " << (100.f * ((float) leaf / (float) lCeil)) << '\n';
+          }
         } */
 
         // Swap input and output queues
@@ -769,13 +806,14 @@ namespace hdi::dr {
       // Bind buffers
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _buffers(BufferType::ePixels));
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fBuffers.field);
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, boundsBuffer);
 
       // Bind output image
       glBindImageTexture(0, _textures(TextureType::eField), 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
       // Dispatch shader
       glDispatchCompute(ceilDiv(fLayout.nPixels, 256u), 1, 1);
-      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
 
       glAssert("Field3dCompute::compute::push()");
       timer.tock();
@@ -830,6 +868,8 @@ namespace hdi::dr {
     const double pushTime = _timers(TimerType::ePush)
       .get<GLtimer::ValueType::eLast, GLtimer::TimeScale::eMicros>();
     const double time = fieldBvhActive ? (fieldTime + leafTime + pushTime) : fieldTime;
+    const uint eLvls = _embeddingBvh.layout().nLvls;
+    const uint fLvls = _fieldHier.layout().nLvls;
 
     // Log method name, iteration, nr. of pixels flagged, and total field computation time.
     utils::secureLogValue(_logger,
@@ -851,6 +891,10 @@ namespace hdi::dr {
       utils::secureLogValue(_logger, "    Push", 
         std::to_string(pushTime)
         + std::string(" \xE6s"));
+      utils::secureLogValue(_logger, "    eLvls",
+        std::to_string(eLvls));
+      utils::secureLogValue(_logger, "    fLvls",
+        std::to_string(fLvls));
     }
   }
 

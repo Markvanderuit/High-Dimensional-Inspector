@@ -47,8 +47,10 @@
 /**
  * Debug component parameters
  * - insert dh debug: inserts deadly expensive dual hierarchy debugging code for visualization
+ * - insert imgui: inserts imgui window controls into the renderers
  */
 // #define INSERT_DH_DEBUG
+// #define INSERT_IMGUI
 
 /**
  * Gradient descent parameters. We use two collections of values. The former (from HDI) provides

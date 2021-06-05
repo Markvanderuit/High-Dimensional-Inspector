@@ -74,6 +74,7 @@ GLSL(field_bvh_dual_src, 450,
   layout(location = 1) uniform uint eLvls;    // Total nr. of levels in embedding hierarchy
   layout(location = 2) uniform uint fLvls;    // Total nr. of levels in field hierarchy
   layout(location = 3) uniform float theta2;  // Squared approximation param. for Barnes-Hut
+  layout(location = 4) uniform bool divideFurther;
 
   // Shared memory
   shared Bounds bounds;
@@ -182,7 +183,7 @@ GLSL(field_bvh_dual_src, 450,
       } else if (!eIsLeaf && !fIsLeaf) {
         // Push pair on work queue for further subdivision
         oQueueBuffer[atomicAdd(oQueueHead, 1)] = Pair(pair.f, rot_e);
-      /* } else if (!eIsLeaf || !fIsLeaf) {
+      /* } else if ((!eIsLeaf || !fIsLeaf) && divideFurther) {
         // Push pair on secondary work queue for further subdivision
         rQueueBuffer[atomicAdd(rQueueHead, 1)] = Pair(pair.f, rot_e); */
       } else if (eNode0.w > DUAL_BVH_LARGE_LEAF) {
@@ -511,8 +512,8 @@ GLSL(field_bvh_dual_leaf_src, 450,
     // Directly compute forces for this node pair using group of threads
     vec4 field = vec4(0);
     for (uint i = eBegin; i < eEnd; i += nThreads) {
-      vec3 t = fpos - ePosBuffer[i];
-      float tStud = 1.f / (1.f +  dot(t, t));
+      const vec3 t = fpos - ePosBuffer[i];
+      const float tStud = 1.f / (1.f +  dot(t, t));
       field += vec4(tStud, t * (tStud * tStud));
     }
     field = subgroupClusteredAdd(field, nThreads);
@@ -540,6 +541,10 @@ GLSL(push_src, 450,
   // Image bindings
   layout(binding = 0, rgba32f) restrict writeonly uniform image3D fieldImage;
 
+  // Constants
+  const uint offset = 0x24924924u >> (32u - BVH_LOGK_3D * (fLvls - 1));
+  const uint stop = 0x24924924u >> (32u - BVH_LOGK_3D * (startLvl));
+
   uint expandBits10(uint i) {
     i = (i | (i << 16u)) & 0x030000FF;
     i = (i | (i <<  8u)) & 0x0300F00F;
@@ -565,19 +570,12 @@ GLSL(push_src, 450,
     // Read pixel's position
     const uvec3 px = pixelsBuffer[i];
 
-    // Determine address based on pixel position
-    // Determine start address based on pixel position
-    const uint addr = (0x24924924u >> (32u - BVH_LOGK_3D * (fLvls - 1))) 
-                    + encode(px);
-                    
-    // Determine stop address based on topmost used hierarchy level
-    const uint stop = (0x24924924u >> (32u - BVH_LOGK_3D * (startLvl - 1)))
-                    + (1u << (BVH_LOGK_3D * (startLvl - 1)));
-
     // Push forces down by ascending up tree to root
     // ignore root, it will never approximate
     vec4 field = vec4(0);
-    for (uint k = addr; k >= stop; k = (k - 1) >> BVH_LOGK_3D) {
+    for (uint k = offset + encode(px);
+         k >= stop;
+         k = (k - 1) >> BVH_LOGK_3D) {
       field += fieldBuffer[k];
     }
 

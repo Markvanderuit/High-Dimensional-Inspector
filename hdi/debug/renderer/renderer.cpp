@@ -161,7 +161,8 @@ namespace hdi::dbg {
 
     // Specify and clear framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, _framebuffer);
-    constexpr std::array<float, 4> clearColor = { 1.0f, 1.0f, 1.0f, 0.f };
+    constexpr std::array<float, 4> clearColor = { 0.f, 0.f, 0.f, 0.f };
+    // constexpr std::array<float, 4> clearColor = { 1.0f, 1.0f, 1.0f, 0.f };
     constexpr float clearDepth = 1.f;
     glClearNamedFramebufferfv(_framebuffer, GL_COLOR, 0, clearColor.data());
     glClearNamedFramebufferfv(_framebuffer, GL_DEPTH, 0, &clearDepth);
